@@ -11,7 +11,7 @@ httpx==0.28.1
 idna==3.11
 iniconfig==2.3.0
 packaging==26.0
--e git+https://github.com/Hydra-Laboratories/PANDA_CORE.git@db86060b6765b4401350e7b7e112d1190a7b5787#egg=panda_core
+panda-core @ git+https://github.com/Hydra-Laboratories/PANDA_CORE.git@main
 pluggy==1.6.0
 pydantic==2.12.5
 pydantic-settings==2.13.0

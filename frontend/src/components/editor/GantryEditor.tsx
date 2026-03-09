@@ -13,11 +13,12 @@ interface Props {
 }
 
 const HOMING_STRATEGIES = ["standard", "xy_hard_limits"];
+const Y_AXIS_MOTION_OPTIONS = ["head", "bed"] as const;
 
 const EMPTY_GANTRY: GantryConfig = {
   serial_port: "",
-  cnc: { homing_strategy: "xy_hard_limits" },
-  working_volume: { x_min: -300, x_max: 0, y_min: -200, y_max: 0, z_min: -80, z_max: 0 },
+  cnc: { homing_strategy: "xy_hard_limits", y_axis_motion: "head" },
+  working_volume: { x_min: 0, x_max: 300, y_min: 0, y_max: 200, z_min: 0, z_max: 80 },
 };
 
 export default function GantryEditor({ configs, selectedFile, onSelectFile, gantry, onSave }: Props) {
@@ -50,7 +51,7 @@ export default function GantryEditor({ configs, selectedFile, onSelectFile, gant
               value={config.serial_port}
               onChange={(v) => setConfig({ ...config, serial_port: v })}
             />
-            <div style={{ marginTop: 8 }}>
+            <div style={{ marginTop: 8, display: "flex", gap: 16 }}>
               <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
                 <span style={{ color: "#666" }}>Homing strategy</span>
                 <select
@@ -59,6 +60,16 @@ export default function GantryEditor({ configs, selectedFile, onSelectFile, gant
                   style={selectStyle}
                 >
                   {HOMING_STRATEGIES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
+                <span style={{ color: "#666" }}>Y-axis motion</span>
+                <select
+                  value={config.cnc?.y_axis_motion ?? "head"}
+                  onChange={(v) => setConfig({ ...config, cnc: { ...config.cnc!, y_axis_motion: v.target.value as "head" | "bed" } })}
+                  style={selectStyle}
+                >
+                  {Y_AXIS_MOTION_OPTIONS.map((s) => <option key={s} value={s}>{s === "head" ? "Head moves" : "Bed moves"}</option>)}
                 </select>
               </label>
             </div>

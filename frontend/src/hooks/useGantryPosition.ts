@@ -6,7 +6,7 @@ export function useGantryPosition(enabled = true) {
   return useQuery({
     queryKey: ["gantry", "position"],
     queryFn: gantryApi.getPosition,
-    refetchInterval: enabled ? 500 : false,
+    refetchInterval: enabled ? 200 : false,
     enabled,
   });
 }

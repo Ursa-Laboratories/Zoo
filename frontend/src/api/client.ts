@@ -76,6 +76,15 @@ export const gantryApi = {
     request<import("../types").GantryPosition>("/gantry/home", {
       method: "POST",
     }),
+  moveTo: (x: number, y: number, z: number) =>
+    request<{ status: string }>("/gantry/move-to", {
+      method: "POST",
+      body: JSON.stringify({ x, y, z }),
+    }),
+  unlock: () =>
+    request<import("../types").GantryPosition>("/gantry/unlock", {
+      method: "POST",
+    }),
 };
 
 // Protocol

@@ -89,6 +89,7 @@ export interface WorkingVolume {
 
 export interface CncConfig {
   homing_strategy: string;
+  y_axis_motion?: "head" | "bed";
 }
 
 export interface GantryConfig {

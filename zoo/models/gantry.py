@@ -20,6 +20,7 @@ class WorkingVolume(BaseModel):
 class CncConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
     homing_strategy: str = "standard"
+    y_axis_motion: str = "head"
 
 
 class GantryConfig(BaseModel):

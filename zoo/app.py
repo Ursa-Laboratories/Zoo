@@ -1,5 +1,7 @@
 """FastAPI app factory."""
 
+import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -8,10 +10,24 @@ from fastapi.staticfiles import StaticFiles
 from zoo.routers import board, deck, gantry, protocol, raw, settings
 
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    # Shutdown: disconnect the gantry so the serial port is released cleanly
+    if gantry._gantry is not None:
+        logger.info("Shutting down — disconnecting gantry")
+        try:
+            gantry._gantry.disconnect()
+        except Exception as e:
+            logger.warning("Error disconnecting gantry on shutdown: %s", e)
+        gantry._gantry = None
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Zoo — PANDA_CORE Visualizer")
+    app = FastAPI(title="Zoo — PANDA_CORE Visualizer", lifespan=lifespan)
     app.include_router(deck.router)
     app.include_router(board.router)
     app.include_router(gantry.router)

@@ -111,12 +111,13 @@ export default function App() {
   }, [localDeck, deckQuery.data, previewWells]);
 
   const workingVolume: WorkingVolume | null = gantryQuery.data?.config.working_volume ?? null;
+  const yAxisMotion = gantryQuery.data?.config.cnc?.y_axis_motion ?? "head";
   const machineXRange: [number, number] = workingVolume
     ? [workingVolume.x_min, workingVolume.x_max]
-    : [-300, 0];
+    : [0, 300];
   const machineYRange: [number, number] = workingVolume
     ? [workingVolume.y_min, workingVolume.y_max]
-    : [-200, 0];
+    : [0, 200];
 
   const refreshAll = () => {
     qc.invalidateQueries({ queryKey: ["deck"] });
@@ -262,6 +263,7 @@ export default function App() {
         gantryPosition={gantryPosition.data ?? null}
         machineXRange={machineXRange}
         machineYRange={machineYRange}
+        yAxisMotion={yAxisMotion}
       />
     </div>
   );
@@ -270,6 +272,7 @@ export default function App() {
     <GantryPositionWidget
       position={gantryPosition.data ?? null}
       workingVolume={workingVolume}
+      configSelected={!!gantryFile}
     />
   );
 

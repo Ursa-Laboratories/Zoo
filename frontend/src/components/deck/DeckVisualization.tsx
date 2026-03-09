@@ -12,6 +12,7 @@ interface Props {
   gantryPosition: GantryPosition | null;
   machineXRange?: [number, number];
   machineYRange?: [number, number];
+  yAxisMotion?: "head" | "bed";
 }
 
 const SVG_W = 600;
@@ -36,13 +37,13 @@ function CoordinateGrid({
 
   const lines: React.ReactElement[] = [];
   for (let v = 0; v <= xSpan; v += step) {
-    const x = SVG_PADDING + drawW - (v / xSpan) * drawW;
+    const x = SVG_PADDING + (v / xSpan) * drawW;
     lines.push(
       <line key={`vx${v}`} x1={x} y1={SVG_PADDING} x2={x} y2={SVG_PADDING + drawH} stroke="#e0e0e0" strokeWidth={0.5} />
     );
     lines.push(
       <text key={`lx${v}`} x={x} y={SVG_PADDING + drawH + 14} fill="#999" fontSize={9} textAnchor="middle">
-        {-v}
+        {machineXRange[0] + v}
       </text>
     );
   }
@@ -53,7 +54,7 @@ function CoordinateGrid({
     );
     lines.push(
       <text key={`ly${v}`} x={SVG_PADDING - 4} y={y + 3} fill="#999" fontSize={9} textAnchor="end">
-        {-v}
+        {machineYRange[0] + v}
       </text>
     );
   }
@@ -65,9 +66,28 @@ export default function DeckVisualization({
   deck,
   board,
   gantryPosition,
-  machineXRange = [-300, 0],
-  machineYRange = [-200, 0],
+  machineXRange = [0, 300],
+  machineYRange = [0, 200],
+  yAxisMotion = "head",
 }: Props) {
+  const isBedMode = yAxisMotion === "bed";
+
+  // In bed mode, compute SVG pixel offset for the deck based on gantry Y.
+  // The bed moves opposite to the head: when gantry reports Y=50, the bed
+  // has shifted 50mm from its home, so we translate the deck group.
+  let deckTranslateY = 0;
+  if (isBedMode && gantryPosition?.connected) {
+    const gantryY = gantryPosition.work_y ?? gantryPosition.y ?? 0;
+    const drawH = SVG_H - 2 * SVG_PADDING;
+    const ySpan = machineYRange[1] - machineYRange[0];
+    deckTranslateY = (gantryY / ySpan) * drawH;
+  }
+
+  // In bed mode, the gantry marker only moves in X (Y is fixed at 0).
+  const markerPosition: GantryPosition | null = isBedMode && gantryPosition
+    ? { ...gantryPosition, work_y: 0, y: 0 }
+    : gantryPosition;
+
   return (
     <svg
       width={SVG_W}
@@ -82,35 +102,44 @@ export default function DeckVisualization({
         machineYRange={machineYRange}
       />
 
-      {deck?.labware.map((item) => {
-        if (item.config.type === "well_plate") {
-          return (
-            <WellPlateRenderer
-              key={item.key}
-              config={item.config}
-              wells={item.wells ?? {}}
-              svgWidth={SVG_W}
-              svgHeight={SVG_H}
-              machineXRange={machineXRange}
-              machineYRange={machineYRange}
-            />
-          );
-        }
-        if (item.config.type === "vial") {
-          return (
-            <VialRenderer
-              key={item.key}
-              label={item.key}
-              config={item.config}
-              svgWidth={SVG_W}
-              svgHeight={SVG_H}
-              machineXRange={machineXRange}
-              machineYRange={machineYRange}
-            />
-          );
-        }
-        return null;
-      })}
+      {isBedMode && (
+        <text x={SVG_W - SVG_PADDING} y={SVG_PADDING - 4} fill="#888" fontSize={9} textAnchor="end">
+          bed moves Y
+        </text>
+      )}
+
+      {/* Deck group — shifts in Y when in bed mode */}
+      <g transform={isBedMode ? `translate(0, ${deckTranslateY})` : undefined}>
+        {deck?.labware.map((item) => {
+          if (item.config.type === "well_plate") {
+            return (
+              <WellPlateRenderer
+                key={item.key}
+                config={item.config}
+                wells={item.wells ?? {}}
+                svgWidth={SVG_W}
+                svgHeight={SVG_H}
+                machineXRange={machineXRange}
+                machineYRange={machineYRange}
+              />
+            );
+          }
+          if (item.config.type === "vial") {
+            return (
+              <VialRenderer
+                key={item.key}
+                label={item.key}
+                config={item.config}
+                svgWidth={SVG_W}
+                svgHeight={SVG_H}
+                machineXRange={machineXRange}
+                machineYRange={machineYRange}
+              />
+            );
+          }
+          return null;
+        })}
+      </g>
 
       {board &&
         Object.entries(board.instruments).map(([key, inst]) => (
@@ -126,9 +155,9 @@ export default function DeckVisualization({
           />
         ))}
 
-      {gantryPosition && (
+      {markerPosition && (
         <GantryMarker
-          position={gantryPosition}
+          position={markerPosition}
           svgWidth={SVG_W}
           svgHeight={SVG_H}
           machineXRange={machineXRange}
