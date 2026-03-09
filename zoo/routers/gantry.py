@@ -76,12 +76,12 @@ def get_position() -> GantryPosition:
 
 @router.post("/home")
 def home() -> GantryPosition:
-    """Home the gantry using PANDA_CORE Gantry.home."""
+    """Home the gantry using XY hard limits strategy."""
     if _gantry is None:
         raise HTTPException(400, "Gantry not connected")
     with _serial_lock:
         try:
-            _gantry.home()
+            _gantry.home_xy()
         except Exception as e:
             raise HTTPException(500, f"Homing failed: {e}")
     return get_position()
