@@ -13,36 +13,54 @@ import { useDeckConfigs, useDeck, useSaveDeck } from "./hooks/useDeck";
 import { useBoardConfigs, useBoard, useSaveBoard, useInstrumentTypes, useInstrumentSchemas } from "./hooks/useBoard";
 import { useGantryPosition, useGantryConfigs, useGantry, useSaveGantry } from "./hooks/useGantryPosition";
 import { useProtocolCommands, useProtocolConfigs, useProtocol, useSaveProtocol, useValidateProtocol } from "./hooks/useProtocol";
-import type { DeckResponse, WellPosition, ProtocolValidationResponse, WorkingVolume } from "./types";
+import type { DeckResponse, GantryConfig, WellPosition, ProtocolValidationResponse, WorkingVolume } from "./types";
 
 export default function App() {
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState("Gantry");
+  const [experimentsDir, setExperimentsDir] = useState<string | null>(null);
   const [campaignId, setCampaignId] = useState("");
-  const [pandaCorePath, setPandaCorePath] = useState<string | null>(null);
   const [browseLoading, setBrowseLoading] = useState(false);
 
   const [deckFile, setDeckFile] = useState<string | null>(null);
   const [boardFile, setBoardFile] = useState<string | null>(null);
   const [gantryFile, setGantryFile] = useState<string | null>(null);
+  const [deckReady, setDeckReady] = useState(false);
+  const [boardReady, setBoardReady] = useState(false);
+  const [gantryReady, setGantryReady] = useState(false);
+  const [liveGantryConfig, setLiveGantryConfig] = useState<GantryConfig | null>(null);
   const [protocolFile, setProtocolFile] = useState<string | null>(null);
   const [validationResult, setValidationResult] = useState<ProtocolValidationResponse | null>(null);
   const [runResult, setRunResult] = useState<{ status: string; steps_executed: number } | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [isDryRunning, setIsDryRunning] = useState(false);
 
-  // Load current PANDA_CORE path on mount
+  // Load current settings on mount
   React.useEffect(() => {
-    settingsApi.get().then((s) => setPandaCorePath(s.panda_core_path)).catch(() => {});
+    settingsApi.get().then((s) => {
+      setExperimentsDir(s.experiments_dir);
+      if (s.campaign_id) setCampaignId(s.campaign_id);
+    }).catch(() => {});
   }, []);
+
+  // Sync settings to backend with debounce to avoid creating intermediate directories
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  React.useEffect(() => {
+    if (experimentsDir) {
+      clearTimeout(syncTimerRef.current);
+      syncTimerRef.current = setTimeout(() => {
+        settingsApi.update(experimentsDir, campaignId.trim()).then(() => refreshAll()).catch(() => {});
+      }, 600);
+    }
+    return () => clearTimeout(syncTimerRef.current);
+  }, [experimentsDir, campaignId]);
 
   const handleBrowse = async () => {
     setBrowseLoading(true);
     try {
       const result = await settingsApi.browse();
-      setPandaCorePath(result.panda_core_path);
-      await settingsApi.update(result.panda_core_path);
-      refreshAll();
+      setExperimentsDir(result.experiments_dir);
     } catch {
       // User cancelled the dialog
     }
@@ -62,7 +80,7 @@ export default function App() {
   const gantryConfigs = useGantryConfigs();
   const gantryQuery = useGantry(gantryFile);
   const saveGantry = useSaveGantry(gantryFile ?? "");
-  const gantryPosition = useGantryPosition(!isRunning);
+  const gantryPosition = useGantryPosition(true);
 
   const protocolCommands = useProtocolCommands();
   const protocolConfigs = useProtocolConfigs();
@@ -74,7 +92,7 @@ export default function App() {
   const [previewWells, setPreviewWells] = useState<Record<string, Record<string, WellPosition>>>({});
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // Compute well positions via PANDA_CORE when user edits a deck locally.
+  // Compute well positions via CubOS when user edits a deck locally.
   React.useEffect(() => {
     if (!localDeck) {
       setPreviewWells({});
@@ -110,8 +128,8 @@ export default function App() {
     };
   }, [localDeck, deckQuery.data, previewWells]);
 
-  const workingVolume: WorkingVolume | null = gantryQuery.data?.config.working_volume ?? null;
-  const yAxisMotion = gantryQuery.data?.config.cnc?.y_axis_motion ?? "head";
+  const workingVolume: WorkingVolume | null = liveGantryConfig?.working_volume ?? gantryQuery.data?.config.working_volume ?? null;
+  const yAxisMotion = liveGantryConfig?.cnc?.y_axis_motion ?? gantryQuery.data?.config.cnc?.y_axis_motion ?? "head";
   const machineXRange: [number, number] = workingVolume
     ? [workingVolume.x_min, workingVolume.x_max]
     : [0, 300];
@@ -127,23 +145,39 @@ export default function App() {
     setLocalDeck(null);
   };
 
-  const handleRunProtocol = async () => {
+  const handleRunProtocol = async (dryRun = false) => {
     if (!gantryFile || !deckFile || !boardFile || !protocolFile) return;
-    setIsRunning(true);
+    if (dryRun) setIsDryRunning(true); else setIsRunning(true);
     setRunResult(null);
     setRunError(null);
     try {
-      const result = await protocolApi.run({
+      await protocolApi.run({
         gantry_file: gantryFile,
         deck_file: deckFile,
         board_file: boardFile,
         protocol_file: protocolFile,
+        dry_run: dryRun,
       });
-      setRunResult(result);
+      // Poll for completion
+      const poll = async () => {
+        for (;;) {
+          await new Promise((r) => setTimeout(r, 500));
+          const s = await protocolApi.runStatus();
+          if (s.status === "done") {
+            setRunResult({ status: "ok", steps_executed: s.steps_executed ?? 0 });
+            break;
+          }
+          if (s.status === "error") {
+            setRunError(s.error ?? "Unknown error");
+            break;
+          }
+        }
+      };
+      await poll();
     } catch (err: unknown) {
       setRunError(err instanceof Error ? err.message : String(err));
     } finally {
-      setIsRunning(false);
+      if (dryRun) setIsDryRunning(false); else setIsRunning(false);
     }
   };
 
@@ -152,6 +186,23 @@ export default function App() {
       <div style={{ marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 18 }}>Zoo</h2>
         <p style={{ margin: "2px 0 0", fontSize: 12, color: "#888" }}>An online pen for managing Pandas</p>
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
+          <span style={{ color: "#666" }}>Experiments Directory</span>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <input
+              type="text"
+              value={experimentsDir ?? ""}
+              readOnly
+              placeholder="Not set"
+              style={{ ...campaignInputStyle, flex: 1, color: experimentsDir ? "#1a1a1a" : "#aaa" }}
+            />
+            <button onClick={handleBrowse} disabled={browseLoading} style={browseBtnStyle}>
+              {browseLoading ? "..." : "Browse"}
+            </button>
+          </div>
+        </label>
       </div>
       <div style={{ marginBottom: 12 }}>
         <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
@@ -164,39 +215,27 @@ export default function App() {
             style={campaignInputStyle}
           />
         </label>
-      </div>
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
-          <span style={{ color: "#666" }}>PANDA_CORE Path</span>
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <input
-              type="text"
-              value={pandaCorePath ?? ""}
-              readOnly
-              placeholder="Not set"
-              style={{ ...campaignInputStyle, flex: 1, color: pandaCorePath ? "#1a1a1a" : "#aaa" }}
-            />
-            <button onClick={handleBrowse} disabled={browseLoading} style={browseBtnStyle}>
-              {browseLoading ? "..." : "Browse"}
-            </button>
+        {experimentsDir && campaignId.trim() && (
+          <div style={{ fontSize: 10, color: "#999", marginTop: 4 }}>
+            Configs: {experimentsDir}/{campaignId.trim()}/
           </div>
-        </label>
+        )}
       </div>
       <EditorTabs
           activeTab={activeTab}
           onTabChange={setActiveTab}
-          disabledTabs={!deckQuery.data || !boardQuery.data || !gantryQuery.data ? ["Protocol"] : []}
+          disabledTabs={!deckReady || !boardReady || !gantryReady ? ["Protocol"] : []}
           disabledMessage={(() => {
             const missing = [
-              !gantryQuery.data && "Gantry",
-              !deckQuery.data && "Deck",
-              !boardQuery.data && "Board",
+              !gantryReady && "Gantry",
+              !deckReady && "Deck",
+              !boardReady && "Board",
             ].filter(Boolean);
             if (missing.length === 0) return null;
-            return `Please load ${missing.join(", ")} config${missing.length > 1 ? "s" : ""} first.`;
+            return `Complete ${missing.join(", ")} first.`;
           })()}
         />
-      {activeTab === "Deck" && (
+      <div style={{ display: activeTab === "Deck" ? undefined : "none" }}>
         <DeckEditor
           configs={deckConfigs.data ?? []}
           selectedFile={deckFile}
@@ -205,9 +244,10 @@ export default function App() {
           onSave={(body) => saveDeck.mutate(body)}
           onLocalChange={setLocalDeck}
           onRefresh={refreshAll}
+          onHasContent={setDeckReady}
         />
-      )}
-      {activeTab === "Board" && (
+      </div>
+      <div style={{ display: activeTab === "Board" ? undefined : "none" }}>
         <BoardEditor
           configs={boardConfigs.data ?? []}
           selectedFile={boardFile}
@@ -217,9 +257,10 @@ export default function App() {
           instrumentSchemas={instrumentSchemas.data ?? {}}
           onSave={(body) => saveBoard.mutate(body)}
           onRefresh={refreshAll}
+          onHasContent={setBoardReady}
         />
-      )}
-      {activeTab === "Gantry" && (
+      </div>
+      <div style={{ display: activeTab === "Gantry" ? undefined : "none" }}>
         <GantryEditor
           configs={gantryConfigs.data ?? []}
           selectedFile={gantryFile}
@@ -227,9 +268,11 @@ export default function App() {
           gantry={gantryQuery.data ?? null}
           onSave={(body) => saveGantry.mutate(body)}
           onRefresh={refreshAll}
+          onHasContent={setGantryReady}
+          onConfigChange={setLiveGantryConfig}
         />
-      )}
-      {activeTab === "Protocol" && deckQuery.data && boardQuery.data && gantryQuery.data && (
+      </div>
+      <div style={{ display: activeTab === "Protocol" ? undefined : "none" }}>
         <ProtocolEditor
           configs={protocolConfigs.data ?? []}
           selectedFile={protocolFile}
@@ -245,12 +288,14 @@ export default function App() {
           validationErrors={validationResult?.errors ?? null}
           isValidating={validateProtocol.isPending}
           onRefresh={refreshAll}
-          onRun={handleRunProtocol}
+          onRun={() => handleRunProtocol(false)}
+          onDryRun={() => handleRunProtocol(true)}
           isRunning={isRunning}
+          isDryRunning={isDryRunning}
           runResult={runResult}
           runError={runError}
         />
-      )}
+      </div>
     </div>
   );
 
@@ -272,7 +317,7 @@ export default function App() {
     <GantryPositionWidget
       position={gantryPosition.data ?? null}
       workingVolume={workingVolume}
-      configSelected={!!gantryFile}
+      gantryConfig={liveGantryConfig}
     />
   );
 

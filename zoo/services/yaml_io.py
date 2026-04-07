@@ -15,6 +15,7 @@ def read_yaml(path: Path) -> Dict[str, Any]:
 
 
 def write_yaml(path: Path, data: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
@@ -32,30 +33,33 @@ def classify_config(data: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def resolve_config_path(configs_dir: Path, kind: str, filename: str) -> Path:
-    """Return the full path for a config file, using the subdirectory if it exists."""
-    sub = configs_dir / kind
-    if sub.is_dir():
-        return sub / filename
-    return configs_dir / filename
+def resolve_config_path(campaign_dir: Path, kind: str, filename: str) -> Path:
+    """Return the full path for a config file within the campaign directory.
 
-
-def list_configs(configs_dir: Path, kind: str) -> List[str]:
-    """List YAML filenames for the given kind.
-
-    Checks ``configs_dir/<kind>/`` first (PANDA_CORE's standard layout),
-    then falls back to a flat scan of ``configs_dir/`` with content-based
-    classification.
+    Checks campaign_dir/<kind>/ subdirectory first for backward compatibility
+    with CubOS layout, then falls back to flat campaign_dir/.
     """
-    sub = configs_dir / kind
+    sub = campaign_dir / kind
+    if sub.is_dir() and (sub / filename).exists():
+        return sub / filename
+    return campaign_dir / filename
+
+
+def list_configs(campaign_dir: Path, kind: str) -> List[str]:
+    """List YAML filenames for the given kind within a campaign directory.
+
+    Checks campaign_dir/<kind>/ subdirectory first, then falls back to
+    flat scan of campaign_dir/ with content-based classification.
+    """
+    sub = campaign_dir / kind
     if sub.is_dir():
         return sorted(p.name for p in sub.glob("*.yaml"))
 
-    # Fallback: flat directory with content-based classification.
+    # Flat directory: classify by content.
     results = []
-    if not configs_dir.is_dir():
+    if not campaign_dir.is_dir():
         return results
-    for p in sorted(configs_dir.glob("*.yaml")):
+    for p in sorted(campaign_dir.glob("*.yaml")):
         try:
             data = read_yaml(p)
             if classify_config(data) == kind:

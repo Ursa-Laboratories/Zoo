@@ -31,7 +31,7 @@ def tmp_configs(monkeypatch):
 
         monkeypatch.setattr(
             "zoo.routers.protocol._settings",
-            ZooSettings(panda_core_path=Path(d)),
+            ZooSettings(cubos_path=Path(d)),
         )
         yield configs
 
@@ -49,7 +49,7 @@ def test_get_commands(client):
     assert "move" in names
     assert "aspirate" in names
     assert "scan" in names
-    # Commands come from PANDA_CORE's registry; at least the core set exists.
+    # Commands come from CubOS's registry; at least the core set exists.
     assert len(names) >= 8
 
 

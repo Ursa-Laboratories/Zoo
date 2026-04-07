@@ -1,13 +1,14 @@
 """Protocol router: CRUD for protocol YAML files + command registry.
 
-Commands are introspected from PANDA_CORE's CommandRegistry at runtime,
-so any new @protocol_command in PANDA_CORE is automatically available.
+Commands are introspected from CubOS's CommandRegistry at runtime,
+so any new @protocol_command in CubOS is automatically available.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+import threading
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -46,7 +47,7 @@ def _type_name(annotation: Any) -> str:
 
 
 def _build_command_info(name: str) -> CommandInfo:
-    """Build a CommandInfo from a registered PANDA_CORE command."""
+    """Build a CommandInfo from a registered CubOS command."""
     registry = CommandRegistry.instance()
     cmd = registry.get(name)
     args = []
@@ -89,12 +90,12 @@ def get_command(name: str) -> CommandInfo:
 
 @router.get("/configs")
 def list_protocol_configs() -> List[str]:
-    return list_configs(get_settings().configs_dir, "protocol")
+    return list_configs(get_settings().campaign_dir, "protocol")
 
 
 @router.get("/{filename}")
 def get_protocol(filename: str) -> ProtocolResponse:
-    path = resolve_config_path(get_settings().configs_dir, "protocol", filename)
+    path = resolve_config_path(get_settings().campaign_dir, "protocol", filename)
     if not path.is_file():
         raise HTTPException(404, f"Protocol file not found: {filename}")
     data = read_yaml(path)
@@ -114,7 +115,7 @@ def get_protocol(filename: str) -> ProtocolResponse:
 
 @router.put("/{filename}")
 def save_protocol(filename: str, body: ProtocolConfig) -> dict:
-    path = resolve_config_path(get_settings().configs_dir, "protocol", filename)
+    path = resolve_config_path(get_settings().campaign_dir, "protocol", filename)
     # Convert to YAML-native format: list of {command: {args}}
     protocol_list = []
     for step in body.protocol:
@@ -125,7 +126,7 @@ def save_protocol(filename: str, body: ProtocolConfig) -> dict:
 
 @router.post("/validate")
 def validate_protocol(body: ProtocolConfig) -> ProtocolValidationResponse:
-    """Validate a protocol against PANDA_CORE's command schemas."""
+    """Validate a protocol against CubOS's command schemas."""
     registry = CommandRegistry.instance()
     errors: List[str] = []
     for i, step in enumerate(body.protocol):
@@ -150,31 +151,119 @@ class RunProtocolRequest(BaseModel):
     deck_file: str
     board_file: str
     protocol_file: str
+    dry_run: bool = False
+
+
+# ── Background protocol execution state ───────────────────────────────
+
+_run_lock = threading.Lock()
+_run_status: str = "idle"          # idle | running | done | error
+_run_steps: int = 0
+_run_error: Optional[str] = None
+
+
+class _LockedGantry:
+    """Proxy that wraps every method call with _serial_lock.
+
+    Ensures protocol serial calls and position-poll serial calls
+    never collide, while keeping the lock held only for the duration
+    of each individual call so position updates stay responsive.
+    """
+
+    def __init__(self, gantry: Any, lock: threading.Lock) -> None:
+        self._gantry = gantry
+        self._lock = lock
+
+    def __getattr__(self, name: str) -> Any:
+        attr = getattr(self._gantry, name)
+        if not callable(attr):
+            return attr
+
+        def locked(*args: Any, **kwargs: Any) -> Any:
+            with self._lock:
+                return attr(*args, **kwargs)
+
+        return locked
+
+
+def _run_worker(
+    gantry_path: str,
+    deck_path: str,
+    board_path: str,
+    protocol_path: str,
+    gantry: Any,
+    mock_mode: bool,
+) -> None:
+    global _run_status, _run_steps, _run_error
+    try:
+        results = run_protocol(
+            gantry_path, deck_path, board_path, protocol_path,
+            gantry=gantry, mock_mode=mock_mode,
+        )
+        _run_steps = len(results)
+        _run_status = "done"
+    except SetupValidationError as exc:
+        _run_error = str(exc)
+        _run_status = "error"
+    except Exception as exc:
+        logging.exception("Protocol execution failed")
+        _run_error = f"Execution failed: {exc}"
+        _run_status = "error"
 
 
 @router.post("/run")
 def run_protocol_endpoint(body: RunProtocolRequest) -> dict:
-    """Run a protocol with all four configs and the connected gantry."""
-    from zoo.routers.gantry import _gantry
+    """Start protocol execution in a background thread.
+
+    Returns immediately so position polling stays responsive.
+    Use GET /api/protocol/run/status to track progress.
+
+    When ``dry_run`` is True, instruments are swapped for mock variants so
+    measurement methods are no-ops, but the real gantry still performs all moves.
+    """
+    global _run_status, _run_steps, _run_error
+
+    from zoo.routers.gantry import _gantry, _homed
+
+    if _run_status == "running":
+        raise HTTPException(409, "A protocol is already running")
 
     settings = get_settings()
-    gantry_path = resolve_config_path(settings.configs_dir, "gantry", body.gantry_file)
-    deck_path = resolve_config_path(settings.configs_dir, "deck", body.deck_file)
-    board_path = resolve_config_path(settings.configs_dir, "board", body.board_file)
-    protocol_path = resolve_config_path(settings.configs_dir, "protocol", body.protocol_file)
+    gantry_path = resolve_config_path(settings.campaign_dir, "gantry", body.gantry_file)
+    deck_path = resolve_config_path(settings.campaign_dir, "deck", body.deck_file)
+    board_path = resolve_config_path(settings.campaign_dir, "board", body.board_file)
+    protocol_path = resolve_config_path(settings.campaign_dir, "protocol", body.protocol_file)
 
     if _gantry is None or not _gantry.is_healthy():
         raise HTTPException(400, "Gantry is not connected")
+    if not _homed:
+        raise HTTPException(400, "Gantry must be homed before running a protocol — position is uncalibrated")
 
-    try:
-        results = run_protocol(
+    _run_status = "running"
+    _run_steps = 0
+    _run_error = None
+
+    from zoo.routers.gantry import _serial_lock
+    locked_gantry = _LockedGantry(_gantry, _serial_lock)
+
+    thread = threading.Thread(
+        target=_run_worker,
+        args=(
             str(gantry_path), str(deck_path), str(board_path), str(protocol_path),
-            gantry=_gantry,
-        )
-    except SetupValidationError as exc:
-        raise HTTPException(400, str(exc))
-    except Exception as exc:
-        logging.exception("Protocol execution failed")
-        raise HTTPException(500, f"Execution failed: {exc}")
+            locked_gantry, body.dry_run,
+        ),
+        daemon=True,
+    )
+    thread.start()
 
-    return {"status": "ok", "steps_executed": len(results)}
+    return {"status": "running"}
+
+
+@router.get("/run/status")
+def run_status() -> dict:
+    """Poll the current protocol execution status."""
+    if _run_status == "error":
+        return {"status": "error", "error": _run_error}
+    if _run_status == "done":
+        return {"status": "done", "steps_executed": _run_steps}
+    return {"status": _run_status}

@@ -12,6 +12,7 @@ interface Props {
   instrumentSchemas: InstrumentSchemas;
   onSave: (body: BoardConfig) => void;
   onRefresh: () => void;
+  onHasContent?: (hasContent: boolean) => void;
 }
 
 /** Convert snake_case type key to a readable label. */
@@ -25,10 +26,14 @@ const INSTRUMENT_COLORS: Record<string, string> = {
   filmetrics: "#d97706",
 };
 
-export default function BoardEditor({ configs, selectedFile, onSelectFile, board, instrumentTypes, instrumentSchemas, onSave }: Props) {
+export default function BoardEditor({ configs, selectedFile, onSelectFile, board, instrumentTypes, instrumentSchemas, onSave, onHasContent }: Props) {
   const [instruments, setInstruments] = useState<Record<string, InstrumentConfig>>({});
   const [addType, setAddType] = useState<string>("");
   const [saveAs, setSaveAs] = useState("");
+
+  useEffect(() => {
+    onHasContent?.(Object.keys(instruments).length > 0);
+  }, [instruments, onHasContent]);
 
   // Default the add-type dropdown to the first available instrument type.
   useEffect(() => {
@@ -105,7 +110,7 @@ export default function BoardEditor({ configs, selectedFile, onSelectFile, board
               <NumberField label="Meas. height" value={Number(inst.measurement_height ?? 0)} onChange={(v) => update(key, { ...inst, measurement_height: v })} />
             </div>
 
-            {/* Type-specific fields from PANDA_CORE instrument schema */}
+            {/* Type-specific fields from CubOS instrument schema */}
             {fields.length > 0 && (
               <div style={{ marginTop: 8 }}>
                 {fields.map((field) => {
@@ -155,13 +160,22 @@ export default function BoardEditor({ configs, selectedFile, onSelectFile, board
           <input
             value={saveAs}
             onChange={(e) => setSaveAs(e.target.value)}
-            placeholder={selectedFile ?? "my_board.yaml"}
-            style={filenameInputStyle}
+            placeholder=""
+            style={{
+              ...filenameInputStyle,
+              borderColor: !saveAs.trim() && !selectedFile ? "#dc2626" : "#ccc",
+            }}
           />
-          <SaveButton onClick={() => {
-            if (saveAs.trim()) onSelectFile(saveAs.trim().endsWith(".yaml") ? saveAs.trim() : saveAs.trim() + ".yaml");
-            onSave({ instruments });
-          }} />
+          <SaveButton
+            disabled={!saveAs.trim()}
+            onClick={() => {
+              const filename = saveAs.trim();
+              if (!filename) return;
+              const resolved = filename.endsWith(".yaml") ? filename : filename + ".yaml";
+              onSelectFile(resolved);
+              onSave({ instruments });
+            }}
+          />
         </div>
       )}
     </div>

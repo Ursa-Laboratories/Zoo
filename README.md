@@ -1,1 +1,1 @@
-web based visualization for PANDA CORE
+web based visualization for CubOS

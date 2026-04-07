@@ -17,15 +17,17 @@ export interface WellPlateConfig {
   model_name: string;
   rows: number;
   columns: number;
-  length_mm: number;
-  width_mm: number;
-  height_mm: number;
+  // Geometry — optional metadata, not used for well position computation.
+  length_mm: number | null;
+  width_mm: number | null;
+  height_mm: number | null;
   a1: Coordinate3D | null;
   calibration: CalibrationPoints;
   x_offset_mm: number;
   y_offset_mm: number;
-  capacity_ul: number;
-  working_volume_ul: number;
+  // Volume — optional metadata.
+  capacity_ul: number | null;
+  working_volume_ul: number | null;
 }
 
 export interface VialConfig {
@@ -112,9 +114,10 @@ export interface GantryPosition {
   work_z: number | null;
   status: string;
   connected: boolean;
+  homed: boolean;
 }
 
-// Board introspection (from PANDA_CORE)
+// Board introspection (from CubOS)
 
 export interface InstrumentTypeInfo {
   type: string;

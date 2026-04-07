@@ -1,4 +1,4 @@
-"""Board config API endpoints — thin layer over PANDA_CORE board schema."""
+"""Board config API endpoints — thin layer over CubOS board schema."""
 
 import inspect
 from typing import Any, Dict, List, Optional
@@ -113,8 +113,9 @@ def _build_instrument_fields(type_key: str) -> List[InstrumentFieldInfo]:
 @router.get("/instrument-types")
 def list_instrument_types() -> List[InstrumentTypeInfo]:
     return [
-        InstrumentTypeInfo(type=key, is_mock=key.startswith("mock_"))
+        InstrumentTypeInfo(type=key, is_mock=False)
         for key in sorted(INSTRUMENT_REGISTRY.keys())
+        if not key.startswith("mock_")
     ]
 
 
@@ -134,26 +135,27 @@ def list_pipette_models() -> List[PipetteModelInfo]:
 
 @router.get("/instrument-schemas")
 def get_instrument_schemas() -> Dict[str, List[InstrumentFieldInfo]]:
-    """Return per-type field schemas introspected from PANDA_CORE instrument classes."""
+    """Return per-type field schemas introspected from CubOS instrument classes."""
     return {
         type_key: _build_instrument_fields(type_key)
         for type_key in sorted(INSTRUMENT_REGISTRY.keys())
+        if not type_key.startswith("mock_")
     }
 
 
 @router.get("/configs")
 def list_board_configs() -> list[str]:
-    return list_configs(get_settings().configs_dir, "board")
+    return list_configs(get_settings().campaign_dir, "board")
 
 
 @router.get("/{filename}")
 def get_board(filename: str) -> BoardResponse:
-    path = resolve_config_path(get_settings().configs_dir, "board", filename)
+    path = resolve_config_path(get_settings().campaign_dir, "board", filename)
     if not path.is_file():
         raise HTTPException(404, f"Config not found: {filename}")
 
     raw = read_yaml(path)
-    # Validate through PANDA_CORE's schema.
+    # Validate through CubOS's schema.
     try:
         BoardYamlSchema.model_validate(raw)
     except Exception as e:
@@ -168,6 +170,6 @@ def get_board(filename: str) -> BoardResponse:
 
 @router.put("/{filename}")
 def put_board(filename: str, body: dict) -> BoardResponse:
-    path = resolve_config_path(get_settings().configs_dir, "board", filename)
+    path = resolve_config_path(get_settings().campaign_dir, "board", filename)
     write_yaml(path, body)
     return get_board(filename)
