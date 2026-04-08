@@ -1,4 +1,4 @@
-"""Deck config API endpoints — thin layer over PANDA_CORE deck loader."""
+"""Deck config API endpoints — thin layer over CubOS deck loader."""
 
 from typing import Any, Dict, Optional
 
@@ -49,7 +49,7 @@ def get_deck(filename: str) -> DeckResponse:
     if not path.is_file():
         raise HTTPException(404, f"Config not found: {filename}")
 
-    # Use PANDA_CORE's loader for validation + well derivation.
+    # Use CubOS's loader for validation + well derivation.
     try:
         deck = load_deck_from_yaml(path)
     except Exception as e:
@@ -72,7 +72,7 @@ def get_deck(filename: str) -> DeckResponse:
 
 @router.post("/preview-wells")
 def preview_wells(body: dict) -> Dict[str, WellPosition]:
-    """Compute well positions from a well plate config using PANDA_CORE's
+    """Compute well positions from a well plate config using CubOS's
     calibration logic, without requiring the config to be saved first."""
     try:
         entry = WellPlateYamlEntry.model_validate(body)

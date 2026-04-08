@@ -14,12 +14,17 @@ import { useBoardConfigs, useBoard, useSaveBoard, useInstrumentTypes, useInstrum
 import { useGantryPosition, useGantryConfigs, useGantry, useSaveGantry } from "./hooks/useGantryPosition";
 import { useProtocolCommands, useProtocolConfigs, useProtocol, useSaveProtocol, useValidateProtocol } from "./hooks/useProtocol";
 import type { DeckResponse, WellPosition, ProtocolValidationResponse, WorkingVolume } from "./types";
+import type { SettingsResponse } from "./api/client";
+
+function cubosPathFromSettings(settings: SettingsResponse): string {
+  return settings.cubos_path ?? settings.panda_core_path ?? "";
+}
 
 export default function App() {
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState("Gantry");
   const [campaignId, setCampaignId] = useState("");
-  const [pandaCorePath, setPandaCorePath] = useState<string | null>(null);
+  const [cubosPath, setCubosPath] = useState<string | null>(null);
   const [browseLoading, setBrowseLoading] = useState(false);
 
   const [deckFile, setDeckFile] = useState<string | null>(null);
@@ -31,17 +36,18 @@ export default function App() {
   const [runError, setRunError] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
 
-  // Load current PANDA_CORE path on mount
+  // Load current CubOS path on mount
   React.useEffect(() => {
-    settingsApi.get().then((s) => setPandaCorePath(s.panda_core_path)).catch(() => {});
+    settingsApi.get().then((s) => setCubosPath(cubosPathFromSettings(s))).catch(() => {});
   }, []);
 
   const handleBrowse = async () => {
     setBrowseLoading(true);
     try {
       const result = await settingsApi.browse();
-      setPandaCorePath(result.panda_core_path);
-      await settingsApi.update(result.panda_core_path);
+      const selectedPath = cubosPathFromSettings(result);
+      setCubosPath(selectedPath);
+      await settingsApi.update(selectedPath);
       refreshAll();
     } catch {
       // User cancelled the dialog
@@ -74,7 +80,7 @@ export default function App() {
   const [previewWells, setPreviewWells] = useState<Record<string, Record<string, WellPosition>>>({});
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // Compute well positions via PANDA_CORE when user edits a deck locally.
+  // Compute well positions via CubOS when user edits a deck locally.
   React.useEffect(() => {
     if (!localDeck) {
       setPreviewWells({});
@@ -167,14 +173,14 @@ export default function App() {
       </div>
       <div style={{ marginBottom: 12 }}>
         <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
-          <span style={{ color: "#666" }}>PANDA_CORE Path</span>
+          <span style={{ color: "#666" }}>CubOS Path</span>
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <input
               type="text"
-              value={pandaCorePath ?? ""}
+              value={cubosPath ?? ""}
               readOnly
               placeholder="Not set"
-              style={{ ...campaignInputStyle, flex: 1, color: pandaCorePath ? "#1a1a1a" : "#aaa" }}
+              style={{ ...campaignInputStyle, flex: 1, color: cubosPath ? "#1a1a1a" : "#aaa" }}
             />
             <button onClick={handleBrowse} disabled={browseLoading} style={browseBtnStyle}>
               {browseLoading ? "..." : "Browse"}

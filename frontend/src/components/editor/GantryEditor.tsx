@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { GantryResponse, GantryConfig } from "../../types";
 import { NumberField, SaveButton, TextField } from "./fields";
 import ImportFromFile from "./ImportFromFile";
@@ -24,12 +24,12 @@ const EMPTY_GANTRY: GantryConfig = {
 export default function GantryEditor({ configs, selectedFile, onSelectFile, gantry, onSave }: Props) {
   const [config, setConfig] = useState<GantryConfig | null>(null);
   const [saveAs, setSaveAs] = useState("");
+  const [loadedGantry, setLoadedGantry] = useState<GantryResponse | null>(gantry);
 
-  useEffect(() => {
-    if (gantry) {
-      setConfig(structuredClone(gantry.config));
-    }
-  }, [gantry]);
+  if (gantry !== loadedGantry) {
+    setLoadedGantry(gantry);
+    setConfig(gantry ? structuredClone(gantry.config) : null);
+  }
 
   const startNew = () => {
     setConfig(structuredClone(EMPTY_GANTRY));

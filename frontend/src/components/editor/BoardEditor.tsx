@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { BoardResponse, InstrumentConfig, BoardConfig, InstrumentTypeInfo, InstrumentSchemas } from "../../types";
 import { NumberField, SaveButton, TextField } from "./fields";
 import ImportFromFile from "./ImportFromFile";
@@ -29,19 +29,14 @@ export default function BoardEditor({ configs, selectedFile, onSelectFile, board
   const [instruments, setInstruments] = useState<Record<string, InstrumentConfig>>({});
   const [addType, setAddType] = useState<string>("");
   const [saveAs, setSaveAs] = useState("");
+  const [loadedBoard, setLoadedBoard] = useState<BoardResponse | null>(board);
 
-  // Default the add-type dropdown to the first available instrument type.
-  useEffect(() => {
-    if (!addType && instrumentTypes.length > 0) {
-      setAddType(instrumentTypes[0].type);
-    }
-  }, [instrumentTypes, addType]);
+  if (board !== loadedBoard) {
+    setLoadedBoard(board);
+    setInstruments(board ? structuredClone(board.instruments) : {});
+  }
 
-  useEffect(() => {
-    if (board) {
-      setInstruments(structuredClone(board.instruments));
-    }
-  }, [board]);
+  const selectedAddType = addType || instrumentTypes[0]?.type || "";
 
   const update = (key: string, inst: InstrumentConfig) => {
     setInstruments({ ...instruments, [key]: inst });
@@ -54,12 +49,12 @@ export default function BoardEditor({ configs, selectedFile, onSelectFile, board
   };
 
   const addInstrument = () => {
-    if (!addType) return;
+    if (!selectedAddType) return;
     const idx = Object.keys(instruments).length + 1;
-    const key = `${addType}_${idx}`;
+    const key = `${selectedAddType}_${idx}`;
     // Seed with type + defaults from schema.
-    const template: InstrumentConfig = { type: addType, offset_x: 0, offset_y: 0 };
-    const fields = instrumentSchemas[addType] ?? [];
+    const template: InstrumentConfig = { type: selectedAddType, offset_x: 0, offset_y: 0 };
+    const fields = instrumentSchemas[selectedAddType] ?? [];
     for (const field of fields) {
       if (field.default != null) {
         (template as Record<string, unknown>)[field.name] = field.default;
@@ -75,7 +70,7 @@ export default function BoardEditor({ configs, selectedFile, onSelectFile, board
       <ImportFromFile configs={configs} onSelectFile={onSelectFile} label="Import board config" />
 
       <div style={{ display: "flex", gap: 8, margin: "12px 0", alignItems: "center" }}>
-        <select value={addType} onChange={(e) => setAddType(e.target.value)} style={selectStyle}>
+        <select value={selectedAddType} onChange={(e) => setAddType(e.target.value)} style={selectStyle}>
           {instrumentTypes.map((it) => (
             <option key={it.type} value={it.type}>{typeLabel(it.type)}{it.is_mock ? " (mock)" : ""}</option>
           ))}
@@ -105,7 +100,7 @@ export default function BoardEditor({ configs, selectedFile, onSelectFile, board
               <NumberField label="Meas. height" value={Number(inst.measurement_height ?? 0)} onChange={(v) => update(key, { ...inst, measurement_height: v })} />
             </div>
 
-            {/* Type-specific fields from PANDA_CORE instrument schema */}
+            {/* Type-specific fields from CubOS instrument schema */}
             {fields.length > 0 && (
               <div style={{ marginTop: 8 }}>
                 {fields.map((field) => {

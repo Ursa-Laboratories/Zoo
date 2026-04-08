@@ -3,7 +3,7 @@
 import tempfile
 from pathlib import Path
 
-from zoo.services.yaml_io import classify_config, read_yaml, write_yaml
+from zoo.services.yaml_io import classify_config, read_yaml, resolve_config_path, write_yaml
 
 
 def test_read_write_roundtrip():
@@ -43,3 +43,11 @@ def test_read_empty_yaml():
     result = read_yaml(path)
     assert result == {}
     path.unlink()
+
+
+def test_resolve_config_path_prefers_kind_subdirectory():
+    with tempfile.TemporaryDirectory() as d:
+        configs_dir = Path(d) / "configs"
+        protocol_dir = configs_dir / "protocol"
+        protocol_dir.mkdir(parents=True)
+        assert resolve_config_path(configs_dir, "protocol", "move.yaml") == protocol_dir / "move.yaml"

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { DeckResponse, LabwareConfig, WellPlateConfig, VialConfig, DeckConfig } from "../../types";
 import { CoordinateField, NumberField, SaveButton, TextField } from "./fields";
 import ImportFromFile from "./ImportFromFile";
@@ -62,19 +62,23 @@ function isValid(labware: Record<string, LabwareConfig>): boolean {
   return true;
 }
 
+function labwareFromDeck(deck: DeckResponse | null): Record<string, LabwareConfig> {
+  const obj: Record<string, LabwareConfig> = {};
+  deck?.labware.forEach((item) => {
+    obj[item.key] = structuredClone(item.config);
+  });
+  return obj;
+}
+
 export default function DeckEditor({ configs, selectedFile, onSelectFile, deck, onSave, onLocalChange }: Props) {
   const [labware, setLabware] = useState<Record<string, LabwareConfig>>({});
   const [saveAs, setSaveAs] = useState("");
+  const [loadedDeck, setLoadedDeck] = useState<DeckResponse | null>(deck);
 
-  useEffect(() => {
-    if (deck) {
-      const obj: Record<string, LabwareConfig> = {};
-      deck.labware.forEach((item) => {
-        obj[item.key] = structuredClone(item.config);
-      });
-      setLabware(obj);
-    }
-  }, [deck]);
+  if (deck !== loadedDeck) {
+    setLoadedDeck(deck);
+    setLabware(labwareFromDeck(deck));
+  }
 
   const syncViz = (next: Record<string, LabwareConfig>) => {
     onLocalChange(buildDeckResponse(next, selectedFile ?? "unsaved"));

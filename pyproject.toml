@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "zoo"
 version = "0.1.0"
-description = "Web visualization for PANDA_CORE"
+description = "Web visualization for CubOS"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { CommandInfo, ProtocolStep, ProtocolConfig } from "../../types";
 import { NumberField, TextField } from "./fields";
 import ImportFromFile from "./ImportFromFile";
@@ -61,14 +61,14 @@ export default function ProtocolEditor({
   const [steps, setSteps] = useState<ProtocolStep[]>([]);
   const [addCommand, setAddCommand] = useState(commands[0]?.name ?? "move");
   const [saveAs, setSaveAs] = useState("");
+  const [loadedProtocolSteps, setLoadedProtocolSteps] = useState<ProtocolStep[] | null>(loadedSteps);
 
   const commandsByName = Object.fromEntries(commands.map((c) => [c.name, c]));
 
-  useEffect(() => {
-    if (loadedSteps) {
-      setSteps(structuredClone(loadedSteps));
-    }
-  }, [loadedSteps]);
+  if (loadedSteps !== loadedProtocolSteps) {
+    setLoadedProtocolSteps(loadedSteps);
+    setSteps(loadedSteps ? structuredClone(loadedSteps) : []);
+  }
 
   const addStep = () => {
     const cmd = commandsByName[addCommand];
