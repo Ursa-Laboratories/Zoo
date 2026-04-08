@@ -4,10 +4,10 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
+from tests.api_client import api_request
 from zoo.app import create_app
-from zoo.config import ZooSettings
+from zoo.config import get_settings
 from zoo.services.yaml_io import write_yaml
 
 
@@ -29,32 +29,29 @@ def tmp_configs(monkeypatch):
         # Also add a non-protocol file to make sure it's excluded
         write_yaml(configs / "deck.yaml", {"labware": {}})
 
-        monkeypatch.setattr(
-            "zoo.routers.protocol._settings",
-            ZooSettings(panda_core_path=Path(d)),
-        )
+        monkeypatch.setattr(get_settings(), "config_dir", Path(d) / "configs")
         yield configs
 
 
 @pytest.fixture()
 def client():
-    return TestClient(create_app())
+    return create_app()
 
 
 def test_get_commands(client):
-    r = client.get("/api/protocol/commands")
+    r = api_request(client, "GET", "/api/protocol/commands")
     assert r.status_code == 200
     commands = r.json()
     names = [c["name"] for c in commands]
     assert "move" in names
     assert "aspirate" in names
     assert "scan" in names
-    # Commands come from PANDA_CORE's registry; at least the core set exists.
+    # Commands come from CubOS's registry; at least the core set exists.
     assert len(names) >= 8
 
 
 def test_get_single_command(client):
-    r = client.get("/api/protocol/commands/aspirate")
+    r = api_request(client, "GET", "/api/protocol/commands/aspirate")
     assert r.status_code == 200
     cmd = r.json()
     assert cmd["name"] == "aspirate"
@@ -65,12 +62,12 @@ def test_get_single_command(client):
 
 
 def test_get_unknown_command(client):
-    r = client.get("/api/protocol/commands/nonexistent")
+    r = api_request(client, "GET", "/api/protocol/commands/nonexistent")
     assert r.status_code == 404
 
 
 def test_list_protocol_configs(client, tmp_configs):
-    r = client.get("/api/protocol/configs")
+    r = api_request(client, "GET", "/api/protocol/configs")
     assert r.status_code == 200
     configs = r.json()
     assert "test_protocol.yaml" in configs
@@ -78,7 +75,7 @@ def test_list_protocol_configs(client, tmp_configs):
 
 
 def test_get_protocol(client, tmp_configs):
-    r = client.get("/api/protocol/test_protocol.yaml")
+    r = api_request(client, "GET", "/api/protocol/test_protocol.yaml")
     assert r.status_code == 200
     data = r.json()
     assert data["filename"] == "test_protocol.yaml"
@@ -94,7 +91,7 @@ def test_save_protocol(client, tmp_configs):
             {"command": "move", "args": {"instrument": "uvvis", "position": "plate_1.A1"}},
         ]
     }
-    r = client.put("/api/protocol/new_protocol.yaml", json=body)
+    r = api_request(client, "PUT", "/api/protocol/new_protocol.yaml", json=body)
     assert r.status_code == 200
     assert (tmp_configs / "new_protocol.yaml").exists()
 
@@ -106,7 +103,7 @@ def test_validate_protocol_ok(client):
             {"command": "aspirate", "args": {"position": "plate_1.A1", "volume_ul": 100.0}},
         ]
     }
-    r = client.post("/api/protocol/validate", json=body)
+    r = api_request(client, "POST", "/api/protocol/validate", json=body)
     assert r.status_code == 200
     data = r.json()
     assert data["valid"] is True
@@ -119,7 +116,7 @@ def test_validate_protocol_unknown_command(client):
             {"command": "fly_away", "args": {}},
         ]
     }
-    r = client.post("/api/protocol/validate", json=body)
+    r = api_request(client, "POST", "/api/protocol/validate", json=body)
     assert r.status_code == 200
     data = r.json()
     assert data["valid"] is False
@@ -132,7 +129,7 @@ def test_validate_protocol_missing_args(client):
             {"command": "aspirate", "args": {"position": "plate_1.A1"}},
         ]
     }
-    r = client.post("/api/protocol/validate", json=body)
+    r = api_request(client, "POST", "/api/protocol/validate", json=body)
     assert r.status_code == 200
     data = r.json()
     assert data["valid"] is False
@@ -145,7 +142,7 @@ def test_validate_protocol_unknown_args(client):
             {"command": "move", "args": {"instrument": "p", "position": "a", "turbo": True}},
         ]
     }
-    r = client.post("/api/protocol/validate", json=body)
+    r = api_request(client, "POST", "/api/protocol/validate", json=body)
     assert r.status_code == 200
     data = r.json()
     assert data["valid"] is False

@@ -114,7 +114,7 @@ export interface GantryPosition {
   connected: boolean;
 }
 
-// Board introspection (from PANDA_CORE)
+// Board introspection (from CubOS)
 
 export interface InstrumentTypeInfo {
   type: string;

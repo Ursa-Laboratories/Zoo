@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Zoo — PANDA_CORE Visualizer", lifespan=lifespan)
+    app = FastAPI(title="Zoo — CubOS Visualizer", lifespan=lifespan)
     app.include_router(deck.router)
     app.include_router(board.router)
     app.include_router(gantry.router)

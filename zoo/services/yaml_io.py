@@ -43,7 +43,7 @@ def resolve_config_path(configs_dir: Path, kind: str, filename: str) -> Path:
 def list_configs(configs_dir: Path, kind: str) -> List[str]:
     """List YAML filenames for the given kind.
 
-    Checks ``configs_dir/<kind>/`` first (PANDA_CORE's standard layout),
+    Checks ``configs_dir/<kind>/`` first (CubOS's standard layout),
     then falls back to a flat scan of ``configs_dir/`` with content-based
     classification.
     """

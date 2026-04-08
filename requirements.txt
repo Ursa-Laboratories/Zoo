@@ -11,7 +11,7 @@ httpx==0.28.1
 idna==3.11
 iniconfig==2.3.0
 packaging==26.0
-panda-core @ git+https://github.com/Hydra-Laboratories/PANDA_CORE.git@main
+cubos @ git+https://github.com/Ursa-Laboratories/CubOS.git@main
 pluggy==1.6.0
 pydantic==2.12.5
 pydantic-settings==2.13.0
@@ -28,4 +28,3 @@ uvicorn==0.40.0
 uvloop==0.22.1
 watchfiles==1.1.1
 websockets==16.0
--e git+https://github.com/Hydra-Laboratories/Zoo.git@fdd16f9b6e5f6da973e3f016b2dc438f6e2e92df#egg=zoo

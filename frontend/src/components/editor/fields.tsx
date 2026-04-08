@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 function tryParse(s: string): number | null {
   if (s === "" || s === "-" || s === "." || s === "-.") return null;
@@ -15,8 +15,12 @@ interface NumberFieldProps {
 }
 
 export function NumberField({ label, value, onChange, required }: NumberFieldProps) {
-  const [raw, setRaw] = useState(String(value));
-  useEffect(() => { setRaw(String(value)); }, [value]);
+  const [state, setState] = useState({ raw: String(value), value });
+  if (value !== state.value) {
+    setState({ raw: String(value), value });
+  }
+  const raw = state.raw;
+  const setRaw = (next: string) => setState({ raw: next, value });
 
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
@@ -67,12 +71,28 @@ interface CoordinateFieldProps {
 }
 
 export function CoordinateField({ label, value, onChange, required }: CoordinateFieldProps) {
-  const [rx, setRx] = useState(String(value.x));
-  const [ry, setRy] = useState(String(value.y));
-  const [rz, setRz] = useState(String(value.z));
-  useEffect(() => { setRx(String(value.x)); }, [value.x]);
-  useEffect(() => { setRy(String(value.y)); }, [value.y]);
-  useEffect(() => { setRz(String(value.z)); }, [value.z]);
+  const [state, setState] = useState({
+    rx: String(value.x),
+    ry: String(value.y),
+    rz: String(value.z),
+    x: value.x,
+    y: value.y,
+    z: value.z,
+  });
+  if (value.x !== state.x || value.y !== state.y || value.z !== state.z) {
+    setState({
+      rx: String(value.x),
+      ry: String(value.y),
+      rz: String(value.z),
+      x: value.x,
+      y: value.y,
+      z: value.z,
+    });
+  }
+  const { rx, ry, rz } = state;
+  const setRx = (next: string) => setState({ ...state, rx: next });
+  const setRy = (next: string) => setState({ ...state, ry: next });
+  const setRz = (next: string) => setState({ ...state, rz: next });
 
   return (
     <div style={{ fontSize: 12 }}>

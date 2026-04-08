@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { GantryResponse, GantryConfig } from "../../types";
 import { NumberField, SaveButton, TextField } from "./fields";
 import ImportFromFile from "./ImportFromFile";
@@ -8,7 +8,7 @@ interface Props {
   selectedFile: string | null;
   onSelectFile: (f: string) => void;
   gantry: GantryResponse | null;
-  onSave: (body: GantryConfig) => void;
+  onSave: (filename: string, body: GantryConfig) => void;
   onRefresh: () => void;
 }
 
@@ -22,17 +22,23 @@ const EMPTY_GANTRY: GantryConfig = {
 };
 
 export default function GantryEditor({ configs, selectedFile, onSelectFile, gantry, onSave }: Props) {
-  const [config, setConfig] = useState<GantryConfig | null>(null);
+  const [config, setConfig] = useState<GantryConfig | null>(() => (
+    gantry ? structuredClone(gantry.config) : null
+  ));
   const [saveAs, setSaveAs] = useState("");
-
-  useEffect(() => {
-    if (gantry) {
-      setConfig(structuredClone(gantry.config));
-    }
-  }, [gantry]);
 
   const startNew = () => {
     setConfig(structuredClone(EMPTY_GANTRY));
+  };
+
+  const handleSave = () => {
+    if (!config) return;
+    const filename = saveAs.trim() || selectedFile || "";
+    if (!filename) return;
+    const normalized = filename.endsWith(".yaml") ? filename : filename + ".yaml";
+    onSelectFile(normalized);
+    onSave(normalized, config);
+    setSaveAs("");
   };
 
   return (
@@ -94,10 +100,7 @@ export default function GantryEditor({ configs, selectedFile, onSelectFile, gant
               placeholder={selectedFile ?? "my_gantry.yaml"}
               style={filenameInputStyle}
             />
-            <SaveButton onClick={() => {
-              if (saveAs.trim()) onSelectFile(saveAs.trim().endsWith(".yaml") ? saveAs.trim() : saveAs.trim() + ".yaml");
-              onSave(config);
-            }} />
+            <SaveButton onClick={handleSave} disabled={!saveAs.trim() && !selectedFile} />
           </div>
         </>
       )}

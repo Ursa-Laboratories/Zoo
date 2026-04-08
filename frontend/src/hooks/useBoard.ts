@@ -2,6 +2,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { boardApi } from "../api/client";
 import type { BoardConfig, InstrumentSchemas } from "../types";
 
+type SaveBoardArgs = {
+  filename: string;
+  body: BoardConfig;
+};
+
 export function useBoardConfigs() {
   return useQuery({ queryKey: ["board", "configs"], queryFn: boardApi.listConfigs });
 }
@@ -38,11 +43,13 @@ export function useBoard(filename: string | null) {
   });
 }
 
-export function useSaveBoard(filename: string) {
+export function useSaveBoard() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: BoardConfig) => boardApi.put(filename, body),
-    onSuccess: () => {
+    mutationFn: ({ filename, body }: SaveBoardArgs) => boardApi.put(filename, body),
+    onSuccess: (data, { filename }) => {
+      qc.setQueryData(["board", filename], data);
+      qc.invalidateQueries({ queryKey: ["board", "configs"] });
       qc.invalidateQueries({ queryKey: ["board", filename] });
     },
   });

@@ -1,7 +1,7 @@
 """Protocol router: CRUD for protocol YAML files + command registry.
 
-Commands are introspected from PANDA_CORE's CommandRegistry at runtime,
-so any new @protocol_command in PANDA_CORE is automatically available.
+Commands are introspected from CubOS's CommandRegistry at runtime,
+so any new @protocol_command in CubOS is automatically available.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ def _type_name(annotation: Any) -> str:
 
 
 def _build_command_info(name: str) -> CommandInfo:
-    """Build a CommandInfo from a registered PANDA_CORE command."""
+    """Build a CommandInfo from a registered CubOS command."""
     registry = CommandRegistry.instance()
     cmd = registry.get(name)
     args = []
@@ -125,7 +125,7 @@ def save_protocol(filename: str, body: ProtocolConfig) -> dict:
 
 @router.post("/validate")
 def validate_protocol(body: ProtocolConfig) -> ProtocolValidationResponse:
-    """Validate a protocol against PANDA_CORE's command schemas."""
+    """Validate a protocol against CubOS's command schemas."""
     registry = CommandRegistry.instance()
     errors: List[str] = []
     for i, step in enumerate(body.protocol):

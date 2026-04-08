@@ -1,13 +1,13 @@
-"""Board config API endpoints — thin layer over PANDA_CORE board schema."""
+"""Board config API endpoints — thin layer over CubOS board schema."""
 
 import inspect
 from typing import Any, Dict, List, Optional
 
-from board.loader import INSTRUMENT_REGISTRY
 from board.yaml_schema import BoardYamlSchema
 from fastapi import APIRouter, HTTPException
 from instruments.base_instrument import BaseInstrument
 from instruments.pipette.models import PIPETTE_MODELS
+from instruments.registry import get_instrument_class, get_supported_types
 from pydantic import BaseModel
 
 from zoo.config import get_settings
@@ -81,7 +81,7 @@ def _is_primitive(annotation: Any) -> bool:
 
 def _build_instrument_fields(type_key: str) -> List[InstrumentFieldInfo]:
     """Introspect an instrument class's __init__ to build field metadata."""
-    cls = INSTRUMENT_REGISTRY[type_key]
+    cls = get_instrument_class(type_key)
     sig = inspect.signature(cls.__init__)
     fields: List[InstrumentFieldInfo] = []
     for param_name, param in sig.parameters.items():
@@ -114,7 +114,7 @@ def _build_instrument_fields(type_key: str) -> List[InstrumentFieldInfo]:
 def list_instrument_types() -> List[InstrumentTypeInfo]:
     return [
         InstrumentTypeInfo(type=key, is_mock=key.startswith("mock_"))
-        for key in sorted(INSTRUMENT_REGISTRY.keys())
+        for key in get_supported_types()
     ]
 
 
@@ -134,10 +134,10 @@ def list_pipette_models() -> List[PipetteModelInfo]:
 
 @router.get("/instrument-schemas")
 def get_instrument_schemas() -> Dict[str, List[InstrumentFieldInfo]]:
-    """Return per-type field schemas introspected from PANDA_CORE instrument classes."""
+    """Return per-type field schemas introspected from CubOS instrument classes."""
     return {
         type_key: _build_instrument_fields(type_key)
-        for type_key in sorted(INSTRUMENT_REGISTRY.keys())
+        for type_key in get_supported_types()
     }
 
 
@@ -153,7 +153,7 @@ def get_board(filename: str) -> BoardResponse:
         raise HTTPException(404, f"Config not found: {filename}")
 
     raw = read_yaml(path)
-    # Validate through PANDA_CORE's schema.
+    # Validate through CubOS's schema.
     try:
         BoardYamlSchema.model_validate(raw)
     except Exception as e:

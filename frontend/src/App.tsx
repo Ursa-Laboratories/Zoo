@@ -14,12 +14,17 @@ import { useBoardConfigs, useBoard, useSaveBoard, useInstrumentTypes, useInstrum
 import { useGantryPosition, useGantryConfigs, useGantry, useSaveGantry } from "./hooks/useGantryPosition";
 import { useProtocolCommands, useProtocolConfigs, useProtocol, useSaveProtocol, useValidateProtocol } from "./hooks/useProtocol";
 import type { DeckResponse, WellPosition, ProtocolValidationResponse, WorkingVolume } from "./types";
+import type { SettingsResponse } from "./api/client";
+
+function configDirFromSettings(settings: SettingsResponse): string {
+  return settings.config_dir ?? "";
+}
 
 export default function App() {
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState("Gantry");
   const [campaignId, setCampaignId] = useState("");
-  const [pandaCorePath, setPandaCorePath] = useState<string | null>(null);
+  const [configDir, setConfigDir] = useState<string | null>(null);
   const [browseLoading, setBrowseLoading] = useState(false);
 
   const [deckFile, setDeckFile] = useState<string | null>(null);
@@ -31,50 +36,52 @@ export default function App() {
   const [runError, setRunError] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
 
-  // Load current PANDA_CORE path on mount
+  // Load the local config directory on mount.
   React.useEffect(() => {
-    settingsApi.get().then((s) => setPandaCorePath(s.panda_core_path)).catch(() => {});
+    settingsApi.get().then((s) => setConfigDir(configDirFromSettings(s))).catch(() => {});
   }, []);
 
   const handleBrowse = async () => {
     setBrowseLoading(true);
     try {
-      const result = await settingsApi.browse();
-      setPandaCorePath(result.panda_core_path);
-      await settingsApi.update(result.panda_core_path);
+      const browseResult = await settingsApi.browse();
+      const selectedPath = configDirFromSettings(browseResult);
+      const savedSettings = await settingsApi.update(selectedPath);
+      setConfigDir(configDirFromSettings(savedSettings));
       refreshAll();
     } catch {
-      // User cancelled the dialog
+      // User cancelled the dialog or the update failed.
+    } finally {
+      setBrowseLoading(false);
     }
-    setBrowseLoading(false);
   };
 
   const deckConfigs = useDeckConfigs();
   const deckQuery = useDeck(deckFile);
-  const saveDeck = useSaveDeck(deckFile ?? "");
+  const saveDeck = useSaveDeck();
 
   const boardConfigs = useBoardConfigs();
   const boardQuery = useBoard(boardFile);
-  const saveBoard = useSaveBoard(boardFile ?? "");
+  const saveBoard = useSaveBoard();
   const instrumentTypes = useInstrumentTypes();
   const instrumentSchemas = useInstrumentSchemas();
 
   const gantryConfigs = useGantryConfigs();
   const gantryQuery = useGantry(gantryFile);
-  const saveGantry = useSaveGantry(gantryFile ?? "");
+  const saveGantry = useSaveGantry();
   const gantryPosition = useGantryPosition(!isRunning);
 
   const protocolCommands = useProtocolCommands();
   const protocolConfigs = useProtocolConfigs();
   const protocolQuery = useProtocol(protocolFile);
-  const saveProtocol = useSaveProtocol(protocolFile ?? "");
+  const saveProtocol = useSaveProtocol();
   const validateProtocol = useValidateProtocol();
 
   const [localDeck, setLocalDeck] = useState<DeckResponse | null>(null);
   const [previewWells, setPreviewWells] = useState<Record<string, Record<string, WellPosition>>>({});
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // Compute well positions via PANDA_CORE when user edits a deck locally.
+  // Compute well positions via CubOS when user edits a deck locally.
   React.useEffect(() => {
     if (!localDeck) {
       setPreviewWells({});
@@ -96,6 +103,10 @@ export default function App() {
     }, 300);
     return () => clearTimeout(previewTimerRef.current);
   }, [localDeck]);
+
+  React.useEffect(() => {
+    setLocalDeck(null);
+  }, [deckFile]);
 
   const displayDeck = useMemo(() => {
     const base = localDeck ?? deckQuery.data ?? null;
@@ -167,16 +178,16 @@ export default function App() {
       </div>
       <div style={{ marginBottom: 12 }}>
         <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
-          <span style={{ color: "#666" }}>PANDA_CORE Path</span>
+          <span style={{ color: "#666" }}>Config Directory</span>
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <input
               type="text"
-              value={pandaCorePath ?? ""}
+              value={configDir ?? ""}
               readOnly
               placeholder="Not set"
-              style={{ ...campaignInputStyle, flex: 1, color: pandaCorePath ? "#1a1a1a" : "#aaa" }}
+              style={{ ...campaignInputStyle, flex: 1, color: configDir ? "#1a1a1a" : "#aaa" }}
             />
-            <button onClick={handleBrowse} disabled={browseLoading} style={browseBtnStyle}>
+            <button onClick={handleBrowse} disabled={browseLoading} style={browseButtonStyle}>
               {browseLoading ? "..." : "Browse"}
             </button>
           </div>
@@ -198,45 +209,49 @@ export default function App() {
         />
       {activeTab === "Deck" && (
         <DeckEditor
+          key={deckQuery.data ? `loaded:${deckQuery.data.filename}` : `selected:${deckFile ?? "none"}`}
           configs={deckConfigs.data ?? []}
           selectedFile={deckFile}
           onSelectFile={setDeckFile}
           deck={deckQuery.data ?? null}
-          onSave={(body) => saveDeck.mutate(body)}
+          onSave={(filename, body) => saveDeck.mutate({ filename, body })}
           onLocalChange={setLocalDeck}
           onRefresh={refreshAll}
         />
       )}
       {activeTab === "Board" && (
         <BoardEditor
+          key={boardQuery.data ? `loaded:${boardQuery.data.filename}` : `selected:${boardFile ?? "none"}`}
           configs={boardConfigs.data ?? []}
           selectedFile={boardFile}
           onSelectFile={setBoardFile}
           board={boardQuery.data ?? null}
           instrumentTypes={instrumentTypes.data ?? []}
           instrumentSchemas={instrumentSchemas.data ?? {}}
-          onSave={(body) => saveBoard.mutate(body)}
+          onSave={(filename, body) => saveBoard.mutate({ filename, body })}
           onRefresh={refreshAll}
         />
       )}
       {activeTab === "Gantry" && (
         <GantryEditor
+          key={gantryQuery.data ? `loaded:${gantryQuery.data.filename}` : `selected:${gantryFile ?? "none"}`}
           configs={gantryConfigs.data ?? []}
           selectedFile={gantryFile}
           onSelectFile={setGantryFile}
           gantry={gantryQuery.data ?? null}
-          onSave={(body) => saveGantry.mutate(body)}
+          onSave={(filename, body) => saveGantry.mutate({ filename, body })}
           onRefresh={refreshAll}
         />
       )}
       {activeTab === "Protocol" && deckQuery.data && boardQuery.data && gantryQuery.data && (
         <ProtocolEditor
+          key={protocolQuery.data ? `loaded:${protocolQuery.data.filename}` : `selected:${protocolFile ?? "none"}`}
           configs={protocolConfigs.data ?? []}
           selectedFile={protocolFile}
           onSelectFile={setProtocolFile}
           commands={protocolCommands.data ?? []}
           steps={protocolQuery.data?.steps ?? null}
-          onSave={(body) => saveProtocol.mutate(body)}
+          onSave={(filename, body) => saveProtocol.mutate({ filename, body })}
           onValidate={(body) =>
             validateProtocol.mutate(body, {
               onSuccess: (res) => setValidationResult(res),
@@ -288,7 +303,7 @@ const campaignInputStyle: React.CSSProperties = {
   fontSize: 13,
 };
 
-const browseBtnStyle: React.CSSProperties = {
+const browseButtonStyle: React.CSSProperties = {
   background: "#f5f5f5",
   color: "#1a1a1a",
   border: "1px solid #ccc",
@@ -298,3 +313,4 @@ const browseBtnStyle: React.CSSProperties = {
   fontSize: 12,
   whiteSpace: "nowrap",
 };
+

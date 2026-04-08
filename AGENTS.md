@@ -15,8 +15,8 @@ Zoo is a web UI (FastAPI + React) for configuring and controlling CubOS. It is *
 
 Each config tab (Deck, Board, Gantry) follows the same pattern:
 1. **Frontend** collects user input via form fields
-2. **PUT** sends the raw config dict as JSON → Zoo writes it as YAML to Zoo's local `configs/`
-3. **GET** reads YAML from Zoo's local `configs/` → validates/loads via CubOS loaders → returns structured JSON
+2. **PUT** sends the raw config dict as JSON -> Zoo writes it as YAML to Zoo's local `configs/`
+3. **GET** reads YAML from Zoo's local `configs/` -> validates/loads via CubOS loaders -> returns structured JSON
 4. CubOS's loaders handle all validation and derived data (e.g. well position calculation)
 
 ## Project Structure
@@ -34,6 +34,8 @@ frontend/
     types/index.ts    # TypeScript types describing CubOS YAML shapes
     hooks/            # TanStack Query hooks
     components/       # React components
+progress/
+  README.md           # Shared progress-tracking contract for agents
 ```
 
 ## Frontend
@@ -48,3 +50,14 @@ frontend/
 - **Frontend build:** `cd frontend && npm run build`
 - **Run server:** `python -m zoo` (or `uvicorn zoo.app:create_app --factory`)
 - **Backend tests:** `pytest tests/`
+
+## Progress Tracking
+
+Use the repo-local `progress/` directory to keep durable task notes that other agents can pick up.
+
+- Before substantial multi-step work, create or update a markdown note in `progress/`.
+- Prefer one file per task or bug, with a short kebab-case name such as `progress/fix-gantry-save.md`.
+- Keep each note concise and current: goal, important findings, files touched, verification status, open risks, and next steps.
+- Update an existing note instead of creating duplicates for the same task.
+- When the task is complete, mark it complete in the note rather than deleting context that may help later agents.
+- Do not store secrets, tokens, or machine-specific private data in `progress/`.

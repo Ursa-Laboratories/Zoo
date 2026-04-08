@@ -1,5 +1,9 @@
 const BASE = "/api";
 
+export type SettingsResponse = {
+  config_dir: string;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -121,14 +125,14 @@ export const protocolApi = {
 
 // Settings
 export const settingsApi = {
-  get: () => request<{ panda_core_path: string }>("/settings"),
-  update: (panda_core_path: string) =>
-    request<{ panda_core_path: string }>("/settings", {
+  get: () => request<SettingsResponse>("/settings"),
+  update: (config_dir: string) =>
+    request<SettingsResponse>("/settings", {
       method: "PUT",
-      body: JSON.stringify({ panda_core_path }),
+      body: JSON.stringify({ config_dir }),
     }),
   browse: () =>
-    request<{ panda_core_path: string }>("/settings/browse", {
+    request<SettingsResponse>("/settings/browse", {
       method: "POST",
     }),
 };
