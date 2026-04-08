@@ -8,7 +8,7 @@ interface Props {
   selectedFile: string | null;
   onSelectFile: (f: string) => void;
   deck: DeckResponse | null;
-  onSave: (body: DeckConfig) => void;
+  onSave: (filename: string, body: DeckConfig) => void;
   onLocalChange: (deck: DeckResponse) => void;
   onRefresh: () => void;
 }
@@ -71,14 +71,8 @@ function labwareFromDeck(deck: DeckResponse | null): Record<string, LabwareConfi
 }
 
 export default function DeckEditor({ configs, selectedFile, onSelectFile, deck, onSave, onLocalChange }: Props) {
-  const [labware, setLabware] = useState<Record<string, LabwareConfig>>({});
+  const [labware, setLabware] = useState<Record<string, LabwareConfig>>(() => labwareFromDeck(deck));
   const [saveAs, setSaveAs] = useState("");
-  const [loadedDeck, setLoadedDeck] = useState<DeckResponse | null>(deck);
-
-  if (deck !== loadedDeck) {
-    setLoadedDeck(deck);
-    setLabware(labwareFromDeck(deck));
-  }
 
   const syncViz = (next: Record<string, LabwareConfig>) => {
     onLocalChange(buildDeckResponse(next, selectedFile ?? "unsaved"));
@@ -108,6 +102,16 @@ export default function DeckEditor({ configs, selectedFile, onSelectFile, deck, 
 
   const hasItems = Object.keys(labware).length > 0;
   const valid = hasItems && isValid(labware);
+  const canSave = valid && (!!saveAs.trim() || !!selectedFile);
+
+  const handleSave = () => {
+    if (!canSave) return;
+    const filename = saveAs.trim() || selectedFile || "";
+    const normalized = filename.endsWith(".yaml") ? filename : `${filename}.yaml`;
+    onSelectFile(normalized);
+    onSave(normalized, { labware });
+    setSaveAs("");
+  };
 
   return (
     <div>
@@ -144,12 +148,8 @@ export default function DeckEditor({ configs, selectedFile, onSelectFile, deck, 
             style={filenameInputStyle}
           />
           <SaveButton
-            disabled={!valid}
-            onClick={() => {
-              if (!valid) return;
-              if (saveAs.trim()) onSelectFile(saveAs.trim().endsWith(".yaml") ? saveAs.trim() : saveAs.trim() + ".yaml");
-              onSave({ labware });
-            }}
+            disabled={!canSave}
+            onClick={handleSave}
           />
         </div>
       )}

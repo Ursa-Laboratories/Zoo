@@ -10,7 +10,7 @@ interface Props {
   board: BoardResponse | null;
   instrumentTypes: InstrumentTypeInfo[];
   instrumentSchemas: InstrumentSchemas;
-  onSave: (body: BoardConfig) => void;
+  onSave: (filename: string, body: BoardConfig) => void;
   onRefresh: () => void;
 }
 
@@ -26,15 +26,11 @@ const INSTRUMENT_COLORS: Record<string, string> = {
 };
 
 export default function BoardEditor({ configs, selectedFile, onSelectFile, board, instrumentTypes, instrumentSchemas, onSave }: Props) {
-  const [instruments, setInstruments] = useState<Record<string, InstrumentConfig>>({});
+  const [instruments, setInstruments] = useState<Record<string, InstrumentConfig>>(() => (
+    board ? structuredClone(board.instruments) : {}
+  ));
   const [addType, setAddType] = useState<string>("");
   const [saveAs, setSaveAs] = useState("");
-  const [loadedBoard, setLoadedBoard] = useState<BoardResponse | null>(board);
-
-  if (board !== loadedBoard) {
-    setLoadedBoard(board);
-    setInstruments(board ? structuredClone(board.instruments) : {});
-  }
 
   const selectedAddType = addType || instrumentTypes[0]?.type || "";
 
@@ -64,6 +60,16 @@ export default function BoardEditor({ configs, selectedFile, onSelectFile, board
   };
 
   const hasItems = Object.keys(instruments).length > 0;
+  const canSave = hasItems && (!!saveAs.trim() || !!selectedFile);
+
+  const handleSave = () => {
+    if (!canSave) return;
+    const filename = saveAs.trim() || selectedFile || "";
+    const normalized = filename.endsWith(".yaml") ? filename : filename + ".yaml";
+    onSelectFile(normalized);
+    onSave(normalized, { instruments });
+    setSaveAs("");
+  };
 
   return (
     <div>
@@ -153,10 +159,7 @@ export default function BoardEditor({ configs, selectedFile, onSelectFile, board
             placeholder={selectedFile ?? "my_board.yaml"}
             style={filenameInputStyle}
           />
-          <SaveButton onClick={() => {
-            if (saveAs.trim()) onSelectFile(saveAs.trim().endsWith(".yaml") ? saveAs.trim() : saveAs.trim() + ".yaml");
-            onSave({ instruments });
-          }} />
+          <SaveButton onClick={handleSave} disabled={!canSave} />
         </div>
       )}
     </div>

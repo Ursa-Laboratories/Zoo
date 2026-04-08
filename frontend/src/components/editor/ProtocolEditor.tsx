@@ -9,7 +9,7 @@ interface Props {
   onSelectFile: (f: string) => void;
   commands: CommandInfo[];
   steps: ProtocolStep[] | null;
-  onSave: (body: ProtocolConfig) => void;
+  onSave: (filename: string, body: ProtocolConfig) => void;
   onValidate: (body: ProtocolConfig) => void;
   validationErrors: string[] | null;
   isValidating: boolean;
@@ -58,17 +58,13 @@ export default function ProtocolEditor({
   runResult,
   runError,
 }: Props) {
-  const [steps, setSteps] = useState<ProtocolStep[]>([]);
+  const [steps, setSteps] = useState<ProtocolStep[]>(() => (
+    loadedSteps ? structuredClone(loadedSteps) : []
+  ));
   const [addCommand, setAddCommand] = useState(commands[0]?.name ?? "move");
   const [saveAs, setSaveAs] = useState("");
-  const [loadedProtocolSteps, setLoadedProtocolSteps] = useState<ProtocolStep[] | null>(loadedSteps);
 
   const commandsByName = Object.fromEntries(commands.map((c) => [c.name, c]));
-
-  if (loadedSteps !== loadedProtocolSteps) {
-    setLoadedProtocolSteps(loadedSteps);
-    setSteps(loadedSteps ? structuredClone(loadedSteps) : []);
-  }
 
   const addStep = () => {
     const cmd = commandsByName[addCommand];
@@ -103,10 +99,12 @@ export default function ProtocolEditor({
     if (!filename) return;
     const normalized = filename.endsWith(".yaml") ? filename : filename + ".yaml";
     onSelectFile(normalized);
-    onSave({ protocol: steps });
+    onSave(normalized, { protocol: steps });
+    setSaveAs("");
   };
 
   const hasSteps = steps.length > 0;
+  const canSave = hasSteps && (!!saveAs.trim() || !!selectedFile);
 
   return (
     <div>
@@ -203,7 +201,7 @@ export default function ProtocolEditor({
             <button onClick={handleValidate} disabled={isValidating} style={validateBtnStyle}>
               {isValidating ? "..." : "Validate"}
             </button>
-            <button onClick={handleSave} style={saveBtnStyle}>
+            <button onClick={handleSave} disabled={!canSave} style={saveBtnStyle}>
               Save
             </button>
             <button onClick={onRun} disabled={isRunning || !hasSteps} style={runBtnStyle}>

@@ -57,11 +57,11 @@ export default function App() {
 
   const deckConfigs = useDeckConfigs();
   const deckQuery = useDeck(deckFile);
-  const saveDeck = useSaveDeck(deckFile ?? "");
+  const saveDeck = useSaveDeck();
 
   const boardConfigs = useBoardConfigs();
   const boardQuery = useBoard(boardFile);
-  const saveBoard = useSaveBoard(boardFile ?? "");
+  const saveBoard = useSaveBoard();
   const instrumentTypes = useInstrumentTypes();
   const instrumentSchemas = useInstrumentSchemas();
 
@@ -73,7 +73,7 @@ export default function App() {
   const protocolCommands = useProtocolCommands();
   const protocolConfigs = useProtocolConfigs();
   const protocolQuery = useProtocol(protocolFile);
-  const saveProtocol = useSaveProtocol(protocolFile ?? "");
+  const saveProtocol = useSaveProtocol();
   const validateProtocol = useValidateProtocol();
 
   const [localDeck, setLocalDeck] = useState<DeckResponse | null>(null);
@@ -102,6 +102,10 @@ export default function App() {
     }, 300);
     return () => clearTimeout(previewTimerRef.current);
   }, [localDeck]);
+
+  React.useEffect(() => {
+    setLocalDeck(null);
+  }, [deckFile]);
 
   const displayDeck = useMemo(() => {
     const base = localDeck ?? deckQuery.data ?? null;
@@ -204,24 +208,26 @@ export default function App() {
         />
       {activeTab === "Deck" && (
         <DeckEditor
+          key={deckQuery.data ? `loaded:${deckQuery.data.filename}` : `selected:${deckFile ?? "none"}`}
           configs={deckConfigs.data ?? []}
           selectedFile={deckFile}
           onSelectFile={setDeckFile}
           deck={deckQuery.data ?? null}
-          onSave={(body) => saveDeck.mutate(body)}
+          onSave={(filename, body) => saveDeck.mutate({ filename, body })}
           onLocalChange={setLocalDeck}
           onRefresh={refreshAll}
         />
       )}
       {activeTab === "Board" && (
         <BoardEditor
+          key={boardQuery.data ? `loaded:${boardQuery.data.filename}` : `selected:${boardFile ?? "none"}`}
           configs={boardConfigs.data ?? []}
           selectedFile={boardFile}
           onSelectFile={setBoardFile}
           board={boardQuery.data ?? null}
           instrumentTypes={instrumentTypes.data ?? []}
           instrumentSchemas={instrumentSchemas.data ?? {}}
-          onSave={(body) => saveBoard.mutate(body)}
+          onSave={(filename, body) => saveBoard.mutate({ filename, body })}
           onRefresh={refreshAll}
         />
       )}
@@ -238,12 +244,13 @@ export default function App() {
       )}
       {activeTab === "Protocol" && deckQuery.data && boardQuery.data && gantryQuery.data && (
         <ProtocolEditor
+          key={protocolQuery.data ? `loaded:${protocolQuery.data.filename}` : `selected:${protocolFile ?? "none"}`}
           configs={protocolConfigs.data ?? []}
           selectedFile={protocolFile}
           onSelectFile={setProtocolFile}
           commands={protocolCommands.data ?? []}
           steps={protocolQuery.data?.steps ?? null}
-          onSave={(body) => saveProtocol.mutate(body)}
+          onSave={(filename, body) => saveProtocol.mutate({ filename, body })}
           onValidate={(body) =>
             validateProtocol.mutate(body, {
               onSuccess: (res) => setValidationResult(res),

@@ -2,6 +2,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { protocolApi } from "../api/client";
 import type { ProtocolConfig } from "../types";
 
+type SaveProtocolArgs = {
+  filename: string;
+  body: ProtocolConfig;
+};
+
 export function useProtocolCommands() {
   return useQuery({
     queryKey: ["protocol", "commands"],
@@ -25,11 +30,11 @@ export function useProtocol(filename: string | null) {
   });
 }
 
-export function useSaveProtocol(filename: string) {
+export function useSaveProtocol() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: ProtocolConfig) => protocolApi.put(filename, body),
-    onSuccess: () => {
+    mutationFn: ({ filename, body }: SaveProtocolArgs) => protocolApi.put(filename, body),
+    onSuccess: (_data, { filename }) => {
       qc.invalidateQueries({ queryKey: ["protocol", filename] });
       qc.invalidateQueries({ queryKey: ["protocol", "configs"] });
     },
