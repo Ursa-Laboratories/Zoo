@@ -20,6 +20,7 @@ export default function ImportFromFile({ configs, onSelectFile, label }: Props) 
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
       <select
+        aria-label={label}
         defaultValue=""
         onChange={(e) => {
           if (e.target.value) {
