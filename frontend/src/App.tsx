@@ -16,15 +16,15 @@ import { useProtocolCommands, useProtocolConfigs, useProtocol, useSaveProtocol, 
 import type { DeckResponse, WellPosition, ProtocolValidationResponse, WorkingVolume } from "./types";
 import type { SettingsResponse } from "./api/client";
 
-function cubosPathFromSettings(settings: SettingsResponse): string {
-  return settings.cubos_path ?? settings.panda_core_path ?? "";
+function configDirFromSettings(settings: SettingsResponse): string {
+  return settings.config_dir ?? "";
 }
 
 export default function App() {
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState("Gantry");
   const [campaignId, setCampaignId] = useState("");
-  const [cubosPath, setCubosPath] = useState<string | null>(null);
+  const [configDir, setConfigDir] = useState<string | null>(null);
   const [browseLoading, setBrowseLoading] = useState(false);
 
   const [deckFile, setDeckFile] = useState<string | null>(null);
@@ -36,23 +36,24 @@ export default function App() {
   const [runError, setRunError] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
 
-  // Load current CubOS path on mount
+  // Load the local config directory on mount.
   React.useEffect(() => {
-    settingsApi.get().then((s) => setCubosPath(cubosPathFromSettings(s))).catch(() => {});
+    settingsApi.get().then((s) => setConfigDir(configDirFromSettings(s))).catch(() => {});
   }, []);
 
   const handleBrowse = async () => {
     setBrowseLoading(true);
     try {
-      const result = await settingsApi.browse();
-      const selectedPath = cubosPathFromSettings(result);
-      setCubosPath(selectedPath);
-      await settingsApi.update(selectedPath);
+      const browseResult = await settingsApi.browse();
+      const selectedPath = configDirFromSettings(browseResult);
+      const savedSettings = await settingsApi.update(selectedPath);
+      setConfigDir(configDirFromSettings(savedSettings));
       refreshAll();
     } catch {
-      // User cancelled the dialog
+      // User cancelled the dialog or the update failed.
+    } finally {
+      setBrowseLoading(false);
     }
-    setBrowseLoading(false);
   };
 
   const deckConfigs = useDeckConfigs();
@@ -177,16 +178,16 @@ export default function App() {
       </div>
       <div style={{ marginBottom: 12 }}>
         <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
-          <span style={{ color: "#666" }}>CubOS Path</span>
+          <span style={{ color: "#666" }}>Config Directory</span>
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <input
               type="text"
-              value={cubosPath ?? ""}
+              value={configDir ?? ""}
               readOnly
               placeholder="Not set"
-              style={{ ...campaignInputStyle, flex: 1, color: cubosPath ? "#1a1a1a" : "#aaa" }}
+              style={{ ...campaignInputStyle, flex: 1, color: configDir ? "#1a1a1a" : "#aaa" }}
             />
-            <button onClick={handleBrowse} disabled={browseLoading} style={browseBtnStyle}>
+            <button onClick={handleBrowse} disabled={browseLoading} style={browseButtonStyle}>
               {browseLoading ? "..." : "Browse"}
             </button>
           </div>
@@ -302,7 +303,7 @@ const campaignInputStyle: React.CSSProperties = {
   fontSize: 13,
 };
 
-const browseBtnStyle: React.CSSProperties = {
+const browseButtonStyle: React.CSSProperties = {
   background: "#f5f5f5",
   color: "#1a1a1a",
   border: "1px solid #ccc",
@@ -312,3 +313,4 @@ const browseBtnStyle: React.CSSProperties = {
   fontSize: 12,
   whiteSpace: "nowrap",
 };
+

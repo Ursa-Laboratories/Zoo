@@ -29,7 +29,7 @@ def tmp_configs(monkeypatch):
         # Also add a non-protocol file to make sure it's excluded
         write_yaml(configs / "deck.yaml", {"labware": {}})
 
-        monkeypatch.setattr(get_settings(), "cubos_path", Path(d))
+        monkeypatch.setattr(get_settings(), "config_dir", Path(d) / "configs")
         yield configs
 
 

@@ -140,7 +140,13 @@ function installFetchMock(state: ApiState) {
     const body = init?.body ? JSON.parse(String(init.body)) : null;
 
     if (path === "/api/settings" && method === "GET") {
-      return jsonResponse({ cubos_path: "/mock/CubOS" });
+      return jsonResponse({ config_dir: "/mock/Zoo/configs" });
+    }
+    if (path === "/api/settings/browse" && method === "POST") {
+      return jsonResponse({ config_dir: "/mock/Zoo/selected-configs" });
+    }
+    if (path === "/api/settings" && method === "PUT") {
+      return jsonResponse({ config_dir: body?.config_dir ?? "/mock/Zoo/configs" });
     }
     if (path === "/api/deck/configs") {
       return jsonResponse(Object.keys(state.decks));
@@ -257,7 +263,7 @@ async function importConfig(user: ReturnType<typeof userEvent.setup>, label: str
 }
 
 async function waitForSettingsLoad() {
-  await screen.findByDisplayValue("/mock/CubOS");
+  await screen.findByDisplayValue("/mock/Zoo/configs");
 }
 
 async function loadRequiredProtocolDependencies(user: ReturnType<typeof userEvent.setup>) {
@@ -275,6 +281,24 @@ describe("Zoo editor interactions", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("shows a browse button for the config directory", async () => {
+    renderApp();
+    await waitForSettingsLoad();
+
+    expect(screen.getByDisplayValue("/mock/Zoo/configs")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Browse" })).toBeInTheDocument();
+  });
+
+  it("updates the config directory from browse selection", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await waitForSettingsLoad();
+
+    await user.click(screen.getByRole("button", { name: "Browse" }));
+
+    await waitFor(() => expect(screen.getByDisplayValue("/mock/Zoo/selected-configs")).toBeInTheDocument());
   });
 
   it("loads and saves a gantry config across tab switches", async () => {

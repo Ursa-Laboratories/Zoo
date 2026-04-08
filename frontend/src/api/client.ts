@@ -1,8 +1,7 @@
 const BASE = "/api";
 
 export type SettingsResponse = {
-  cubos_path: string;
-  panda_core_path?: string;
+  config_dir: string;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -127,10 +126,10 @@ export const protocolApi = {
 // Settings
 export const settingsApi = {
   get: () => request<SettingsResponse>("/settings"),
-  update: (cubos_path: string) =>
+  update: (config_dir: string) =>
     request<SettingsResponse>("/settings", {
       method: "PUT",
-      body: JSON.stringify({ cubos_path }),
+      body: JSON.stringify({ config_dir }),
     }),
   browse: () =>
     request<SettingsResponse>("/settings/browse", {

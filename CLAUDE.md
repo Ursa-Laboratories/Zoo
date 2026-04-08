@@ -8,14 +8,15 @@ Zoo is a web UI (FastAPI + React) for configuring and controlling CubOS. It is *
 - **Never recreate CubOS functionality.** If CubOS already provides it (YAML schema validation, well position calculation, movement, protocol execution, deck resolution, instrument control), use it. Don't duplicate or rewrite it in Zoo.
 - **Zoo routers are thin.** They write YAML from user input, read it back via CubOS loaders/schemas, and return the results. Business logic and validation belong in CubOS, not in Zoo.
 - **Zoo models are API response shapes only.** They describe what the REST API returns (e.g. `GantryPosition`, `DeckResponse`). They must not duplicate CubOS's Pydantic schemas or validation logic.
-- **CubOS is imported via sys.path** pointing at `{cubos_path}/src`. The path is configured via `ZOO_CUBOS_PATH` env var (default: local `zoo/CubOS`). `ZOO_PANDA_CORE_PATH` is accepted only as a legacy compatibility alias.
+- **CubOS is installed from Git and imported as a package.** Zoo must rely on the installed `cubos` package modules (for example `deck`, `board`, `gantry`, `protocol_engine`) and must not prepend local source directories onto `sys.path`.
+- **Zoo stores configs locally.** YAML configs live in the repo-local `configs/` directory by default and can be redirected with the settings UI; the active directory is exposed through the settings API as `config_dir`.
 
 ## How Config Tabs Work
 
 Each config tab (Deck, Board, Gantry) follows the same pattern:
 1. **Frontend** collects user input via form fields
-2. **PUT** sends the raw config dict as JSON → Zoo writes it as YAML to `CubOS/configs/`
-3. **GET** reads YAML → validates/loads via CubOS loaders → returns structured JSON
+2. **PUT** sends the raw config dict as JSON → Zoo writes it as YAML to Zoo's local `configs/`
+3. **GET** reads YAML from Zoo's local `configs/` → validates/loads via CubOS loaders → returns structured JSON
 4. CubOS's loaders handle all validation and derived data (e.g. well position calculation)
 
 ## Project Structure

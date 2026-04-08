@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Web visualization for CubOS"
 requires-python = ">=3.11"
 dependencies = [
+    "cubos @ git+https://github.com/Ursa-Laboratories/CubOS.git@main",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
     "pyyaml>=6.0",
