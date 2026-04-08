@@ -67,7 +67,7 @@ export default function App() {
 
   const gantryConfigs = useGantryConfigs();
   const gantryQuery = useGantry(gantryFile);
-  const saveGantry = useSaveGantry(gantryFile ?? "");
+  const saveGantry = useSaveGantry();
   const gantryPosition = useGantryPosition(!isRunning);
 
   const protocolCommands = useProtocolCommands();
@@ -227,11 +227,12 @@ export default function App() {
       )}
       {activeTab === "Gantry" && (
         <GantryEditor
+          key={gantryQuery.data ? `loaded:${gantryQuery.data.filename}` : `selected:${gantryFile ?? "none"}`}
           configs={gantryConfigs.data ?? []}
           selectedFile={gantryFile}
           onSelectFile={setGantryFile}
           gantry={gantryQuery.data ?? null}
-          onSave={(body) => saveGantry.mutate(body)}
+          onSave={(filename, body) => saveGantry.mutate({ filename, body })}
           onRefresh={refreshAll}
         />
       )}

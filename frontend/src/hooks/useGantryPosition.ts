@@ -2,6 +2,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { gantryApi } from "../api/client";
 import type { GantryConfig } from "../types";
 
+type SaveGantryArgs = {
+  filename: string;
+  body: GantryConfig;
+};
+
 export function useGantryPosition(enabled = true) {
   return useQuery({
     queryKey: ["gantry", "position"],
@@ -23,11 +28,13 @@ export function useGantry(filename: string | null) {
   });
 }
 
-export function useSaveGantry(filename: string) {
+export function useSaveGantry() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: GantryConfig) => gantryApi.put(filename, body),
-    onSuccess: () => {
+    mutationFn: ({ filename, body }: SaveGantryArgs) => gantryApi.put(filename, body),
+    onSuccess: (data, { filename }) => {
+      qc.setQueryData(["gantry", filename], data);
+      qc.invalidateQueries({ queryKey: ["gantry", "configs"] });
       qc.invalidateQueries({ queryKey: ["gantry", filename] });
     },
   });
