@@ -4,6 +4,7 @@ import { SVG_PADDING } from "../../utils/coordinates";
 import GantryMarker from "./GantryMarker";
 import InstrumentRenderer from "./InstrumentRenderer";
 import VialRenderer from "./VialRenderer";
+import WallRenderer from "./WallRenderer";
 import WellPlateRenderer from "./WellPlateRenderer";
 
 interface Props {
@@ -127,6 +128,19 @@ export default function DeckVisualization({
           if (item.config.type === "vial") {
             return (
               <VialRenderer
+                key={item.key}
+                label={item.key}
+                config={item.config}
+                svgWidth={SVG_W}
+                svgHeight={SVG_H}
+                machineXRange={machineXRange}
+                machineYRange={machineYRange}
+              />
+            );
+          }
+          if (item.config.type === "wall") {
+            return (
+              <WallRenderer
                 key={item.key}
                 label={item.key}
                 config={item.config}

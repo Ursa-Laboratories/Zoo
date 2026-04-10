@@ -3,6 +3,7 @@
 from typing import Any, Dict, Optional
 
 from deck import load_deck_from_yaml
+from deck.labware.wall import Wall
 from deck.labware.well_plate import WellPlate
 from deck.loader import _derive_wells_from_calibration
 from deck.yaml_schema import WellPlateYamlEntry
@@ -24,10 +25,20 @@ class WellPosition(BaseModel):
     z: float
 
 
+class BoundingBox(BaseModel):
+    x_min: float
+    x_max: float
+    y_min: float
+    y_max: float
+    z_min: float
+    z_max: float
+
+
 class LabwareResponse(BaseModel):
     key: str
     config: Dict[str, Any]
     wells: Optional[Dict[str, WellPosition]] = None
+    bounding_box: Optional[BoundingBox] = None
 
 
 class DeckResponse(BaseModel):
@@ -60,12 +71,19 @@ def get_deck(filename: str) -> DeckResponse:
     for key, labware in deck.labware.items():
         config = raw.get("labware", {}).get(key, {})
         wells = None
+        bbox = None
         if isinstance(labware, WellPlate):
             wells = {
                 wid: WellPosition(x=c.x, y=c.y, z=c.z)
                 for wid, c in labware.wells.items()
             }
-        items.append(LabwareResponse(key=key, config=config, wells=wells))
+        elif isinstance(labware, Wall):
+            bbox = BoundingBox(
+                x_min=labware.x_min, x_max=labware.x_max,
+                y_min=labware.y_min, y_max=labware.y_max,
+                z_min=labware.z_min, z_max=labware.z_max,
+            )
+        items.append(LabwareResponse(key=key, config=config, wells=wells, bounding_box=bbox))
 
     return DeckResponse(filename=filename, labware=items)
 
