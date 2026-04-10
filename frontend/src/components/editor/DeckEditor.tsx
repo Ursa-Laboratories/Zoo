@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { DeckResponse, LabwareConfig, WellPlateConfig, VialConfig, DeckConfig } from "../../types";
+import type { DeckResponse, LabwareConfig, WellPlateConfig, VialConfig, WallConfig, DeckConfig } from "../../types";
 import { CoordinateField, NumberField, SaveButton, TextField } from "./fields";
 import ImportFromFile from "./ImportFromFile";
 
@@ -44,6 +44,13 @@ const EMPTY_VIAL: VialConfig = {
   working_volume_ul: 1200.0,
 };
 
+const EMPTY_WALL: WallConfig = {
+  type: "wall",
+  name: "",
+  corner_1: { x: 0, y: 0, z: 0 },
+  corner_2: { x: 100, y: 5, z: 40 },
+};
+
 function buildDeckResponse(labware: Record<string, LabwareConfig>, filename: string): DeckResponse {
   return {
     filename,
@@ -51,6 +58,7 @@ function buildDeckResponse(labware: Record<string, LabwareConfig>, filename: str
       key,
       config,
       wells: null,
+      bounding_box: null,
     })),
   };
 }
@@ -91,10 +99,10 @@ export default function DeckEditor({ configs, selectedFile, onSelectFile, deck, 
     syncViz(next);
   };
 
-  const addLabware = (type: "well_plate" | "vial") => {
+  const addLabware = (type: "well_plate" | "vial" | "wall") => {
     const idx = Object.keys(labware).length + 1;
-    const key = type === "well_plate" ? `wellplate_${idx}` : `vial_${idx}`;
-    const template = type === "well_plate" ? structuredClone(EMPTY_WELL_PLATE) : structuredClone(EMPTY_VIAL);
+    const key = type === "well_plate" ? `wellplate_${idx}` : type === "vial" ? `vial_${idx}` : `wall_${idx}`;
+    const template = type === "well_plate" ? structuredClone(EMPTY_WELL_PLATE) : type === "vial" ? structuredClone(EMPTY_VIAL) : structuredClone(EMPTY_WALL);
     const next = { ...labware, [key]: template };
     setLabware(next);
     syncViz(next);
@@ -124,6 +132,9 @@ export default function DeckEditor({ configs, selectedFile, onSelectFile, deck, 
         <button onClick={() => addLabware("vial")} style={addBtnStyle}>
           + Vial
         </button>
+        <button onClick={() => addLabware("wall")} style={addBtnStyle}>
+          + Wall
+        </button>
       </div>
 
       {Object.entries(labware).map(([key, entry]) => (
@@ -133,9 +144,10 @@ export default function DeckEditor({ configs, selectedFile, onSelectFile, deck, 
             <button onClick={() => removeLabware(key)} style={removeBtnStyle}>Remove</button>
           </div>
           <TextField label="Name" value={entry.name} onChange={(v) => updateLabware(key, { ...entry, name: v })} required />
-          <TextField label="Model" value={entry.model_name} onChange={(v) => updateLabware(key, { ...entry, model_name: v })} />
+          {"model_name" in entry && <TextField label="Model" value={(entry as WellPlateConfig | VialConfig).model_name} onChange={(v) => updateLabware(key, { ...entry, model_name: v })} />}
           {entry.type === "well_plate" && <WellPlateFields entry={entry} onChange={(v) => updateLabware(key, v)} />}
           {entry.type === "vial" && <VialFields entry={entry} onChange={(v) => updateLabware(key, v)} />}
+          {entry.type === "wall" && <WallFields entry={entry} onChange={(v) => updateLabware(key, v)} />}
         </div>
       ))}
 
@@ -196,6 +208,15 @@ function VialFields({ entry, onChange }: { entry: VialConfig; onChange: (v: Vial
         <NumberField label="Capacity (uL)" value={entry.capacity_ul} onChange={(v) => onChange({ ...entry, capacity_ul: v })} />
         <NumberField label="Working vol (uL)" value={entry.working_volume_ul} onChange={(v) => onChange({ ...entry, working_volume_ul: v })} />
       </div>
+    </div>
+  );
+}
+
+function WallFields({ entry, onChange }: { entry: WallConfig; onChange: (v: WallConfig) => void }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+      <CoordinateField label="Corner 1 (diagonally opposite)" value={entry.corner_1} onChange={(v) => onChange({ ...entry, corner_1: v })} required />
+      <CoordinateField label="Corner 2 (diagonally opposite)" value={entry.corner_2} onChange={(v) => onChange({ ...entry, corner_2: v })} required />
     </div>
   );
 }

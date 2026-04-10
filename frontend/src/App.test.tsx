@@ -49,6 +49,7 @@ function createState(): ApiState {
               working_volume_ul: 150,
             },
             wells: null,
+            bounding_box: null,
           },
         ],
       },
@@ -104,6 +105,7 @@ function toDeckResponse(filename: string, body: DeckConfig): DeckResponse {
       key,
       config,
       wells: null,
+      bounding_box: null,
     })),
   };
 }

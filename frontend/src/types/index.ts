@@ -39,7 +39,14 @@ export interface VialConfig {
   working_volume_ul: number;
 }
 
-export type LabwareConfig = WellPlateConfig | VialConfig;
+export interface WallConfig {
+  type: "wall";
+  name: string;
+  corner_1: Coordinate3D;
+  corner_2: Coordinate3D;
+}
+
+export type LabwareConfig = WellPlateConfig | VialConfig | WallConfig;
 
 export interface WellPosition {
   x: number;
@@ -47,10 +54,20 @@ export interface WellPosition {
   z: number;
 }
 
+export interface BoundingBox {
+  x_min: number;
+  x_max: number;
+  y_min: number;
+  y_max: number;
+  z_min: number;
+  z_max: number;
+}
+
 export interface LabwareResponse {
   key: string;
   config: LabwareConfig;
   wells: Record<string, WellPosition> | null;
+  bounding_box: BoundingBox | null;
 }
 
 export interface DeckResponse {
