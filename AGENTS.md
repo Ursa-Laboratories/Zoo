@@ -1,63 +1,57 @@
-# Zoo — CubOS Frontend
+# Zoo Agent Guide
 
-Zoo is a web UI (FastAPI + React) for configuring and controlling CubOS. It is **not** a standalone system — it is a thin frontend layer over CubOS.
+Zoo is a thin UI layer over CubOS.
 
-## Architecture Rules
+## Core Rules
 
-- **Never break CubOS abstractions.** Zoo must use CubOS's public classes and methods (e.g. `Gantry`, `Gantry.move_to`, `Gantry.get_coordinates`, `load_deck_from_yaml`, `BoardYamlSchema`) — never send raw serial/GRBL commands, never reimplement driver logic, never bypass CubOS to talk to hardware directly.
-- **Never recreate CubOS functionality.** If CubOS already provides it (YAML schema validation, well position calculation, movement, protocol execution, deck resolution, instrument control), use it. Don't duplicate or rewrite it in Zoo.
-- **Zoo routers are thin.** They write YAML from user input, read it back via CubOS loaders/schemas, and return the results. Business logic and validation belong in CubOS, not in Zoo.
-- **Zoo models are API response shapes only.** They describe what the REST API returns (e.g. `GantryPosition`, `DeckResponse`). They must not duplicate CubOS's Pydantic schemas or validation logic.
-- **CubOS is installed from Git and imported as a package.** Zoo must rely on the installed `cubos` package modules (for example `deck`, `board`, `gantry`, `protocol_engine`) and must not prepend local source directories onto `sys.path`.
-- **Zoo stores configs locally.** YAML configs live in the repo-local `configs/` directory by default and can be redirected with the settings UI; the active directory is exposed through the settings API as `config_dir`.
+- Do not duplicate CubOS validation, protocol, or hardware logic here.
+- Routers should stay thin and rely on CubOS loaders, schemas, registries, and runtime classes.
+- Frontend types should model API payloads, not become a second source of truth for CubOS semantics.
+- Keep hardware-touching behavior explicit. Gantry routes can home, jog, move, unlock, and run protocols.
 
-## How Config Tabs Work
+## Key Paths
 
-Each config tab (Deck, Board, Gantry) follows the same pattern:
-1. **Frontend** collects user input via form fields
-2. **PUT** sends the raw config dict as JSON -> Zoo writes it as YAML to Zoo's local `configs/`
-3. **GET** reads YAML from Zoo's local `configs/` -> validates/loads via CubOS loaders -> returns structured JSON
-4. CubOS's loaders handle all validation and derived data (e.g. well position calculation)
+- `zoo/app.py`
+- `zoo/__main__.py`
+- `zoo/config.py`
+- `zoo/routers/`
+- `zoo/services/`
+- `frontend/src/api/`
+- `frontend/src/components/`
+- `frontend/src/hooks/`
+- `tests/`
 
-## Project Structure
+## Runtime Model
 
-```
-zoo/
-  app.py              # FastAPI app factory
-  config.py           # ZooSettings (pydantic-settings)
-  models/             # API response shapes only (gantry, protocol)
-  routers/            # Thin FastAPI routers (deck, board, gantry, protocol, raw)
-  services/           # yaml_io helper
-frontend/
-  src/
-    api/client.ts     # API client functions
-    types/index.ts    # TypeScript types describing CubOS YAML shapes
-    hooks/            # TanStack Query hooks
-    components/       # React components
-progress/
-  README.md           # Shared progress-tracking contract for agents
-```
-
-## Frontend
-
-- React + TypeScript + Vite
-- TanStack Query for server state
-- Inline styles (no CSS framework)
-- `npm run build` from `frontend/` — output goes to `frontend/dist/`, served by FastAPI
+1. Frontend collects config edits.
+2. Zoo writes YAML to the active config directory.
+3. Zoo reads the same files back through CubOS loaders or schemas.
+4. Derived results are returned to the UI.
 
 ## Commands
 
-- **Frontend build:** `cd frontend && npm run build`
-- **Run server:** `python -m zoo` (or `uvicorn zoo.app:create_app --factory`)
-- **Backend tests:** `pytest tests/`
+```bash
+pytest tests/
+cd frontend && npm run lint
+cd frontend && npm run test
+cd frontend && npm run build
+python -m zoo
+```
 
-## Progress Tracking
+## Coordinate Convention
 
-Use the repo-local `progress/` directory to keep durable task notes that other agents can pick up.
+The CubOS backend (gantry hardware/GRBL) operates in **negative X/Y space** — positions reported by the hardware are negative. The frontend negates X and Y **only for display** so the readout shows positive values to the user. Jog and moveTo commands are sent to the backend as-is (positive user input). Z is not negated. Do not "fix" this display negation.
 
-- Before substantial multi-step work, create or update a markdown note in `progress/`.
-- Prefer one file per task or bug, with a short kebab-case name such as `progress/fix-gantry-save.md`.
-- Keep each note concise and current: goal, important findings, files touched, verification status, open risks, and next steps.
-- Update an existing note instead of creating duplicates for the same task.
-- When the task is complete, mark it complete in the note rather than deleting context that may help later agents.
-- Do not store secrets, tokens, or machine-specific private data in `progress/`.
+## Local State
+
+- Default config directory: `configs/`
+- Settings are exposed through `/api/settings`
+- Frontend build output lives in `frontend/dist/`
+
+## Documentation Contract
+
+Keep these files updated when behavior changes:
+
+- `README.md`
+- `docs/repo-overview.md`
+- `../docs/*` for cross-repo effects

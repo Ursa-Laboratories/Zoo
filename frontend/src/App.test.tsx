@@ -337,6 +337,21 @@ describe("Zoo editor interactions", () => {
     await waitFor(() => expect(screen.getByDisplayValue("Renamed Plate")).toBeInTheDocument());
   });
 
+  it("imports a deck config into panda-deck.yaml", async () => {
+    const user = userEvent.setup();
+    const state = createState();
+    installFetchMock(state);
+    renderApp();
+    await waitForSettingsLoad();
+
+    await user.click(screen.getByRole("button", { name: "Deck" }));
+    await importConfig(user, "Import deck config", "deck.yaml");
+
+    expect(await screen.findByDisplayValue("Deck Plate")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByPlaceholderText("panda-deck.yaml")).toBeInTheDocument());
+    expect(state.decks["panda-deck.yaml"]?.labware).toEqual(state.decks["deck.yaml"]?.labware);
+  });
+
   it("loads and saves a board config across tab switches", async () => {
     const user = userEvent.setup();
     renderApp();

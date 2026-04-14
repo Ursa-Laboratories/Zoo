@@ -6,6 +6,11 @@ export interface Coordinate3D {
   z: number;
 }
 
+export interface Coordinate2D {
+  x: number;
+  y: number;
+}
+
 export interface CalibrationPoints {
   a1: Coordinate3D | null;
   a2: Coordinate3D;
@@ -39,7 +44,83 @@ export interface VialConfig {
   working_volume_ul: number;
 }
 
-export type LabwareConfig = WellPlateConfig | VialConfig;
+export interface TipRackConfig {
+  type: "tip_rack";
+  name: string;
+  model_name: string;
+  load_name?: string;
+  rows?: number;
+  columns?: number;
+  z_pickup?: number;
+  z_drop?: number;
+  tips?: Record<string, WellPosition>;
+  tip_present?: Record<string, boolean>;
+  [key: string]: unknown;
+}
+
+export interface NestedWellPlateConfig {
+  name?: string;
+  model_name: string;
+  rows: number;
+  columns: number;
+  calibration: {
+    a1: Coordinate2D | Coordinate3D | null;
+    a2: Coordinate2D | Coordinate3D;
+  };
+  x_offset_mm: number;
+  y_offset_mm: number;
+  length_mm?: number;
+  width_mm?: number;
+  height_mm?: number;
+  capacity_ul?: number;
+  working_volume_ul?: number;
+  [key: string]: unknown;
+}
+
+export interface NestedVialConfig {
+  name?: string;
+  model_name: string;
+  height_mm: number;
+  diameter_mm: number;
+  location: Coordinate2D | Coordinate3D;
+  capacity_ul: number;
+  working_volume_ul: number;
+  [key: string]: unknown;
+}
+
+export interface WellPlateHolderConfig {
+  type: "well_plate_holder";
+  name: string;
+  model_name?: string;
+  location?: Coordinate3D;
+  well_plate?: NestedWellPlateConfig | null;
+  [key: string]: unknown;
+}
+
+export interface VialHolderConfig {
+  type: "vial_holder";
+  name: string;
+  model_name?: string;
+  location?: Coordinate3D;
+  vials?: Record<string, NestedVialConfig>;
+  [key: string]: unknown;
+}
+
+export interface TipDisposalConfig {
+  type: "tip_disposal";
+  name: string;
+  model_name?: string;
+  location?: Coordinate3D;
+  [key: string]: unknown;
+}
+
+export type UnsupportedDeckConfig =
+  | TipRackConfig
+  | WellPlateHolderConfig
+  | VialHolderConfig
+  | TipDisposalConfig;
+
+export type LabwareConfig = WellPlateConfig | VialConfig | UnsupportedDeckConfig;
 
 export interface WellPosition {
   x: number;
@@ -47,10 +128,19 @@ export interface WellPosition {
   z: number;
 }
 
+export interface GeometryResponse {
+  length_mm: number | null;
+  width_mm: number | null;
+  height_mm: number | null;
+}
+
 export interface LabwareResponse {
   key: string;
   config: LabwareConfig;
   wells: Record<string, WellPosition> | null;
+  location?: Coordinate3D;
+  geometry?: GeometryResponse;
+  positions?: Record<string, WellPosition>;
 }
 
 export interface DeckResponse {

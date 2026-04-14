@@ -275,9 +275,12 @@ export default function GantryPositionWidget({ position, workingVolume, configSe
         {/* XYZ Readout */}
         <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
           {(["X", "Y", "Z"] as const).map((axis) => {
-            const mpos = connected ? position![axis.toLowerCase() as "x" | "y" | "z"] : null;
+            const negateAxis = axis === "X" || axis === "Y";
+            const rawMpos = connected ? position![axis.toLowerCase() as "x" | "y" | "z"] : null;
+            const mpos = rawMpos != null && negateAxis ? -rawMpos : rawMpos;
             const wKey = `work_${axis.toLowerCase()}` as "work_x" | "work_y" | "work_z";
-            const wpos = connected ? position![wKey] : null;
+            const rawWpos = connected ? position![wKey] : null;
+            const wpos = rawWpos != null && negateAxis ? -rawWpos : rawWpos;
             return (
               <div key={axis} style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
                 <span style={{ color: "#888", fontSize: 13, fontWeight: 600, width: 14 }}>{axis}</span>

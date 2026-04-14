@@ -1,22 +1,52 @@
 # Zoo
 
-Web-based visualization and configuration UI for CubOS.
+`Zoo` is the local web UI for `CubOS`. It edits YAML configs, visualizes deck state, controls gantry motion, and triggers protocol execution through CubOS.
 
-## CubOS dependency
+See also:
 
-Zoo installs CubOS directly from Git:
+- `docs/repo-overview.md`
+- `../docs/architecture/system-overview.md`
+- `../docs/reference/api-contracts.md`
 
-`cubos @ git+https://github.com/Ursa-Laboratories/CubOS.git@main`
+## Dependency Model
 
-Zoo should import CubOS from the installed package, not from a local CubOS checkout.
+- Zoo imports `CubOS` as an installed package.
+- Zoo should stay a thin layer over CubOS loaders, schemas, registries, and motion logic.
+- The checked-in dependency currently points at a Git branch in `pyproject.toml`. Confirm branch strategy before changing it.
 
-## Local config storage
+## Local Config Storage
 
-Zoo reads and writes YAML configs from the repo-local `configs/` directory by default.
-The active path is exposed through `/api/settings` as `config_dir`, and the UI lets you choose a different config directory with a browse button.
+- Zoo reads and writes YAML configs from `configs/` by default.
+- The active directory is exposed through `/api/settings` as `config_dir`.
+- Operators can point Zoo at another config directory through the settings UI or API.
 
-## Development
+## Run
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+cd frontend
+npm ci
+cd ..
+python -m zoo
+```
+
+Defaults:
+
+- host: `127.0.0.1`
+- port: `8742`
+- browser auto-open: enabled
+
+## Test And Build
 
 - Backend tests: `pytest tests/`
-- Frontend tests: `cd frontend && npm test`
+- Frontend lint: `cd frontend && npm run lint`
+- Frontend tests: `cd frontend && npm run test`
 - Frontend build: `cd frontend && npm run build`
+
+## Notes
+
+- If `frontend/dist/` is missing, `python -m zoo` builds it automatically.
+- Gantry operations are hardware-touching and should be treated as high risk.
+- `frontend/README.md` is still the stock Vite template and is not authoritative documentation.

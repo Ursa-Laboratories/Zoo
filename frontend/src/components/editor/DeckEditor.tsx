@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { DeckResponse, LabwareConfig, WellPlateConfig, VialConfig, DeckConfig } from "../../types";
 import { CoordinateField, NumberField, SaveButton, TextField } from "./fields";
 import ImportFromFile from "./ImportFromFile";
@@ -7,6 +7,7 @@ interface Props {
   configs: string[];
   selectedFile: string | null;
   onSelectFile: (f: string) => void;
+  onImportFile: (f: string) => void;
   deck: DeckResponse | null;
   onSave: (filename: string, body: DeckConfig) => void;
   onLocalChange: (deck: DeckResponse) => void;
@@ -57,9 +58,15 @@ function buildDeckResponse(labware: Record<string, LabwareConfig>, filename: str
 
 function isValid(labware: Record<string, LabwareConfig>): boolean {
   for (const entry of Object.values(labware)) {
+    // Only validate editable types; unsupported types are preserved as-is.
+    if (!isEditableDeckLabware(entry)) continue;
     if (!entry.name.trim()) return false;
   }
   return true;
+}
+
+function isEditableDeckLabware(entry: LabwareConfig): entry is WellPlateConfig | VialConfig {
+  return entry.type === "well_plate" || entry.type === "vial";
 }
 
 function labwareFromDeck(deck: DeckResponse | null): Record<string, LabwareConfig> {
@@ -70,9 +77,13 @@ function labwareFromDeck(deck: DeckResponse | null): Record<string, LabwareConfi
   return obj;
 }
 
-export default function DeckEditor({ configs, selectedFile, onSelectFile, deck, onSave, onLocalChange }: Props) {
+export default function DeckEditor({ configs, selectedFile, onSelectFile, onImportFile, deck, onSave, onLocalChange }: Props) {
   const [labware, setLabware] = useState<Record<string, LabwareConfig>>(() => labwareFromDeck(deck));
   const [saveAs, setSaveAs] = useState("");
+
+  useEffect(() => {
+    setLabware(labwareFromDeck(deck));
+  }, [deck]);
 
   const syncViz = (next: Record<string, LabwareConfig>) => {
     onLocalChange(buildDeckResponse(next, selectedFile ?? "unsaved"));
@@ -115,7 +126,7 @@ export default function DeckEditor({ configs, selectedFile, onSelectFile, deck, 
 
   return (
     <div>
-      <ImportFromFile configs={configs} onSelectFile={onSelectFile} label="Import deck config" />
+      <ImportFromFile configs={configs} onSelectFile={onImportFile} label="Import deck config" />
 
       <div style={{ display: "flex", gap: 8, margin: "12px 0" }}>
         <button onClick={() => addLabware("well_plate")} style={addBtnStyle}>
@@ -132,10 +143,18 @@ export default function DeckEditor({ configs, selectedFile, onSelectFile, deck, 
             <h4 style={{ margin: 0, color: "#2563eb", fontSize: 13 }}>{key}</h4>
             <button onClick={() => removeLabware(key)} style={removeBtnStyle}>Remove</button>
           </div>
-          <TextField label="Name" value={entry.name} onChange={(v) => updateLabware(key, { ...entry, name: v })} required />
-          <TextField label="Model" value={entry.model_name} onChange={(v) => updateLabware(key, { ...entry, model_name: v })} />
-          {entry.type === "well_plate" && <WellPlateFields entry={entry} onChange={(v) => updateLabware(key, v)} />}
-          {entry.type === "vial" && <VialFields entry={entry} onChange={(v) => updateLabware(key, v)} />}
+          {isEditableDeckLabware(entry) ? (
+            <>
+              <TextField label="Name" value={entry.name} onChange={(v) => updateLabware(key, { ...entry, name: v })} required />
+              <TextField label="Model" value={entry.model_name} onChange={(v) => updateLabware(key, { ...entry, model_name: v })} />
+              {entry.type === "well_plate" && <WellPlateFields entry={entry} onChange={(v) => updateLabware(key, v)} />}
+              {entry.type === "vial" && <VialFields entry={entry} onChange={(v) => updateLabware(key, v)} />}
+            </>
+          ) : (
+            <div style={unsupportedNoteStyle}>
+              <strong>{entry.type}</strong> — editing not supported. This entry will be passed through to CubOS unchanged on save.
+            </div>
+          )}
         </div>
       ))}
 
@@ -237,4 +256,14 @@ const filenameInputStyle: React.CSSProperties = {
   borderRadius: 4,
   fontSize: 13,
   flex: 1,
+};
+
+const unsupportedNoteStyle: React.CSSProperties = {
+  marginTop: 8,
+  padding: "8px 10px",
+  borderRadius: 4,
+  background: "#fffbeb",
+  border: "1px solid #fde68a",
+  color: "#92400e",
+  fontSize: 12,
 };

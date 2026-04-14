@@ -20,6 +20,8 @@ function configDirFromSettings(settings: SettingsResponse): string {
   return settings.config_dir ?? "";
 }
 
+const WORKING_DECK_FILENAME = "panda-deck.yaml";
+
 export default function App() {
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState("Gantry");
@@ -35,10 +37,13 @@ export default function App() {
   const [runResult, setRunResult] = useState<{ status: string; steps_executed: number } | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
 
   // Load the local config directory on mount.
   React.useEffect(() => {
-    settingsApi.get().then((s) => setConfigDir(configDirFromSettings(s))).catch(() => {});
+    settingsApi.get()
+      .then((s) => setConfigDir(configDirFromSettings(s)))
+      .catch((err) => console.error("Failed to load settings:", err));
   }, []);
 
   const handleBrowse = async () => {
@@ -49,8 +54,11 @@ export default function App() {
       const savedSettings = await settingsApi.update(selectedPath);
       setConfigDir(configDirFromSettings(savedSettings));
       refreshAll();
-    } catch {
-      // User cancelled the dialog or the update failed.
+    } catch (err) {
+      // Distinguish cancellation (no selected path) from a real API failure.
+      if (err instanceof Error && err.message !== "cancelled") {
+        console.error("Browse/settings update failed:", err);
+      }
     } finally {
       setBrowseLoading(false);
     }
@@ -94,8 +102,12 @@ export default function App() {
         if (item.config.type === "well_plate") {
           try {
             result[item.key] = await deckApi.previewWells(item.config);
-          } catch {
-            // Config may be incomplete during editing — skip.
+          } catch (err) {
+            // 400 = config still incomplete during editing — expected, skip silently.
+            const is400 = err instanceof Error && err.message.includes("400");
+            if (!is400) {
+              console.error("Unexpected well preview error for", item.key, err);
+            }
           }
         }
       }
@@ -136,6 +148,24 @@ export default function App() {
     qc.invalidateQueries({ queryKey: ["gantry"] });
     qc.invalidateQueries({ queryKey: ["protocol"] });
     setLocalDeck(null);
+  };
+
+  const handleImportDeck = async (filename: string) => {
+    setImportError(null);
+    try {
+      const importedDeck = await deckApi.get(filename);
+      const labware = Object.fromEntries(
+        importedDeck.labware.map((item) => [item.key, structuredClone(item.config)]),
+      );
+      await saveDeck.mutateAsync({
+        filename: WORKING_DECK_FILENAME,
+        body: { labware },
+      });
+      setDeckFile(WORKING_DECK_FILENAME);
+      setLocalDeck(null);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   const handleRunProtocol = async () => {
@@ -208,16 +238,22 @@ export default function App() {
           })()}
         />
       {activeTab === "Deck" && (
-        <DeckEditor
-          key={deckQuery.data ? `loaded:${deckQuery.data.filename}` : `selected:${deckFile ?? "none"}`}
-          configs={deckConfigs.data ?? []}
-          selectedFile={deckFile}
-          onSelectFile={setDeckFile}
-          deck={deckQuery.data ?? null}
-          onSave={(filename, body) => saveDeck.mutate({ filename, body })}
-          onLocalChange={setLocalDeck}
-          onRefresh={refreshAll}
-        />
+        <>
+          {importError && (
+            <div style={importErrorStyle}>Import failed: {importError}</div>
+          )}
+          <DeckEditor
+            key={deckQuery.data ? `loaded:${deckQuery.data.filename}` : `selected:${deckFile ?? "none"}`}
+            configs={deckConfigs.data ?? []}
+            selectedFile={deckFile}
+            onSelectFile={setDeckFile}
+            onImportFile={handleImportDeck}
+            deck={deckQuery.data ?? null}
+            onSave={(filename, body) => saveDeck.mutate({ filename, body })}
+            onLocalChange={setLocalDeck}
+            onRefresh={refreshAll}
+          />
+        </>
       )}
       {activeTab === "Board" && (
         <BoardEditor
@@ -303,6 +339,16 @@ const campaignInputStyle: React.CSSProperties = {
   fontSize: 13,
 };
 
+const importErrorStyle: React.CSSProperties = {
+  marginBottom: 8,
+  padding: "6px 10px",
+  borderRadius: 4,
+  background: "#fef2f2",
+  border: "1px solid #fca5a5",
+  color: "#991b1b",
+  fontSize: 12,
+};
+
 const browseButtonStyle: React.CSSProperties = {
   background: "#f5f5f5",
   color: "#1a1a1a",
@@ -313,4 +359,3 @@ const browseButtonStyle: React.CSSProperties = {
   fontSize: 12,
   whiteSpace: "nowrap",
 };
-

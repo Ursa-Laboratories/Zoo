@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
+
+log = logging.getLogger(__name__)
 
 
 def read_yaml(path: Path) -> Dict[str, Any]:
@@ -60,6 +63,7 @@ def list_configs(configs_dir: Path, kind: str) -> List[str]:
             data = read_yaml(p)
             if classify_config(data) == kind:
                 results.append(p.name)
-        except Exception:
+        except Exception as exc:
+            log.warning("Skipping unreadable config %s: %s", p, exc)
             continue
     return results
