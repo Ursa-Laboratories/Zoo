@@ -197,5 +197,6 @@ def get_gantry(filename: str) -> GantryResponse:
 @router.put("/{filename}")
 def put_gantry(filename: str, body: dict) -> GantryResponse:
     path = resolve_config_path(get_settings().configs_dir, "gantry", filename)
-    write_yaml(path, body)
-    return get_gantry(filename)
+    validated = GantryConfig.model_validate(body)
+    write_yaml(path, validated.model_dump(mode="json"))
+    return GantryResponse(filename=filename, config=validated)
