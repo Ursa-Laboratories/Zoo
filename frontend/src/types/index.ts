@@ -138,9 +138,12 @@ export interface LabwareResponse {
   key: string;
   config: LabwareConfig;
   wells: Record<string, WellPosition> | null;
-  location?: Coordinate3D;
   geometry?: GeometryResponse;
-  positions?: Record<string, WellPosition>;
+  placement_anchor?: Coordinate3D | null;
+  render_anchor?: Coordinate3D | null;
+  default_target?: Coordinate3D | null;
+  targets?: Record<string, WellPosition> | null;
+  validation_points?: Record<string, WellPosition> | null;
 }
 
 export interface DeckResponse {

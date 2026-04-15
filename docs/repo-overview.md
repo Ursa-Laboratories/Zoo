@@ -73,5 +73,6 @@ npm run build
 - The repo currently has an empty default `configs/` directory; first-time users need to populate or redirect it.
 - `python -m zoo` may build the frontend automatically if `frontend/dist/` is absent.
 - The shared gantry instance is process-local and serial access is deliberately locked.
+- Deck responses are semantic, not generic geometry dumps: `placement_anchor`, `render_anchor`, `default_target`, and named `targets` have different meanings and should not be collapsed back into one coordinate field.
 - `raw` endpoints bypass schema-aware editing and can write malformed YAML if used carelessly.
 - The checked-in frontend README is a template and not authoritative project documentation.

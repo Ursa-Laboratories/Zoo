@@ -118,11 +118,12 @@ export default function DeckVisualization({
               <WellPlateRenderer
                 key={item.key}
                 config={item.config}
-                wells={item.wells ?? {}}
+                wells={item.targets ?? item.wells ?? {}}
                 svgWidth={SVG_W}
                 svgHeight={SVG_H}
                 machineXRange={machineXRange}
                 machineYRange={machineYRange}
+                testIdPrefix={item.key}
               />
             );
           }
@@ -131,25 +132,26 @@ export default function DeckVisualization({
               <TipRackRenderer
                 key={item.key}
                 config={item.config}
-                positions={filterRenderablePositions(item.positions)}
+                positions={item.targets ?? {}}
                 svgWidth={SVG_W}
                 svgHeight={SVG_H}
                 machineXRange={machineXRange}
                 machineYRange={machineYRange}
+                testIdPrefix={item.key}
               />
             );
           }
           if (item.config.type === "well_plate_holder") {
             const nestedConfig = item.config.well_plate;
-            const nestedWells = filterChildPositions(item.positions, "plate");
+            const nestedWells = filterChildTargets(item.targets, "plate");
 
             return (
               <g key={item.key}>
                 <HolderRenderer
                   label={item.config.name ?? item.key}
                   geometry={item.geometry ?? null}
-                  anchor={item.location ?? null}
-                  childPositions={Object.values(item.positions ?? {})}
+                  anchor={item.render_anchor ?? item.placement_anchor ?? null}
+                  childPositions={Object.values(item.targets ?? {})}
                   svgWidth={SVG_W}
                   svgHeight={SVG_H}
                   machineXRange={machineXRange}
@@ -181,6 +183,7 @@ export default function DeckVisualization({
                     svgHeight={SVG_H}
                     machineXRange={machineXRange}
                     machineYRange={machineYRange}
+                    testIdPrefix={`${item.key}-plate`}
                   />
                 )}
               </g>
@@ -192,15 +195,15 @@ export default function DeckVisualization({
                 <HolderRenderer
                   label={item.config.name ?? item.key}
                   geometry={item.geometry ?? null}
-                  anchor={item.location ?? null}
-                  childPositions={Object.values(item.positions ?? {})}
+                  anchor={item.render_anchor ?? item.placement_anchor ?? null}
+                  childPositions={Object.values(item.targets ?? {})}
                   svgWidth={SVG_W}
                   svgHeight={SVG_H}
                   machineXRange={machineXRange}
                   machineYRange={machineYRange}
                 />
                 {Object.entries(item.config.vials ?? {}).map(([vialId, vialConfig]) => {
-                  const position = item.positions?.[vialId];
+                  const position = item.targets?.[vialId];
                   if (!position) return null;
                   return (
                     <VialRenderer
@@ -220,6 +223,7 @@ export default function DeckVisualization({
                       svgHeight={SVG_H}
                       machineXRange={machineXRange}
                       machineYRange={machineYRange}
+                      testIdPrefix={item.key}
                     />
                   );
                 })}
@@ -227,15 +231,17 @@ export default function DeckVisualization({
             );
           }
           if (item.config.type === "vial") {
+            const target = item.default_target ?? item.render_anchor ?? item.placement_anchor ?? item.config.location;
             return (
               <VialRenderer
                 key={item.key}
                 label={item.key}
-                config={item.config}
+                config={{ ...item.config, location: target }}
                 svgWidth={SVG_W}
                 svgHeight={SVG_H}
                 machineXRange={machineXRange}
                 machineYRange={machineYRange}
+                testIdPrefix={item.key}
               />
             );
           }
@@ -270,24 +276,15 @@ export default function DeckVisualization({
   );
 }
 
-function filterRenderablePositions(positions?: Record<string, { x: number; y: number; z: number }> | null) {
-  if (!positions) {
-    return {};
-  }
-  return Object.fromEntries(
-    Object.entries(positions).filter(([name]) => name !== "location" && !name.includes(".")),
-  );
-}
-
-function filterChildPositions(
-  positions: Record<string, { x: number; y: number; z: number }> | null | undefined,
+function filterChildTargets(
+  targets: Record<string, { x: number; y: number; z: number }> | null | undefined,
   childName: string,
 ) {
-  if (!positions) {
+  if (!targets) {
     return {};
   }
   return Object.fromEntries(
-    Object.entries(positions)
+    Object.entries(targets)
       .filter(([name]) => name.startsWith(`${childName}.`))
       .map(([name, position]) => [name.slice(childName.length + 1), position]),
   );

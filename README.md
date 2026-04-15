@@ -49,4 +49,5 @@ Defaults:
 
 - If `frontend/dist/` is missing, `python -m zoo` builds it automatically.
 - Gantry operations are hardware-touching and should be treated as high risk.
+- Deck API payloads now distinguish `placement_anchor`, `render_anchor`, `default_target`, and named `targets`; Zoo should not infer actionable Z targets from labware height or holder anchors.
 - `frontend/README.md` is still the stock Vite template and is not authoritative documentation.

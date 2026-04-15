@@ -9,6 +9,7 @@ interface Props {
   svgHeight: number;
   machineXRange: [number, number];
   machineYRange: [number, number];
+  testIdPrefix?: string;
 }
 
 export default function TipRackRenderer({
@@ -18,6 +19,7 @@ export default function TipRackRenderer({
   svgHeight,
   machineXRange,
   machineYRange,
+  testIdPrefix = "tip",
 }: Props) {
   const tips = Object.values(positions);
   if (tips.length === 0) {
@@ -64,7 +66,15 @@ export default function TipRackRenderer({
           machineYRange,
         );
         return (
-          <circle key={tipId} cx={sx} cy={sy} r={2.5} fill="#16a34a" opacity={0.65}>
+          <circle
+            key={tipId}
+            cx={sx}
+            cy={sy}
+            r={2.5}
+            fill="#16a34a"
+            opacity={0.65}
+            data-testid={`${testIdPrefix}-target-${tipId}`}
+          >
             <title>
               {tipId}: ({position.x}, {position.y}, {position.z})
             </title>

@@ -8,6 +8,7 @@ interface Props {
   svgHeight: number;
   machineXRange: [number, number];
   machineYRange: [number, number];
+  testIdPrefix?: string;
 }
 
 export default function WellPlateRenderer({
@@ -17,6 +18,7 @@ export default function WellPlateRenderer({
   svgHeight,
   machineXRange,
   machineYRange,
+  testIdPrefix = "well",
 }: Props) {
   const wellRadius = 3;
   const wellEntries = Object.values(wells);
@@ -67,7 +69,15 @@ export default function WellPlateRenderer({
           machineYRange
         );
         return (
-          <circle key={id} cx={sx} cy={sy} r={wellRadius} fill="#2563eb" opacity={0.5}>
+          <circle
+            key={id}
+            cx={sx}
+            cy={sy}
+            r={wellRadius}
+            fill="#2563eb"
+            opacity={0.5}
+            data-testid={`${testIdPrefix}-target-${id}`}
+          >
             <title>
               {id}: ({pos.x}, {pos.y}, {pos.z})
             </title>

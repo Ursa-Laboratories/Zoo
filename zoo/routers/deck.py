@@ -32,9 +32,12 @@ class LabwareResponse(BaseModel):
     key: str
     config: Dict[str, Any]
     wells: Optional[Dict[str, WellPosition]] = None
-    location: Optional[WellPosition] = None
     geometry: Optional[Dict[str, Optional[float]]] = None
-    positions: Optional[Dict[str, WellPosition]] = None
+    placement_anchor: Optional[WellPosition] = None
+    render_anchor: Optional[WellPosition] = None
+    default_target: Optional[WellPosition] = None
+    targets: Optional[Dict[str, WellPosition]] = None
+    validation_points: Optional[Dict[str, WellPosition]] = None
 
 
 class DeckResponse(BaseModel):
@@ -66,24 +69,44 @@ def get_deck(filename: str) -> DeckResponse:
     items: list[LabwareResponse] = []
     for key, labware in deck.labware.items():
         config = _normalize_labware_config(raw.get("labware", {}).get(key, {}), labware, key)
+        labware_type = config.get("type") or _infer_labware_type(labware, key)
         if hasattr(labware, "iter_positions"):
             positions = _serialize_positions(labware.iter_positions())
         else:
             log.warning("Labware %s (%s) has no iter_positions — positions will be empty", key, type(labware).__name__)
             positions = {}
-        wells = positions if isinstance(labware, WellPlate) else None
+        placement_anchor = _serialize_config_point(config.get("location"))
         if hasattr(labware, "get_initial_position"):
-            location = _serialize_point(labware.get_initial_position())
+            initial_position = _serialize_point(labware.get_initial_position())
         else:
-            location = None
+            initial_position = None
+        targets = _serialize_actionable_targets(positions)
+        default_target = _resolve_default_target(
+            labware_type=labware_type,
+            initial_position=initial_position,
+            positions=positions,
+            targets=targets,
+        )
+        render_anchor = _resolve_render_anchor(
+            placement_anchor=placement_anchor,
+            initial_position=initial_position,
+            positions=positions,
+            default_target=default_target,
+        )
+        wells = targets if isinstance(labware, WellPlate) else None
         items.append(
             LabwareResponse(
                 key=key,
                 config=config,
                 wells=wells,
-                location=location,
                 geometry=_serialize_geometry(getattr(labware, "geometry", None)),
-                positions={name: point for name, point in positions.items() if name != "location"} or None,
+                placement_anchor=placement_anchor,
+                render_anchor=render_anchor,
+                default_target=default_target,
+                targets=targets,
+                validation_points=_serialize_validation_points(
+                    getattr(labware, "get_validation_points", None)
+                ),
             )
         )
 
@@ -127,6 +150,77 @@ def _serialize_positions(positions: Dict[str, Any]) -> Dict[str, WellPosition]:
         for name, coord in positions.items()
         if coord is not None
     }
+
+
+def _serialize_config_point(point: Any) -> Optional[WellPosition]:
+    if point is None:
+        return None
+    if isinstance(point, dict):
+        x = point.get("x")
+        y = point.get("y")
+        z = point.get("z")
+    else:
+        x = getattr(point, "x", None)
+        y = getattr(point, "y", None)
+        z = getattr(point, "z", None)
+    if x is None or y is None or z is None:
+        return None
+    return WellPosition(x=x, y=y, z=z)
+
+
+def _serialize_actionable_targets(
+    positions: Dict[str, WellPosition],
+) -> Optional[Dict[str, WellPosition]]:
+    targets = {name: point for name, point in positions.items() if name != "location"}
+    return targets or None
+
+
+def _serialize_validation_points(
+    validation_points_getter: Any,
+) -> Optional[Dict[str, WellPosition]]:
+    if not callable(validation_points_getter):
+        return None
+
+    raw_points = validation_points_getter()
+    if isinstance(raw_points, dict):
+        return _serialize_positions(raw_points) or None
+    if isinstance(raw_points, (list, tuple)):
+        return _serialize_positions({str(index): point for index, point in enumerate(raw_points)}) or None
+    return None
+
+
+def _resolve_default_target(
+    *,
+    labware_type: Optional[str],
+    initial_position: Optional[WellPosition],
+    positions: Dict[str, WellPosition],
+    targets: Optional[Dict[str, WellPosition]],
+) -> Optional[WellPosition]:
+    if labware_type == "well_plate_holder":
+        return (targets or {}).get("plate")
+    if labware_type == "vial_holder":
+        return None
+    if labware_type in {"vial", "tip_disposal"}:
+        return positions.get("location") or initial_position
+    if labware_type in {"well_plate", "tip_rack"}:
+        return initial_position or _first_target(targets)
+    return initial_position or positions.get("location") or _first_target(targets)
+
+
+def _resolve_render_anchor(
+    *,
+    placement_anchor: Optional[WellPosition],
+    initial_position: Optional[WellPosition],
+    positions: Dict[str, WellPosition],
+    default_target: Optional[WellPosition],
+) -> Optional[WellPosition]:
+    return placement_anchor or positions.get("location") or initial_position or default_target
+
+
+def _first_target(targets: Optional[Dict[str, WellPosition]]) -> Optional[WellPosition]:
+    if not targets:
+        return None
+    return next(iter(targets.values()))
 
 
 def _serialize_geometry(geometry: Any) -> Optional[Dict[str, Optional[float]]]:

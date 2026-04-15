@@ -8,6 +8,7 @@ interface Props {
   svgHeight: number;
   machineXRange: [number, number];
   machineYRange: [number, number];
+  testIdPrefix?: string;
 }
 
 export default function VialRenderer({
@@ -17,6 +18,7 @@ export default function VialRenderer({
   svgHeight,
   machineXRange,
   machineYRange,
+  testIdPrefix = "vial",
 }: Props) {
   const { sx, sy } = machineToSvg(
     config.location.x,
@@ -30,7 +32,16 @@ export default function VialRenderer({
 
   return (
     <g>
-      <circle cx={sx} cy={sy} r={r} fill="#fef3c7" fillOpacity={0.4} stroke="#d97706" strokeWidth={1.5}>
+      <circle
+        cx={sx}
+        cy={sy}
+        r={r}
+        fill="#fef3c7"
+        fillOpacity={0.4}
+        stroke="#d97706"
+        strokeWidth={1.5}
+        data-testid={`${testIdPrefix}-target-${label}`}
+      >
         <title>
           {label}: ({config.location.x}, {config.location.y}, {config.location.z})
         </title>
