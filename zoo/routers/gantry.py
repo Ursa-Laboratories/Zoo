@@ -3,14 +3,15 @@
 import logging
 import threading
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
 from gantry import Gantry
+from gantry.loader import GantryYamlSchema
 from pydantic import BaseModel
 
 from zoo.config import get_settings
-from zoo.models.gantry import GantryConfig, GantryPosition, GantryResponse
+from zoo.models.gantry import GantryPosition, GantryResponse
 from zoo.services.yaml_io import list_configs, read_yaml, resolve_config_path, write_yaml
 
 router = APIRouter(prefix="/api/gantry", tags=["gantry"])
@@ -21,6 +22,13 @@ _gantry: Optional[Gantry] = None
 _serial_lock = threading.Lock()
 # Last known good position — returned when the lock is busy.
 _last_position: Optional[GantryPosition] = None
+
+
+def _validate_gantry_config(data: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return GantryYamlSchema.model_validate(data).model_dump(mode="json", exclude_none=True)
+    except Exception as e:
+        raise HTTPException(400, str(e))
 
 
 @router.get("/configs")
@@ -189,13 +197,13 @@ def get_gantry(filename: str) -> GantryResponse:
     path = resolve_config_path(get_settings().configs_dir, "gantry", filename)
     if not path.is_file():
         raise HTTPException(404, f"Config not found: {filename}")
-    data = read_yaml(path)
-    config = GantryConfig.model_validate(data)
+    config = _validate_gantry_config(read_yaml(path))
     return GantryResponse(filename=filename, config=config)
 
 
 @router.put("/{filename}")
 def put_gantry(filename: str, body: dict) -> GantryResponse:
     path = resolve_config_path(get_settings().configs_dir, "gantry", filename)
-    write_yaml(path, body)
-    return get_gantry(filename)
+    config = _validate_gantry_config(body)
+    write_yaml(path, config)
+    return GantryResponse(filename=filename, config=config)
