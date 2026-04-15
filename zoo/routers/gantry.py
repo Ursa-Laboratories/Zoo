@@ -76,12 +76,17 @@ def get_position() -> GantryPosition:
 
 @router.post("/home")
 def home() -> GantryPosition:
-    """Home the gantry using XY hard limits strategy."""
+    """Home the gantry using the strategy from the loaded config.
+
+    Dispatch lives in ``cubos.Gantry.home()``, which reads
+    ``config['cnc']['homing_strategy']`` and routes to the correct
+    driver call (``xy_hard_limits`` → XY-only, ``standard`` → full home).
+    """
     if _gantry is None:
         raise HTTPException(400, "Gantry not connected")
     with _serial_lock:
         try:
-            _gantry.home_xy()
+            _gantry.home()
         except Exception as e:
             raise HTTPException(500, f"Homing failed: {e}")
     return get_position()
