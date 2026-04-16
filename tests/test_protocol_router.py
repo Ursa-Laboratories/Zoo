@@ -147,3 +147,69 @@ def test_validate_protocol_unknown_args(client):
     data = r.json()
     assert data["valid"] is False
     assert "turbo" in data["errors"][0]
+
+
+def test_run_endpoint_holds_serial_lock_for_duration(monkeypatch, tmp_configs):
+    """Regression: /protocol/run must run inside ``_serial_lock`` so the
+    200 ms /position poll can't race the protocol's G-code writes on the
+    serial port — the race closed the port mid-run with
+    ``[Errno 9] Bad file descriptor`` on real hardware.
+
+    Also pins that ``is_healthy()`` runs INSIDE the lock: it writes ``?``
+    to the serial port and would re-introduce the same race if it ran
+    before the ``with _serial_lock:`` block.
+    """
+    import tempfile
+    from unittest.mock import MagicMock
+    from zoo.app import create_app
+    from zoo.routers import gantry as gantry_router
+    from zoo.routers import protocol as protocol_router
+
+    observations: list[tuple[str, bool]] = []
+
+    mock_gantry = MagicMock()
+
+    def observe_is_healthy():
+        observations.append(("is_healthy_lock_held", gantry_router._serial_lock.locked()))
+        return True
+
+    mock_gantry.is_healthy.side_effect = observe_is_healthy
+
+    def fake_run(*_a, gantry=None, **_kw):
+        observations.append(("run_lock_held", gantry_router._serial_lock.locked()))
+        return []
+
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(protocol_router, "run_protocol", fake_run)
+
+    # Minimal viable path resolution: create the four YAMLs /run checks
+    # for so path validation doesn't 404 us before the lock work.
+    with tempfile.TemporaryDirectory() as d:
+        import pathlib
+        from zoo.services.yaml_io import write_yaml as wy
+        d_path = pathlib.Path(d)
+        for sub in ("gantry", "deck", "board", "protocol"):
+            (d_path / sub).mkdir()
+            wy(d_path / sub / "test.yaml", {})
+        monkeypatch.setattr(
+            "zoo.config.get_settings",
+            lambda: type("S", (), {"configs_dir": d_path})(),
+        )
+
+        response = api_request(
+            create_app(),
+            "POST",
+            "/api/protocol/run",
+            json={
+                "gantry_file": "test.yaml",
+                "deck_file": "test.yaml",
+                "board_file": "test.yaml",
+                "protocol_file": "test.yaml",
+            },
+        )
+
+    assert response.status_code == 200
+    assert ("is_healthy_lock_held", True) in observations
+    assert ("run_lock_held", True) in observations
+    # Lock released after the endpoint returns — no leak.
+    assert gantry_router._serial_lock.locked() is False

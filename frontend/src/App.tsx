@@ -13,7 +13,15 @@ import { useDeckConfigs, useDeck, useSaveDeck } from "./hooks/useDeck";
 import { useBoardConfigs, useBoard, useSaveBoard, useInstrumentTypes, useInstrumentSchemas } from "./hooks/useBoard";
 import { useGantryPosition, useGantryConfigs, useGantry, useSaveGantry } from "./hooks/useGantryPosition";
 import { useProtocolCommands, useProtocolConfigs, useProtocol, useSaveProtocol, useValidateProtocol } from "./hooks/useProtocol";
-import type { DeckResponse, WellPosition, ProtocolValidationResponse, WorkingVolume } from "./types";
+import type {
+  DeckResponse,
+  WellPosition,
+  ProtocolValidationResponse,
+  ProtocolStep,
+  BoardResponse,
+  GantryResponse,
+  WorkingVolume,
+} from "./types";
 import type { SettingsResponse } from "./api/client";
 
 function configDirFromSettings(settings: SettingsResponse): string {
@@ -85,7 +93,18 @@ export default function App() {
   const saveProtocol = useSaveProtocol();
   const validateProtocol = useValidateProtocol();
 
+  // Local working copies of each editor's edits, kept in App state so
+  // they survive tab switches (each editor unmounts on tab-away, which
+  // would otherwise discard its useState). Cleared on refresh/load via
+  // refreshAll and on save via each editor's mutation onSuccess.
   const [localDeck, setLocalDeck] = useState<DeckResponse | null>(null);
+  const [localBoard, setLocalBoard] = useState<BoardResponse | null>(null);
+  const [localGantry, setLocalGantry] = useState<GantryResponse | null>(null);
+  const [localProtocolSteps, setLocalProtocolSteps] = useState<ProtocolStep[] | null>(null);
+  // Imports always save to WORKING_DECK_FILENAME so the source file
+  // isn't touched — but we remember what the user picked so the Deck
+  // tab can display that label instead of the working-copy name.
+  const [deckImportedFrom, setDeckImportedFrom] = useState<string | null>(null);
   const [previewWells, setPreviewWells] = useState<Record<string, Record<string, WellPosition>>>({});
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -116,9 +135,28 @@ export default function App() {
     return () => clearTimeout(previewTimerRef.current);
   }, [localDeck]);
 
+  // Clear each local working copy when the user selects a different
+  // file — the new server data is the source of truth for a fresh load.
+  // deckImportedFrom is cleared too when the user picks a non-import
+  // path (dropdown selection etc.); handleImportDeck sets both deckFile
+  // and deckImportedFrom in the same render, so this effect preserves
+  // the imported label by only nulling it when deckFile drops back to
+  // the working-copy filename without a fresh import.
   React.useEffect(() => {
     setLocalDeck(null);
+    if (deckFile !== WORKING_DECK_FILENAME) {
+      setDeckImportedFrom(null);
+    }
   }, [deckFile]);
+  React.useEffect(() => {
+    setLocalBoard(null);
+  }, [boardFile]);
+  React.useEffect(() => {
+    setLocalGantry(null);
+  }, [gantryFile]);
+  React.useEffect(() => {
+    setLocalProtocolSteps(null);
+  }, [protocolFile]);
 
   const displayDeck = useMemo(() => {
     const base = localDeck ?? deckQuery.data ?? null;
@@ -148,6 +186,10 @@ export default function App() {
     qc.invalidateQueries({ queryKey: ["gantry"] });
     qc.invalidateQueries({ queryKey: ["protocol"] });
     setLocalDeck(null);
+    setLocalBoard(null);
+    setLocalGantry(null);
+    setLocalProtocolSteps(null);
+    setDeckImportedFrom(null);
   };
 
   const handleImportDeck = async (filename: string) => {
@@ -162,6 +204,7 @@ export default function App() {
         body: { labware },
       });
       setDeckFile(WORKING_DECK_FILENAME);
+      setDeckImportedFrom(filename);
       setLocalDeck(null);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : String(err));
@@ -236,6 +279,19 @@ export default function App() {
             if (missing.length === 0) return null;
             return `Please load ${missing.join(", ")} config${missing.length > 1 ? "s" : ""} first.`;
           })()}
+          loadedFilenames={{
+            // Only show the filename once the fetch actually succeeded —
+            // a failed or pending load leaves the tab with just its
+            // section label, so the user isn't misled into thinking a
+            // broken file was loaded.
+            // Deck is special: imports get copied into WORKING_DECK_FILENAME
+            // so the source file isn't touched; show the user-facing
+            // "imported from" label instead of the working-copy name.
+            Gantry: gantryQuery.data?.filename ?? null,
+            Deck: deckImportedFrom ?? deckQuery.data?.filename ?? null,
+            Board: boardQuery.data?.filename ?? null,
+            Protocol: protocolQuery.data?.filename ?? null,
+          }}
         />
       {activeTab === "Deck" && (
         <>
@@ -248,7 +304,7 @@ export default function App() {
             selectedFile={deckFile}
             onSelectFile={setDeckFile}
             onImportFile={handleImportDeck}
-            deck={deckQuery.data ?? null}
+            deck={localDeck ?? deckQuery.data ?? null}
             onSave={(filename, body) => saveDeck.mutate({ filename, body })}
             onLocalChange={setLocalDeck}
             onRefresh={refreshAll}
@@ -261,10 +317,12 @@ export default function App() {
           configs={boardConfigs.data ?? []}
           selectedFile={boardFile}
           onSelectFile={setBoardFile}
-          board={boardQuery.data ?? null}
+          board={localBoard ?? boardQuery.data ?? null}
+          baseline={boardQuery.data ?? null}
           instrumentTypes={instrumentTypes.data ?? []}
           instrumentSchemas={instrumentSchemas.data ?? {}}
           onSave={(filename, body) => saveBoard.mutate({ filename, body })}
+          onLocalChange={setLocalBoard}
           onRefresh={refreshAll}
         />
       )}
@@ -274,8 +332,10 @@ export default function App() {
           configs={gantryConfigs.data ?? []}
           selectedFile={gantryFile}
           onSelectFile={setGantryFile}
-          gantry={gantryQuery.data ?? null}
+          gantry={localGantry ?? gantryQuery.data ?? null}
+          baseline={gantryQuery.data ?? null}
           onSave={(filename, body) => saveGantry.mutate({ filename, body })}
+          onLocalChange={setLocalGantry}
           onRefresh={refreshAll}
         />
       )}
@@ -286,8 +346,9 @@ export default function App() {
           selectedFile={protocolFile}
           onSelectFile={setProtocolFile}
           commands={protocolCommands.data ?? []}
-          steps={protocolQuery.data?.steps ?? null}
+          steps={localProtocolSteps ?? protocolQuery.data?.steps ?? null}
           onSave={(filename, body) => saveProtocol.mutate({ filename, body })}
+          onLocalChange={setLocalProtocolSteps}
           onValidate={(body) =>
             validateProtocol.mutate(body, {
               onSuccess: (res) => setValidationResult(res),
