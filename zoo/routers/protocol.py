@@ -154,8 +154,21 @@ class RunProtocolRequest(BaseModel):
 
 @router.post("/run")
 def run_protocol_endpoint(body: RunProtocolRequest) -> dict:
-    """Run a protocol with all four configs and the connected gantry."""
-    from zoo.routers.gantry import _gantry
+    """Run a protocol with all four configs and the connected gantry.
+
+    Holds ``_serial_lock`` for the full duration of the run so the
+    frontend's 200 ms ``/position`` poll cannot race the protocol's
+    G-code writes on the same serial port. Without this, the two
+    threads alternately wrote ``?`` and motion commands, corrupting
+    GRBL responses and ultimately getting the serial driver to close
+    the port (``read failed: [Errno 9] Bad file descriptor``).
+
+    The position endpoint's non-blocking ``acquire`` falls through to
+    ``_last_position``/``_extract_status`` while the lock is held —
+    the UI freezes on its last known coords during a run (acceptable)
+    rather than crashing the run.
+    """
+    from zoo.routers.gantry import _gantry, _serial_lock
 
     settings = get_settings()
     gantry_path = resolve_config_path(settings.configs_dir, "gantry", body.gantry_file)
@@ -163,14 +176,23 @@ def run_protocol_endpoint(body: RunProtocolRequest) -> dict:
     board_path = resolve_config_path(settings.configs_dir, "board", body.board_file)
     protocol_path = resolve_config_path(settings.configs_dir, "protocol", body.protocol_file)
 
-    if _gantry is None or not _gantry.is_healthy():
+    if _gantry is None:
         raise HTTPException(400, "Gantry is not connected")
 
+    # is_healthy() writes `?` to the serial port; it has to run inside
+    # the lock or a concurrent /position poll (200 ms cadence) will race
+    # it the same way it races run_protocol — the whole point of the
+    # lock on this endpoint.
     try:
-        results = run_protocol(
-            str(gantry_path), str(deck_path), str(board_path), str(protocol_path),
-            gantry=_gantry,
-        )
+        with _serial_lock:
+            if not _gantry.is_healthy():
+                raise HTTPException(400, "Gantry is not connected")
+            results = run_protocol(
+                str(gantry_path), str(deck_path), str(board_path), str(protocol_path),
+                gantry=_gantry,
+            )
+    except HTTPException:
+        raise
     except SetupValidationError as exc:
         raise HTTPException(400, str(exc))
     except Exception as exc:

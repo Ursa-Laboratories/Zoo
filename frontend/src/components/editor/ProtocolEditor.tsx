@@ -10,6 +10,9 @@ interface Props {
   commands: CommandInfo[];
   steps: ProtocolStep[] | null;
   onSave: (filename: string, body: ProtocolConfig) => void;
+  /** Called on every local edit so the parent can persist the working
+   * copy across tab switches. */
+  onLocalChange?: (steps: ProtocolStep[]) => void;
   onValidate: (body: ProtocolConfig) => void;
   validationErrors: string[] | null;
   isValidating: boolean;
@@ -50,6 +53,7 @@ export default function ProtocolEditor({
   commands,
   steps: loadedSteps,
   onSave,
+  onLocalChange,
   onValidate,
   validationErrors,
   isValidating,
@@ -66,14 +70,19 @@ export default function ProtocolEditor({
 
   const commandsByName = Object.fromEntries(commands.map((c) => [c.name, c]));
 
+  const commit = (next: ProtocolStep[]) => {
+    setSteps(next);
+    onLocalChange?.(next);
+  };
+
   const addStep = () => {
     const cmd = commandsByName[addCommand];
     if (!cmd) return;
-    setSteps([...steps, { command: addCommand, args: defaultArgsForCommand(cmd) }]);
+    commit([...steps, { command: addCommand, args: defaultArgsForCommand(cmd) }]);
   };
 
   const removeStep = (i: number) => {
-    setSteps(steps.filter((_, idx) => idx !== i));
+    commit(steps.filter((_, idx) => idx !== i));
   };
 
   const moveStep = (i: number, dir: -1 | 1) => {
@@ -81,13 +90,13 @@ export default function ProtocolEditor({
     if (j < 0 || j >= steps.length) return;
     const next = [...steps];
     [next[i], next[j]] = [next[j], next[i]];
-    setSteps(next);
+    commit(next);
   };
 
   const updateStepArg = (i: number, argName: string, value: unknown) => {
     const next = [...steps];
     next[i] = { ...next[i], args: { ...next[i].args, [argName]: value } };
-    setSteps(next);
+    commit(next);
   };
 
   const buildConfig = (): ProtocolConfig => ({ protocol: steps });

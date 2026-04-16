@@ -6,15 +6,47 @@ function tryParse(s: string): number | null {
   return isNaN(n) ? null : n;
 }
 
+/** Amber "*" rendered next to a field label when the field's current
+ * value differs from the last-saved value. Signals "unsaved local
+ * edit" — distinct from the red "*" used for required-field markers.
+ * Exported so inline <label> blocks (the ones that use a raw <select>
+ * rather than NumberField/TextField) can reuse it without duplicating
+ * the color/title/margin style inline. */
+export function DirtyMarker() {
+  return (
+    <span
+      style={{ color: "#d97706", fontWeight: 700, marginLeft: 2 }}
+      title="Unsaved local edit"
+    >
+      *
+    </span>
+  );
+}
+
+/** True when two JSON-ish values should be treated as equal for dirty
+ * comparison. Handles the YAML edge cases this codebase hits: null vs
+ * undefined (YAML writes `null` for omitted optional values while a
+ * freshly-added instrument has `undefined`); numeric strings vs numbers
+ * (round-trip through form inputs). Falls back to strict equality. */
+export function isFieldEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a == null && b == null) return true;  // null ~ undefined
+  if (typeof a === "number" && typeof b === "string") return String(a) === b;
+  if (typeof a === "string" && typeof b === "number") return a === String(b);
+  return false;
+}
+
 interface NumberFieldProps {
   label: string;
   value: number;
   onChange: (v: number) => void;
   step?: number;
   required?: boolean;
+  /** If set, renders an amber "*" next to the label when true. */
+  dirty?: boolean;
 }
 
-export function NumberField({ label, value, onChange, required }: NumberFieldProps) {
+export function NumberField({ label, value, onChange, required, dirty }: NumberFieldProps) {
   const [state, setState] = useState({ raw: String(value), value });
   if (value !== state.value) {
     setState({ raw: String(value), value });
@@ -24,7 +56,11 @@ export function NumberField({ label, value, onChange, required }: NumberFieldPro
 
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
-      <span style={{ color: "#666" }}>{label}{required && <span style={{ color: "#dc2626" }}> *</span>}</span>
+      <span style={{ color: "#666" }}>
+        {label}
+        {required && <span style={{ color: "#dc2626" }}> *</span>}
+        {dirty && <DirtyMarker />}
+      </span>
       <input
         type="text"
         inputMode="decimal"
@@ -46,13 +82,19 @@ interface TextFieldProps {
   value: string;
   onChange: (v: string) => void;
   required?: boolean;
+  /** If set, renders an amber "*" next to the label when true. */
+  dirty?: boolean;
 }
 
-export function TextField({ label, value, onChange, required }: TextFieldProps) {
+export function TextField({ label, value, onChange, required, dirty }: TextFieldProps) {
   const hasError = required && !value.trim();
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
-      <span style={{ color: "#666" }}>{label}{required && <span style={{ color: "#dc2626" }}> *</span>}</span>
+      <span style={{ color: "#666" }}>
+        {label}
+        {required && <span style={{ color: "#dc2626" }}> *</span>}
+        {dirty && <DirtyMarker />}
+      </span>
       <input
         type="text"
         value={value}
