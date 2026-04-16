@@ -137,8 +137,16 @@ export default function App() {
 
   // Clear each local working copy when the user selects a different
   // file — the new server data is the source of truth for a fresh load.
+  // deckImportedFrom is cleared too when the user picks a non-import
+  // path (dropdown selection etc.); handleImportDeck sets both deckFile
+  // and deckImportedFrom in the same render, so this effect preserves
+  // the imported label by only nulling it when deckFile drops back to
+  // the working-copy filename without a fresh import.
   React.useEffect(() => {
     setLocalDeck(null);
+    if (deckFile !== WORKING_DECK_FILENAME) {
+      setDeckImportedFrom(null);
+    }
   }, [deckFile]);
   React.useEffect(() => {
     setLocalBoard(null);

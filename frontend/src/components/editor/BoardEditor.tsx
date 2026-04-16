@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { BoardResponse, InstrumentConfig, BoardConfig, InstrumentTypeInfo, InstrumentSchemas } from "../../types";
-import { NumberField, SaveButton, TextField } from "./fields";
+import { DirtyMarker, NumberField, SaveButton, TextField, isFieldEqual } from "./fields";
 import ImportFromFile from "./ImportFromFile";
 
 interface Props {
@@ -24,7 +24,8 @@ interface Props {
 
 /** True if the named field on the named instrument differs from the
  * saved baseline. Brand-new instruments (not present in baseline)
- * count every field as dirty. */
+ * return false so a freshly-added card doesn't paint every field
+ * amber — the card's presence is itself the "unsaved" signal. */
 function isFieldDirty(
   baseline: BoardResponse | null,
   key: string,
@@ -32,8 +33,8 @@ function isFieldDirty(
   current: unknown,
 ): boolean {
   const base = baseline?.instruments?.[key];
-  if (base === undefined) return true;
-  return (base as Record<string, unknown>)[field] !== current;
+  if (base === undefined) return false;
+  return !isFieldEqual((base as Record<string, unknown>)[field], current);
 }
 
 /** Convert snake_case type key to a readable label. */
@@ -170,7 +171,7 @@ export default function BoardEditor({ configs, selectedFile, onSelectFile, board
                       <label key={field.name} style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12, marginTop: 4 }}>
                         <span style={{ color: "#666" }}>
                           {fieldLabel(field.name)}{field.required ? " *" : ""}
-                          {fieldDirty && <span style={{ color: "#d97706", fontWeight: 700, marginLeft: 2 }} title="Unsaved local edit">*</span>}
+                          {fieldDirty && <DirtyMarker />}
                         </span>
                         <select
                           value={String(value ?? field.default ?? "")}

@@ -176,15 +176,23 @@ def run_protocol_endpoint(body: RunProtocolRequest) -> dict:
     board_path = resolve_config_path(settings.configs_dir, "board", body.board_file)
     protocol_path = resolve_config_path(settings.configs_dir, "protocol", body.protocol_file)
 
-    if _gantry is None or not _gantry.is_healthy():
+    if _gantry is None:
         raise HTTPException(400, "Gantry is not connected")
 
+    # is_healthy() writes `?` to the serial port; it has to run inside
+    # the lock or a concurrent /position poll (200 ms cadence) will race
+    # it the same way it races run_protocol — the whole point of the
+    # lock on this endpoint.
     try:
         with _serial_lock:
+            if not _gantry.is_healthy():
+                raise HTTPException(400, "Gantry is not connected")
             results = run_protocol(
                 str(gantry_path), str(deck_path), str(board_path), str(protocol_path),
                 gantry=_gantry,
             )
+    except HTTPException:
+        raise
     except SetupValidationError as exc:
         raise HTTPException(400, str(exc))
     except Exception as exc:

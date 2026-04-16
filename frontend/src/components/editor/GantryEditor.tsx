@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { GantryResponse, GantryConfig } from "../../types";
-import { NumberField, SaveButton, TextField } from "./fields";
+import { DirtyMarker, NumberField, SaveButton, TextField, isFieldEqual } from "./fields";
 import ImportFromFile from "./ImportFromFile";
 
 interface Props {
@@ -45,19 +45,23 @@ export default function GantryEditor({ configs, selectedFile, onSelectFile, gant
   };
 
   // Per-field dirty compared against the last-saved config. A missing
-  // baseline (creating a brand-new config) counts every set field as
-  // dirty since there's nothing saved to compare against.
+  // baseline means there's nothing saved yet (brand-new config) —
+  // treat as not-dirty so the user only sees the marker after making
+  // an explicit change, not on every field of a freshly-started form.
   const base = baseline?.config;
+  const notDirty = (a: unknown, b: unknown) => !base || isFieldEqual(a, b);
+  const wv = config?.working_volume;
+  const bwv = base?.working_volume;
   const d = {
-    serial_port: config ? config.serial_port !== (base?.serial_port ?? "") : false,
-    homing_strategy: config ? config.cnc?.homing_strategy !== base?.cnc?.homing_strategy : false,
-    y_axis_motion: config ? config.cnc?.y_axis_motion !== base?.cnc?.y_axis_motion : false,
-    x_min: config ? config.working_volume.x_min !== base?.working_volume.x_min : false,
-    x_max: config ? config.working_volume.x_max !== base?.working_volume.x_max : false,
-    y_min: config ? config.working_volume.y_min !== base?.working_volume.y_min : false,
-    y_max: config ? config.working_volume.y_max !== base?.working_volume.y_max : false,
-    z_min: config ? config.working_volume.z_min !== base?.working_volume.z_min : false,
-    z_max: config ? config.working_volume.z_max !== base?.working_volume.z_max : false,
+    serial_port: !!config && !notDirty(config.serial_port, base?.serial_port ?? ""),
+    homing_strategy: !!config && !notDirty(config.cnc?.homing_strategy, base?.cnc?.homing_strategy),
+    y_axis_motion: !!config && !notDirty(config.cnc?.y_axis_motion, base?.cnc?.y_axis_motion),
+    x_min: !!wv && !notDirty(wv.x_min, bwv?.x_min),
+    x_max: !!wv && !notDirty(wv.x_max, bwv?.x_max),
+    y_min: !!wv && !notDirty(wv.y_min, bwv?.y_min),
+    y_max: !!wv && !notDirty(wv.y_max, bwv?.y_max),
+    z_min: !!wv && !notDirty(wv.z_min, bwv?.z_min),
+    z_max: !!wv && !notDirty(wv.z_max, bwv?.z_max),
   };
 
   const handleSave = () => {
@@ -91,7 +95,7 @@ export default function GantryEditor({ configs, selectedFile, onSelectFile, gant
               <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
                 <span style={{ color: "#666" }}>
                   Homing strategy
-                  {d.homing_strategy && <span style={{ color: "#d97706", fontWeight: 700, marginLeft: 2 }} title="Unsaved local edit">*</span>}
+                  {d.homing_strategy && <DirtyMarker />}
                 </span>
                 <select
                   value={config.cnc?.homing_strategy ?? "standard"}
@@ -104,7 +108,7 @@ export default function GantryEditor({ configs, selectedFile, onSelectFile, gant
               <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
                 <span style={{ color: "#666" }}>
                   Y-axis motion
-                  {d.y_axis_motion && <span style={{ color: "#d97706", fontWeight: 700, marginLeft: 2 }} title="Unsaved local edit">*</span>}
+                  {d.y_axis_motion && <DirtyMarker />}
                 </span>
                 <select
                   value={config.cnc?.y_axis_motion ?? "head"}
