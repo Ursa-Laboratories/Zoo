@@ -35,9 +35,27 @@ def get_position() -> GantryPosition:
         return GantryPosition(connected=False, status="Not connected")
     acquired = _serial_lock.acquire(blocking=False)
     if not acquired:
-        # Lock is busy (move or jog in progress). Read cached status from the
-        # driver — it updates last_status during wait_for_completion, so the
-        # status word stays fresh even while the lock is held.
+        # Lock is busy (move, jog, or protocol run in progress). We can't
+        # query GRBL ourselves, but cubos's Mill updates a WPos cache on
+        # every status poll it does internally — those polls happen every
+        # ~50 ms inside wait_for_completion, so the cache stays fresh for
+        # the full duration of a long operation like a scan.
+        cached = _gantry.get_cached_position_info()
+        if cached is not None:
+            coords = cached["coords"]
+            wpos = cached["work_pos"]
+            return GantryPosition(
+                x=coords["x"],
+                y=coords["y"],
+                z=coords["z"],
+                work_x=wpos["x"] if wpos else None,
+                work_y=wpos["y"] if wpos else None,
+                work_z=wpos["z"] if wpos else None,
+                status=cached["status"],
+                connected=True,
+            )
+        # Cache empty (Mill hasn't parsed a status yet). Fall back to the
+        # last position this endpoint itself read.
         status = _gantry._extract_status()
         if _last_position is not None:
             return GantryPosition(

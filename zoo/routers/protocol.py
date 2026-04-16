@@ -154,8 +154,14 @@ class RunProtocolRequest(BaseModel):
 
 @router.post("/run")
 def run_protocol_endpoint(body: RunProtocolRequest) -> dict:
-    """Run a protocol with all four configs and the connected gantry."""
-    from zoo.routers.gantry import _gantry
+    """Run a protocol with all four configs and the connected gantry.
+
+    Holds ``_serial_lock`` for the entire protocol duration. The gantry
+    router's position endpoint detects the busy lock and falls back to
+    ``Gantry.get_cached_position_info()``, which reads Mill's internal
+    WPos cache — no serial contention with the in-flight motion.
+    """
+    from zoo.routers.gantry import _gantry, _serial_lock
 
     settings = get_settings()
     gantry_path = resolve_config_path(settings.configs_dir, "gantry", body.gantry_file)
@@ -167,10 +173,11 @@ def run_protocol_endpoint(body: RunProtocolRequest) -> dict:
         raise HTTPException(400, "Gantry is not connected")
 
     try:
-        results = run_protocol(
-            str(gantry_path), str(deck_path), str(board_path), str(protocol_path),
-            gantry=_gantry,
-        )
+        with _serial_lock:
+            results = run_protocol(
+                str(gantry_path), str(deck_path), str(board_path), str(protocol_path),
+                gantry=_gantry,
+            )
     except SetupValidationError as exc:
         raise HTTPException(400, str(exc))
     except Exception as exc:
