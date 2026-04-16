@@ -236,6 +236,16 @@ export default function App() {
             if (missing.length === 0) return null;
             return `Please load ${missing.join(", ")} config${missing.length > 1 ? "s" : ""} first.`;
           })()}
+          loadedFilenames={{
+            // Only show the filename once the fetch actually succeeded —
+            // a failed or pending load leaves the tab with just its
+            // section label, so the user isn't misled into thinking a
+            // broken file was loaded.
+            Gantry: gantryQuery.data?.filename ?? null,
+            Deck: deckQuery.data?.filename ?? null,
+            Board: boardQuery.data?.filename ?? null,
+            Protocol: protocolQuery.data?.filename ?? null,
+          }}
         />
       {activeTab === "Deck" && (
         <>
