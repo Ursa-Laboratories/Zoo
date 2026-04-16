@@ -36,3 +36,51 @@ def test_home_endpoint_returns_400_when_not_connected(monkeypatch):
     response = api_request(create_app(), "POST", "/api/gantry/home")
 
     assert response.status_code == 400
+
+
+def test_connect_holds_serial_lock_and_defers_gantry_publication(monkeypatch):
+    """Regression: /connect previously set ``_gantry`` before ``connect()``
+    finished, so /position polls running every 200 ms would hit the
+    half-initialized mill concurrently with /connect's own serial
+    chatter (``G90`` enforcement, WCO seeding). One real-hardware log
+    showed the race: ``G90`` read returned empty → ``_enforce_wpos_mode``
+    warned → ``_seed_wco`` timed out → ``current_coordinates`` raised →
+    ``_gantry = None`` → UI showed "Not connected" with no way to
+    recover except another Connect click.
+
+    This test pins two parts of the fix:
+      1. ``_serial_lock`` is held across the full connect sequence so
+         concurrent polls fall through to the cached path.
+      2. The module-level ``_gantry`` stays ``None`` until connect
+         succeeds, so overlapping polls see a clean "Not connected"
+         instead of racing on a half-built Gantry.
+    """
+    from gantry import Gantry
+
+    observations = []
+
+    def fake_connect(self):
+        # Assert the lock is held while we're chattering on serial.
+        observations.append(("lock_held", gantry_router._serial_lock.locked()))
+        # Assert the module-level _gantry is still None — /connect must
+        # not publish us until we've fully connected.
+        observations.append(("module_gantry_is_none", gantry_router._gantry is None))
+
+    def fake_get_position_info(self):
+        return {
+            "coords": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "work_pos": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "status": "Idle",
+        }
+
+    monkeypatch.setattr(Gantry, "connect", fake_connect)
+    monkeypatch.setattr(Gantry, "get_position_info", fake_get_position_info)
+    monkeypatch.setattr(gantry_router, "_gantry", None)
+
+    response = api_request(create_app(), "POST", "/api/gantry/connect")
+
+    assert response.status_code == 200
+    assert ("lock_held", True) in observations
+    assert ("module_gantry_is_none", True) in observations
+    # After connect succeeds, the module global should be set.
+    assert gantry_router._gantry is not None

@@ -159,23 +159,45 @@ def unlock() -> GantryPosition:
 
 @router.post("/connect")
 def connect() -> GantryPosition:
+    """Open the serial connection and verify the mill is responding.
+
+    Holds ``_serial_lock`` for the entire connect sequence — the Mill's
+    auto-detect, GRBL verification, WPos-mode enforcement, and WCO seeding
+    all chatter on the serial port. The frontend polls ``/position`` every
+    200 ms, and until we're holding the lock, every one of those polls
+    will race us for GRBL's response bytes. Seen in the wild: a concurrent
+    ``?`` from the poll consumed the response to our ``G90``, causing
+    ``_enforce_wpos_mode`` to fail, which snowballed into
+    ``current_coordinates`` timing out, which tripped the outer
+    ``except``, which nulled ``_gantry`` — UI shows "Not connected"
+    immediately after a user click-Home race.
+
+    Also defers the module-level ``_gantry`` assignment until connect has
+    fully succeeded, so position polls see ``None`` (and return a clean
+    "Not connected") during the connect window instead of trying to touch
+    a half-initialized mill.
+    """
     global _gantry
-    try:
-        gantry_configs = list_configs(get_settings().configs_dir, "gantry")
-        config = {}
-        if gantry_configs:
-            config = read_yaml(resolve_config_path(get_settings().configs_dir, "gantry", gantry_configs[0]))
-        _gantry = Gantry(config=config)
-        _gantry.connect()
-        # Seed WCO cache — GRBL sends WCO in one of the first few status reports
-        for _ in range(10):
-            info = _gantry.get_position_info()
-            if info["work_pos"] is not None:
-                break
-            time.sleep(0.1)
-    except Exception as e:
-        _gantry = None
-        raise HTTPException(500, f"Failed to connect: {e}")
+    with _serial_lock:
+        try:
+            gantry_configs = list_configs(get_settings().configs_dir, "gantry")
+            config = {}
+            if gantry_configs:
+                config = read_yaml(resolve_config_path(get_settings().configs_dir, "gantry", gantry_configs[0]))
+            # Stage the Gantry locally; publish to the module global only on
+            # success so /position sees _gantry=None until we're ready.
+            staged = Gantry(config=config)
+            staged.connect()
+            # Seed WCO cache — GRBL sends WCO in one of the first few status reports.
+            for _ in range(10):
+                info = staged.get_position_info()
+                if info["work_pos"] is not None:
+                    break
+                time.sleep(0.1)
+        except Exception as e:
+            _gantry = None
+            raise HTTPException(500, f"Failed to connect: {e}")
+        _gantry = staged
     return get_position()
 
 
