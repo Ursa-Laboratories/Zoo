@@ -236,6 +236,17 @@ export default function App() {
             if (missing.length === 0) return null;
             return `Please load ${missing.join(", ")} config${missing.length > 1 ? "s" : ""} first.`;
           })()}
+          loadedFilenames={{
+            // Show the user-selected filename immediately (updates on
+            // selection, not after the fetch resolves). Falls back to the
+            // query's filename for edge cases where the selection state
+            // lags the loaded data (e.g. an import workflow that sets the
+            // deck file as a side effect).
+            Gantry: gantryFile ?? gantryQuery.data?.filename,
+            Deck: deckFile ?? deckQuery.data?.filename,
+            Board: boardFile ?? boardQuery.data?.filename,
+            Protocol: protocolFile ?? protocolQuery.data?.filename,
+          }}
         />
       {activeTab === "Deck" && (
         <>
