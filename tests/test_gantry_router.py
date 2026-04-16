@@ -84,3 +84,61 @@ def test_connect_holds_serial_lock_and_defers_gantry_publication(monkeypatch):
     assert ("module_gantry_is_none", True) in observations
     # After connect succeeds, the module global should be set.
     assert gantry_router._gantry is not None
+
+
+def test_connect_failure_keeps_module_gantry_none_and_releases_lock(monkeypatch):
+    """If ``Gantry.connect()`` raises, the staged instance must not be
+    published and the serial lock must be released. The old outer
+    ``except Exception: _gantry = None`` wrote over a previously
+    successful connection on any transient error (bad config YAML,
+    FileNotFoundError); the staging pattern should leave the prior
+    module global untouched — but only if the failure path is pinned.
+    """
+    from gantry import Gantry
+
+    class BoomError(RuntimeError):
+        pass
+
+    def fake_connect(self):
+        raise BoomError("simulated serial failure")
+
+    monkeypatch.setattr(Gantry, "connect", fake_connect)
+    # Put a sentinel in _gantry so we can confirm failure doesn't nuke it.
+    sentinel = object()
+    monkeypatch.setattr(gantry_router, "_gantry", sentinel)
+
+    response = api_request(create_app(), "POST", "/api/gantry/connect")
+
+    assert response.status_code == 500
+    # Staging means a failed reconnect leaves the prior connection alone.
+    assert gantry_router._gantry is sentinel
+    # The lock must be released even though an exception escaped.
+    assert gantry_router._serial_lock.locked() is False
+
+
+def test_disconnect_clears_module_gantry_inside_lock(monkeypatch):
+    """/disconnect must null ``_gantry`` while still holding the lock so a
+    concurrent /position poll can't observe a mill object that's
+    mid-disconnect. Regression guard for the mirror-race of the /connect
+    staging fix.
+    """
+    observations = []
+    mock_gantry = MagicMock()
+
+    def observe_disconnect():
+        observations.append(("lock_held", gantry_router._serial_lock.locked()))
+        observations.append(("module_gantry_still_set", gantry_router._gantry is mock_gantry))
+
+    mock_gantry.disconnect.side_effect = observe_disconnect
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(create_app(), "POST", "/api/gantry/disconnect")
+
+    assert response.status_code == 200
+    assert ("lock_held", True) in observations
+    # Inside disconnect(), _gantry is still the mock — we clear it only
+    # after disconnect returns, which is the point at which any newly
+    # arriving /position poll is guaranteed to see the clean None state.
+    assert ("module_gantry_still_set", True) in observations
+    assert gantry_router._gantry is None
+    assert gantry_router._serial_lock.locked() is False

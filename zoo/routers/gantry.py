@@ -185,7 +185,9 @@ def connect() -> GantryPosition:
             if gantry_configs:
                 config = read_yaml(resolve_config_path(get_settings().configs_dir, "gantry", gantry_configs[0]))
             # Stage the Gantry locally; publish to the module global only on
-            # success so /position sees _gantry=None until we're ready.
+            # success so /position sees _gantry=None until we're ready, and
+            # so a transient failure on reconnect doesn't clobber a prior
+            # working connection.
             staged = Gantry(config=config)
             staged.connect()
             # Seed WCO cache — GRBL sends WCO in one of the first few status reports.
@@ -195,19 +197,27 @@ def connect() -> GantryPosition:
                     break
                 time.sleep(0.1)
         except Exception as e:
-            _gantry = None
             raise HTTPException(500, f"Failed to connect: {e}")
         _gantry = staged
+    # get_position() acquires _serial_lock itself; call it outside the
+    # `with` block so we don't try to re-acquire a non-reentrant lock,
+    # which would fall through to the cached path and return a degraded
+    # response (no coords) on the very first post-connect frame.
     return get_position()
 
 
 @router.post("/disconnect")
 def disconnect() -> GantryPosition:
     global _gantry
-    if _gantry:
-        with _serial_lock:
+    if _gantry is None:
+        return GantryPosition(connected=False, status="Disconnected")
+    # Clear the module global inside the lock so concurrent /position
+    # polls don't see _gantry set to a mill object that's mid-disconnect.
+    with _serial_lock:
+        try:
             _gantry.disconnect()
-    _gantry = None
+        finally:
+            _gantry = None
     return GantryPosition(connected=False, status="Disconnected")
 
 
