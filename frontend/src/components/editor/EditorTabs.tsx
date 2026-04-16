@@ -1,3 +1,6 @@
+const TABS = ["Gantry", "Deck", "Board", "Protocol"] as const;
+type TabName = (typeof TABS)[number];
+
 interface Props {
   activeTab: string;
   onTabChange: (tab: string) => void;
@@ -5,13 +8,13 @@ interface Props {
   disabledMessage?: string | null;
   /**
    * Filename to show underneath each tab label once a config has been
-   * loaded (or saved) on that tab. Keyed by the tab name; a missing or
-   * empty value leaves the tab with only its section label.
+   * successfully loaded (or saved) on that tab. A missing or empty
+   * value leaves the tab with only its section label. The tab bar
+   * reserves vertical space for the second line either way so the bar
+   * does not jump when a filename appears.
    */
-  loadedFilenames?: Partial<Record<string, string | null | undefined>>;
+  loadedFilenames?: Partial<Record<TabName, string | null>>;
 }
-
-const TABS = ["Gantry", "Deck", "Board", "Protocol"];
 
 export default function EditorTabs({
   activeTab,
@@ -51,10 +54,14 @@ export default function EditorTabs({
                 lineHeight: 1.2,
                 minWidth: 120,
               }}
-              title={filename ?? undefined}
             >
               <span>{tab}</span>
               <span
+                // Hide the filename line from the accessibility tree so
+                // the button's accessible name stays exactly the section
+                // label ("Gantry", "Deck", ...). Screen readers still get
+                // a clean tab name; sighted users still see the filename.
+                aria-hidden="true"
                 style={{
                   fontSize: 11,
                   fontWeight: 400,
@@ -64,9 +71,6 @@ export default function EditorTabs({
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
-                  // Reserve the line height so tabs stay the same size
-                  // regardless of whether a config has been loaded.
-                  minHeight: 13,
                 }}
               >
                 {filename ?? "\u00A0"}

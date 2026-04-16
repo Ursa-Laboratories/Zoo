@@ -237,15 +237,14 @@ export default function App() {
             return `Please load ${missing.join(", ")} config${missing.length > 1 ? "s" : ""} first.`;
           })()}
           loadedFilenames={{
-            // Show the user-selected filename immediately (updates on
-            // selection, not after the fetch resolves). Falls back to the
-            // query's filename for edge cases where the selection state
-            // lags the loaded data (e.g. an import workflow that sets the
-            // deck file as a side effect).
-            Gantry: gantryFile ?? gantryQuery.data?.filename,
-            Deck: deckFile ?? deckQuery.data?.filename,
-            Board: boardFile ?? boardQuery.data?.filename,
-            Protocol: protocolFile ?? protocolQuery.data?.filename,
+            // Only show the filename once the fetch actually succeeded —
+            // a failed or pending load leaves the tab with just its
+            // section label, so the user isn't misled into thinking a
+            // broken file was loaded.
+            Gantry: gantryQuery.data?.filename ?? null,
+            Deck: deckQuery.data?.filename ?? null,
+            Board: boardQuery.data?.filename ?? null,
+            Protocol: protocolQuery.data?.filename ?? null,
           }}
         />
       {activeTab === "Deck" && (
