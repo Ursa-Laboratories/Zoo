@@ -104,6 +104,11 @@ export default function BoardEditor({ configs, selectedFile, onSelectFile, board
             <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
               <NumberField label="Depth" value={Number(inst.depth ?? 0)} onChange={(v) => update(key, { ...inst, depth: v })} />
               <NumberField label="Meas. height" value={Number(inst.measurement_height ?? 0)} onChange={(v) => update(key, { ...inst, measurement_height: v })} />
+              <NumberField
+                label="Safe approach"
+                value={Number(inst.safe_approach_height ?? inst.measurement_height ?? 0)}
+                onChange={(v) => update(key, { ...inst, safe_approach_height: v })}
+              />
             </div>
 
             {/* Type-specific fields from CubOS instrument schema */}
