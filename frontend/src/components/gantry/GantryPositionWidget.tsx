@@ -62,8 +62,8 @@ export default function GantryPositionWidget({ position, workingVolume, configSe
       const z = Math.max(0.001, parseFloat(stepZ) || 0.5);
 
       switch (key) {
-        case "ArrowLeft":  e.preventDefault(); startJog(-xy, 0, 0); break;
-        case "ArrowRight": e.preventDefault(); startJog(xy, 0, 0); break;
+        case "ArrowLeft":  e.preventDefault(); startJog(xy, 0, 0); break;
+        case "ArrowRight": e.preventDefault(); startJog(-xy, 0, 0); break;
         case "ArrowUp":    e.preventDefault(); startJog(0, -xy, 0); break;
         case "ArrowDown":  e.preventDefault(); startJog(0, xy, 0); break;
         case "z": case "Z": startJog(0, 0, z); break;
@@ -216,13 +216,13 @@ export default function GantryPositionWidget({ position, workingVolume, configSe
                 ↑
               </button>
               <div />
-              <button className="jog-btn" style={jogBtnStyle} disabled={jogDisabled} {...jogBtnProps(-xyStep, 0, 0)} title="X-">
+              <button className="jog-btn" style={jogBtnStyle} disabled={jogDisabled} {...jogBtnProps(xyStep, 0, 0)} title="X-">
                 ←
               </button>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#bbb" }}>
                 XY
               </div>
-              <button className="jog-btn" style={jogBtnStyle} disabled={jogDisabled} {...jogBtnProps(xyStep, 0, 0)} title="X+">
+              <button className="jog-btn" style={jogBtnStyle} disabled={jogDisabled} {...jogBtnProps(-xyStep, 0, 0)} title="X+">
                 →
               </button>
               <div />
