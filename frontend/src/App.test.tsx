@@ -240,6 +240,19 @@ function installFetchMock(state: ApiState) {
   return fetchMock;
 }
 
+function countCallsToPath(
+  fetchMock: ReturnType<typeof vi.fn>,
+  path: string,
+): number {
+  return fetchMock.mock.calls.filter(([input]) => {
+    const url = new URL(
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      "http://localhost",
+    );
+    return url.pathname === path;
+  }).length;
+}
+
 function renderApp() {
   const client = new QueryClient({
     defaultOptions: {
@@ -281,6 +294,7 @@ describe("Zoo editor interactions", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("shows a browse button for the config directory", async () => {
@@ -389,5 +403,50 @@ describe("Zoo editor interactions", () => {
     await user.click(screen.getByRole("button", { name: "Protocol" }));
 
     await waitFor(() => expect(screen.getByDisplayValue("42")).toBeInTheDocument());
+  });
+
+  it("keeps polling gantry position while a protocol run is active", async () => {
+    const user = userEvent.setup();
+    const baseFetch = installFetchMock(createState());
+    let resolveRun: ((value: Response) => void) | null = null;
+    const fetchMock = vi.fn((input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+
+      if (url.pathname === "/api/protocol/run" && (init?.method ?? "GET") === "POST") {
+        return new Promise<Response>((resolve) => {
+          resolveRun = resolve;
+        });
+      }
+
+      return baseFetch(input, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+
+    await user.click(await screen.findByRole("button", { name: "Run Protocol" }));
+    await screen.findByRole("button", { name: "Running..." });
+
+    const pollsBeforeRunSettles = countCallsToPath(fetchMock, "/api/gantry/position");
+
+    await waitFor(
+      () => {
+        expect(countCallsToPath(fetchMock, "/api/gantry/position")).toBeGreaterThan(pollsBeforeRunSettles);
+      },
+      { timeout: 1500 },
+    );
+
+    expect(resolveRun).not.toBeNull();
+    resolveRun!(jsonResponse({ status: "ok", steps_executed: 1 }));
+
+    await screen.findByText("Protocol complete — 1 steps executed.");
   });
 });
