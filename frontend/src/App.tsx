@@ -85,7 +85,7 @@ export default function App() {
   const gantryConfigs = useGantryConfigs();
   const gantryQuery = useGantry(gantryFile);
   const saveGantry = useSaveGantry();
-  const gantryPosition = useGantryPosition(!isRunning);
+  const gantryPosition = useGantryPosition();
 
   const protocolCommands = useProtocolCommands();
   const protocolConfigs = useProtocolConfigs();
