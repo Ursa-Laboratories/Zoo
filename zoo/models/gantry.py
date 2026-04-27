@@ -1,38 +1,17 @@
-"""Pydantic models for gantry config."""
+"""API response shapes for gantry endpoints. The YAML schema itself comes
+from CubOS (gantry.yaml_schema.GantryYamlSchema) — Zoo must not duplicate it."""
 
 from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
-
-
-class WorkingVolume(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    x_min: float
-    x_max: float
-    y_min: float
-    y_max: float
-    z_min: float
-    z_max: float
-
-
-class CncConfig(BaseModel):
-    model_config = ConfigDict(extra="allow")
-    homing_strategy: str = "standard"
-    y_axis_motion: str = "head"
-
-
-class GantryConfig(BaseModel):
-    model_config = ConfigDict(extra="allow")
-    serial_port: str = ""
-    cnc: Optional[CncConfig] = None
-    working_volume: WorkingVolume
+from gantry.yaml_schema import GantryYamlSchema
+from pydantic import BaseModel
 
 
 class GantryResponse(BaseModel):
     filename: str
-    config: GantryConfig
+    config: GantryYamlSchema
 
 
 class GantryPosition(BaseModel):

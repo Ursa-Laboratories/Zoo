@@ -7,10 +7,11 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from gantry import Gantry
+from gantry.yaml_schema import GantryYamlSchema
 from pydantic import BaseModel
 
 from zoo.config import get_settings
-from zoo.models.gantry import GantryConfig, GantryPosition, GantryResponse
+from zoo.models.gantry import GantryPosition, GantryResponse
 from zoo.services.yaml_io import list_configs, read_yaml, resolve_config_path, write_yaml
 
 router = APIRouter(prefix="/api/gantry", tags=["gantry"])
@@ -227,7 +228,7 @@ def get_gantry(filename: str) -> GantryResponse:
     if not path.is_file():
         raise HTTPException(404, f"Config not found: {filename}")
     data = read_yaml(path)
-    config = GantryConfig.model_validate(data)
+    config = GantryYamlSchema.model_validate(data)
     return GantryResponse(filename=filename, config=config)
 
 
