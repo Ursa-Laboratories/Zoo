@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { GantryResponse, GantryConfig } from "../../types";
-import { DirtyMarker, NumberField, SaveButton, TextField, isFieldEqual } from "./fields";
+import { DirtyMarker, NumberField, SaveButton, TextField } from "./fields";
+import { isFieldEqual } from "./field-utils";
 import ImportFromFile from "./ImportFromFile";
 
 interface Props {
