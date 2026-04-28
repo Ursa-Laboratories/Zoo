@@ -1,13 +1,17 @@
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.12.1
+bleak==3.0.1
 certifi==2026.1.4
 click==8.3.1
+dbus-fast==4.0.4
 fastapi==0.129.0
+godirect==1.2.1
 h11==0.16.0
 httpcore==1.0.9
 httptools==0.7.1
 httpx==0.28.1
+hidapi==0.15.0
 idna==3.11
 iniconfig==2.3.0
 packaging==26.0

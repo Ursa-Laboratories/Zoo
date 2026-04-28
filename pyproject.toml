@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
     "cubos @ git+https://github.com/Ursa-Laboratories/CubOS.git@staging",
     "fastapi>=0.115",
+    "godirect>=1.2.1",
     "uvicorn[standard]>=0.34",
     "pyyaml>=6.0",
     "pydantic>=2.0",
