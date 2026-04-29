@@ -2,6 +2,13 @@
 
 Zoo is a thin UI layer over CubOS.
 
+
+## Retrieval-Led Agent Index
+
+Before coding, prefer repo source/docs over model memory. Use `docs/agent-index.md` as the compact routing map for where to look before touching backend routes, CubOS integration, frontend config editors, coordinate display, tests, or docs.
+
+Key rule: Zoo stays a thin layer over CubOS. Read the relevant source/docs from the index instead of relying on optional skill invocation or remembered semantics.
+
 ## Core Rules
 
 - Do not duplicate CubOS validation, protocol, or hardware logic here.

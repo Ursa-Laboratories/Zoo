@@ -48,3 +48,5 @@ frontend/
 - **Frontend build:** `cd frontend && npm run build`
 - **Run server:** `python -m zoo` (or `uvicorn zoo.app:create_app --factory`)
 - **Backend tests:** `pytest tests/`
+
+Agent retrieval rule: before coding, read `AGENTS.md` and `docs/agent-index.md`, then retrieve the specific source/docs named there for the subsystem you are touching. Prefer repo-grounded reasoning over model memory for Zoo/CubOS boundaries, coordinate display, config validation, and hardware-touching routes.
