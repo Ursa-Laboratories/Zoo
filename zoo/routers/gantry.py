@@ -157,14 +157,22 @@ def unlock() -> GantryPosition:
     return get_position()
 
 
+class ConnectRequest(BaseModel):
+    filename: Optional[str] = None
+
+
 @router.post("/connect")
-def connect() -> GantryPosition:
+def connect(req: ConnectRequest = ConnectRequest()) -> GantryPosition:
     global _gantry
     try:
-        gantry_configs = list_configs(get_settings().configs_dir, "gantry")
-        config = {}
-        if gantry_configs:
-            config = read_yaml(resolve_config_path(get_settings().configs_dir, "gantry", gantry_configs[0]))
+        if req.filename:
+            path = resolve_config_path(get_settings().configs_dir, "gantry", req.filename)
+            config = read_yaml(path)
+        else:
+            gantry_configs = list_configs(get_settings().configs_dir, "gantry")
+            config = {}
+            if gantry_configs:
+                config = read_yaml(resolve_config_path(get_settings().configs_dir, "gantry", gantry_configs[0]))
         _gantry = Gantry(config=config)
         _gantry.connect()
         # Seed WCO cache — GRBL sends WCO in one of the first few status reports

@@ -63,9 +63,10 @@ export const gantryApi = {
     }),
   getPosition: () =>
     request<import("../types").GantryPosition>("/gantry/position"),
-  connect: () =>
+  connect: (filename?: string) =>
     request<import("../types").GantryPosition>("/gantry/connect", {
       method: "POST",
+      body: JSON.stringify({ filename: filename ?? null }),
     }),
   disconnect: () =>
     request<import("../types").GantryPosition>("/gantry/disconnect", {

@@ -324,6 +324,7 @@ export default function App() {
       position={gantryPosition.data ?? null}
       workingVolume={workingVolume}
       configSelected={!!gantryFile}
+      gantryFile={gantryFile}
     />
   );
 

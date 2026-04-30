@@ -6,11 +6,12 @@ interface Props {
   position: GantryPosition | null;
   workingVolume: WorkingVolume | null;
   configSelected: boolean;
+  gantryFile: string | null;
 }
 
 const JOG_INTERVAL_MS = 150;
 
-export default function GantryPositionWidget({ position, workingVolume, configSelected }: Props) {
+export default function GantryPositionWidget({ position, workingVolume, configSelected, gantryFile }: Props) {
   const [loading, setLoading] = useState(false);
   const [jogBusy, setJogBusy] = useState(false);
   const [stepXY, setStepXY] = useState("0.5");
@@ -89,7 +90,7 @@ export default function GantryPositionWidget({ position, workingVolume, configSe
   const handleConnect = async () => {
     setLoading(true);
     try {
-      await gantryApi.connect();
+      await gantryApi.connect(gantryFile ?? undefined);
     } catch (e) {
       alert(`Connection failed: ${e}`);
     }
