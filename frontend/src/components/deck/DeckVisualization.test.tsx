@@ -19,8 +19,8 @@ const deck: DeckResponse = {
         tips: {
           A1: { x: 10, y: 20, z: 30 },
           A2: { x: 19, y: 20, z: 30 },
-          B1: { x: 10, y: 29, z: 30 },
-          B2: { x: 19, y: 29, z: 30 },
+          B1: { x: 10, y: 11, z: 30 },
+          B2: { x: 19, y: 11, z: 30 },
         },
       },
       wells: null,
@@ -29,8 +29,8 @@ const deck: DeckResponse = {
       positions: {
         A1: { x: 10, y: 20, z: 30 },
         A2: { x: 19, y: 20, z: 30 },
-        B1: { x: 10, y: 29, z: 30 },
-        B2: { x: 19, y: 29, z: 30 },
+        B1: { x: 10, y: 11, z: 30 },
+        B2: { x: 19, y: 11, z: 30 },
       },
     },
     {
@@ -59,8 +59,8 @@ const deck: DeckResponse = {
         plate: { x: 100, y: 120, z: 45 },
         "plate.A1": { x: 100, y: 120, z: 45 },
         "plate.A2": { x: 109, y: 120, z: 45 },
-        "plate.B1": { x: 100, y: 129, z: 45 },
-        "plate.B2": { x: 109, y: 129, z: 45 },
+        "plate.B1": { x: 100, y: 111, z: 45 },
+        "plate.B2": { x: 109, y: 111, z: 45 },
       },
     },
     {
@@ -96,7 +96,7 @@ describe("DeckVisualization", () => {
     render(
       <DeckVisualization
         deck={deck}
-        board={null}
+        instruments={null}
         gantryPosition={null}
         machineXRange={[0, 300]}
         machineYRange={[0, 200]}
@@ -108,5 +108,52 @@ describe("DeckVisualization", () => {
     expect(screen.getByText("Panda Plate")).toBeInTheDocument();
     expect(screen.getByText("Panda Vials")).toBeInTheDocument();
     expect(screen.getByText("Sample 1")).toBeInTheDocument();
+  });
+
+  it("expands the visible range for labware wider than the working volume", () => {
+    const wideDeck: DeckResponse = {
+      filename: "wide_deck.yaml",
+      labware: [
+        {
+          key: "wide_plate",
+          config: {
+            type: "well_plate",
+            name: "Wide Plate",
+            model_name: "wide_96_wellplate",
+            rows: 1,
+            columns: 2,
+            length_mm: 100,
+            width_mm: 50,
+            height_mm: 10,
+            a1: null,
+            calibration: {
+              a1: { x: 250, y: 50, z: 10 },
+              a2: { x: 330, y: 50, z: 10 },
+            },
+            x_offset_mm: 80,
+            y_offset_mm: 9,
+            capacity_ul: 200,
+            working_volume_ul: 100,
+          },
+          wells: {
+            A1: { x: 250, y: 50, z: 10 },
+            A2: { x: 330, y: 50, z: 10 },
+          },
+        },
+      ],
+    };
+
+    render(
+      <DeckVisualization
+        deck={wideDeck}
+        instruments={null}
+        gantryPosition={null}
+        machineXRange={[0, 306]}
+        machineYRange={[0, 300]}
+      />,
+    );
+
+    expect(screen.getByText("Wide Plate")).toBeInTheDocument();
+    expect(screen.getByText("350")).toBeInTheDocument();
   });
 });

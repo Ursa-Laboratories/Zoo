@@ -26,8 +26,6 @@ def classify_config(data: Dict[str, Any]) -> Optional[str]:
     """Classify a YAML config by its top-level keys."""
     if "labware" in data:
         return "deck"
-    if "instruments" in data:
-        return "board"
     if "working_volume" in data:
         return "gantry"
     if "protocol" in data:

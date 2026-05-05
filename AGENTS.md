@@ -47,7 +47,7 @@ python -m zoo
 
 ## Coordinate Convention
 
-The CubOS backend (gantry hardware/GRBL) operates in **negative X/Y space** — positions reported by the hardware are negative. The frontend negates X and Y **only for display** so the readout shows positive values to the user. Jog and moveTo commands are sent to the backend as-is (positive user input). Z is not negated. Do not "fix" this display negation.
+Zoo follows CubOS' deck-origin frame directly: front-left-bottom origin, +X right, +Y back, +Z up. Do not negate X/Y in the frontend. Jog controls send CubOS-relative deltas as-is: left=-X, right=+X, up=+Y, down=-Y, X=+Z, Z=-Z.
 
 ## Local State
 

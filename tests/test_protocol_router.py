@@ -182,13 +182,13 @@ def test_run_endpoint_holds_serial_lock_for_duration(monkeypatch, tmp_configs):
     monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
     monkeypatch.setattr(protocol_router, "run_protocol", fake_run)
 
-    # Minimal viable path resolution: create the four YAMLs /run checks
+    # Minimal viable path resolution: create the YAMLs /run checks
     # for so path validation doesn't 404 us before the lock work.
     with tempfile.TemporaryDirectory() as d:
         import pathlib
         from zoo.services.yaml_io import write_yaml as wy
         d_path = pathlib.Path(d)
-        for sub in ("gantry", "deck", "board", "protocol"):
+        for sub in ("gantry", "deck", "protocol"):
             (d_path / sub).mkdir()
             wy(d_path / sub / "test.yaml", {})
         monkeypatch.setattr(
@@ -203,7 +203,6 @@ def test_run_endpoint_holds_serial_lock_for_duration(monkeypatch, tmp_configs):
             json={
                 "gantry_file": "test.yaml",
                 "deck_file": "test.yaml",
-                "board_file": "test.yaml",
                 "protocol_file": "test.yaml",
             },
         )

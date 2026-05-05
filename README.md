@@ -13,12 +13,14 @@ See also:
 - Zoo imports `CubOS` as an installed package.
 - Zoo should stay a thin layer over CubOS loaders, schemas, registries, and motion logic.
 - The checked-in dependency currently points at a Git branch in `pyproject.toml`. Confirm branch strategy before changing it.
+- Zoo uses CubOS' current three-config runtime surface: gantry, deck, and protocol. Mounted instruments are edited and saved inside gantry YAML.
 
 ## Local Config Storage
 
 - Zoo reads and writes YAML configs from `configs/` by default.
 - The active directory is exposed through `/api/settings` as `config_dir`.
 - Operators can point Zoo at another config directory through the settings UI or API.
+- Gantry YAMLs are read back through CubOS validation before Zoo returns or saves them; missing current fields must be filled and saved in the gantry editor.
 
 ## Run
 

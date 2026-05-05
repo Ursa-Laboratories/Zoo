@@ -20,12 +20,12 @@ def test_classify_deck():
     assert classify_config({"labware": {}}) == "deck"
 
 
-def test_classify_board():
-    assert classify_config({"instruments": {}}) == "board"
-
-
 def test_classify_gantry():
     assert classify_config({"working_volume": {}}) == "gantry"
+
+
+def test_classify_gantry_with_embedded_instruments():
+    assert classify_config({"working_volume": {}, "instruments": {}}) == "gantry"
 
 
 def test_classify_protocol():

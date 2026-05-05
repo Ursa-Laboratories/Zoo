@@ -154,18 +154,13 @@ export interface DeckConfig {
 
 export interface InstrumentConfig {
   type: string;
+  vendor: string;
   offset_x: number;
   offset_y: number;
+  depth?: number;
+  measurement_height?: number;
+  safe_approach_height?: number | null;
   [key: string]: unknown;
-}
-
-export interface BoardResponse {
-  filename: string;
-  instruments: Record<string, InstrumentConfig>;
-}
-
-export interface BoardConfig {
-  instruments: Record<string, InstrumentConfig>;
 }
 
 export interface WorkingVolume {
@@ -178,14 +173,40 @@ export interface WorkingVolume {
 }
 
 export interface CncConfig {
-  homing_strategy: string;
+  homing_strategy: "standard";
+  total_z_height: number;
   y_axis_motion?: "head" | "bed";
+  structure_clearance_z?: number | null;
+}
+
+export interface GrblSettingsConfig {
+  dir_invert_mask?: number | null;
+  status_report?: number | null;
+  soft_limits?: boolean | null;
+  hard_limits?: boolean | null;
+  homing_enable?: boolean | null;
+  homing_dir_mask?: number | null;
+  homing_pull_off?: number | null;
+  steps_per_mm_x?: number | null;
+  steps_per_mm_y?: number | null;
+  steps_per_mm_z?: number | null;
+  max_rate_x?: number | null;
+  max_rate_y?: number | null;
+  max_rate_z?: number | null;
+  accel_x?: number | null;
+  accel_y?: number | null;
+  accel_z?: number | null;
+  max_travel_x?: number | null;
+  max_travel_y?: number | null;
+  max_travel_z?: number | null;
 }
 
 export interface GantryConfig {
   serial_port: string;
-  cnc: CncConfig | null;
+  cnc: CncConfig;
   working_volume: WorkingVolume;
+  grbl_settings?: GrblSettingsConfig | null;
+  instruments: Record<string, InstrumentConfig>;
 }
 
 export interface GantryResponse {
@@ -202,12 +223,14 @@ export interface GantryPosition {
   work_z: number | null;
   status: string;
   connected: boolean;
+  calibration_warning?: string | null;
 }
 
-// Board introspection (from CubOS)
+// Gantry-mounted instrument introspection (from CubOS)
 
 export interface InstrumentTypeInfo {
   type: string;
+  vendors: string[];
   is_mock: boolean;
 }
 

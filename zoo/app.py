@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from zoo.routers import board, deck, gantry, protocol, raw, settings
+from zoo.routers import deck, gantry, protocol, raw, settings
 
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 logger = logging.getLogger(__name__)
@@ -29,7 +29,6 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(title="Zoo — CubOS Visualizer", lifespan=lifespan)
     app.include_router(deck.router)
-    app.include_router(board.router)
     app.include_router(gantry.router)
     app.include_router(protocol.router)
     app.include_router(raw.router)

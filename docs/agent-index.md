@@ -25,9 +25,9 @@ Rule: write YAML from UI/API input, then read it back through CubOS loaders/sche
 Use CubOS public modules/classes instead of duplicating behavior:
 
 - Deck/config validation: `load_deck_from_yaml`, CubOS deck schemas/loaders.
-- Board/gantry validation: CubOS board/gantry schemas/loaders.
-- Movement: CubOS `Gantry`, `Board`, and public movement methods.
-- Protocols: CubOS protocol loaders/runtime APIs.
+- Gantry/instrument validation: CubOS gantry schema and instrument registry.
+- Movement: CubOS `Gantry` and public protocol/movement methods.
+- Protocols: CubOS protocol loaders/runtime APIs using gantry, deck, and protocol configs.
 
 Never send raw serial/GRBL from Zoo and never prepend local CubOS source paths onto `sys.path`.
 
@@ -44,7 +44,7 @@ Read these before changing the React UI:
 
 ## Coordinate display rule
 
-CubOS/backend coordinates and hardware semantics are not redefined in Zoo. Zoo may transform values only for display where documented. Before changing coordinate display, read:
+CubOS/backend coordinates and hardware semantics are not redefined in Zoo. Zoo displays CubOS coordinates directly in the deck-origin frame. Before changing coordinate display, read:
 
 - `AGENTS.md` coordinate convention section.
 - `frontend/src/utils/coordinates.ts` and tests.

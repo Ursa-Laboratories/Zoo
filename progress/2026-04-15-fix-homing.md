@@ -9,10 +9,9 @@ to call an XY-only method instead of delegating to CubOS.
 
 ## Findings
 - `zoo/routers/gantry.py:84` called `_gantry.home_xy()` unconditionally.
-- CubOS's `Gantry.home()` already dispatches on `config['cnc']['homing_strategy']`:
-  `xy_hard_limits` → `Mill.home_xy_hard_limits()`, anything else (incl.
-  `standard`) → `Mill.home()`. Verified in the installed editable copy at
-  `.venv/src/panda-core/src/gantry/gantry.py:67`.
+- CubOS's current `Gantry.home()` owns homing behavior. Older strategy names
+  from this note are retired and are no longer part of Zoo's active config
+  surface.
 - `zoo/models/gantry.py:20-23` already models `cnc.homing_strategy`, and
   `connect()` passes the full YAML dict into `Gantry(config=config)`, so
   the strategy reaches the dispatcher correctly.

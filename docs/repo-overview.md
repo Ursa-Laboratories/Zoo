@@ -11,7 +11,7 @@
 | `zoo/app.py` | FastAPI app factory |
 | `zoo/__main__.py` | Startup entrypoint |
 | `zoo/config.py` | `ZOO_*` settings and config-directory handling |
-| `zoo/routers/` | REST endpoints for gantry, deck, board, protocol, raw, settings |
+| `zoo/routers/` | REST endpoints for gantry, deck, protocol, raw, settings |
 | `zoo/services/` | YAML file helpers |
 | `frontend/src/` | React + TypeScript application |
 | `configs/` | Default local config store, empty by default in this checkout |
@@ -75,3 +75,4 @@ npm run build
 - The shared gantry instance is process-local and serial access is deliberately locked.
 - `raw` endpoints bypass schema-aware editing and can write malformed YAML if used carelessly.
 - The checked-in frontend README is a template and not authoritative project documentation.
+- CubOS staging no longer uses a separate mounted-instrument config in Zoo; instruments belong in gantry YAML.

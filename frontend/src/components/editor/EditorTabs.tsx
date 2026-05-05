@@ -1,4 +1,4 @@
-const TABS = ["Gantry", "Deck", "Board", "Protocol"] as const;
+const TABS = ["Gantry", "Deck", "Protocol"] as const;
 type TabName = (typeof TABS)[number];
 
 interface Props {
