@@ -285,3 +285,100 @@ export interface ProtocolValidationResponse {
   valid: boolean;
   errors: string[];
 }
+
+// Digital Sim bundle shape returned by /api/simulation/digital-twin.
+
+export interface DigitalTwinAabb {
+  label: string;
+  kind: string;
+  min: Coordinate3D;
+  max: Coordinate3D;
+  size: Coordinate3D;
+  center: Coordinate3D;
+}
+
+export interface DigitalTwinLabwareItem {
+  key: string;
+  parentKey: string | null;
+  name: string;
+  kind: string;
+  modelName: string;
+  anchor: Coordinate3D;
+  geometry: Record<string, number | null>;
+  aabb: DigitalTwinAabb | null;
+  positions: Record<string, Coordinate3D>;
+  wells?: Array<{ id: string; center: Coordinate3D }>;
+  tips?: Array<{ id: string; center: Coordinate3D; present: boolean }>;
+  children: DigitalTwinLabwareItem[];
+}
+
+export interface DigitalTwinInstrument {
+  name: string;
+  type: string;
+  vendor: string | null;
+  offset: Coordinate3D;
+  depth: number;
+  safeApproachHeight: number;
+  measurementHeight: number;
+}
+
+export interface DigitalTwinMotionPoint {
+  index: number;
+  stepIndex: number;
+  command: string;
+  phase: string;
+  targetRef: string;
+  instrument: string;
+  tool: Coordinate3D;
+  gantry: Coordinate3D;
+  envelope: DigitalTwinAabb;
+}
+
+export interface DigitalTwinTimelineStep {
+  index: number;
+  command: string;
+  args: Record<string, unknown>;
+  pathStart: number;
+  pathEnd: number;
+}
+
+export interface DigitalTwinWarning {
+  severity: "warning" | "error";
+  type: string;
+  stepIndex: number;
+  pathIndex: number;
+  instrument: string;
+  targetRef: string;
+  object: string;
+  distanceMm: number;
+  message: string;
+}
+
+export interface DigitalTwinBundle {
+  schemaVersion: string;
+  generatedAt: string;
+  source: Record<string, string | null>;
+  coordinateSystem: {
+    frame: string;
+    origin: string;
+    axes: Record<string, string>;
+    units: string;
+  };
+  gantry: {
+    yAxisMotion?: "head" | "bed";
+    workingVolume: WorkingVolume;
+    homePosition: Coordinate3D;
+    instruments: DigitalTwinInstrument[];
+  };
+  deck: { labware: DigitalTwinLabwareItem[] };
+  protocol: {
+    positions: Record<string, Coordinate3D>;
+    timeline: DigitalTwinTimelineStep[];
+  };
+  motion: {
+    timeline: DigitalTwinTimelineStep[];
+    segments: unknown[];
+    path: DigitalTwinMotionPoint[];
+  };
+  warnings: DigitalTwinWarning[];
+}

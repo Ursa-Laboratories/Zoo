@@ -111,6 +111,20 @@ export const protocolApi = {
     }),
 };
 
+// Simulation
+export const simulationApi = {
+  buildDigitalTwin: (body: {
+    gantry_file: string;
+    deck_file: string;
+    protocol_file: string;
+    sample_step_mm?: number;
+  }) =>
+    request<import("../types").DigitalTwinBundle>("/simulation/digital-twin", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+};
+
 // Settings
 export const settingsApi = {
   get: () => request<SettingsResponse>("/settings"),

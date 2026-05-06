@@ -19,6 +19,8 @@ interface Props {
   onRefresh: () => void;
   onRun: () => void;
   isRunning: boolean;
+  runMode: "simulation" | "hardware";
+  onRunModeChange: (mode: "simulation" | "hardware") => void;
   runResult: { status: string; steps_executed: number } | null;
   runError: string | null;
 }
@@ -59,6 +61,8 @@ export default function ProtocolEditor({
   isValidating,
   onRun,
   isRunning,
+  runMode,
+  onRunModeChange,
   runResult,
   runError,
 }: Props) {
@@ -213,8 +217,17 @@ export default function ProtocolEditor({
             <button onClick={handleSave} disabled={!canSave} style={saveBtnStyle}>
               Save
             </button>
+            <select
+              aria-label="Protocol run target"
+              value={runMode}
+              onChange={(event) => onRunModeChange(event.target.value as "simulation" | "hardware")}
+              style={runTargetStyle}
+            >
+              <option value="simulation">Simulation</option>
+              <option value="hardware">Hardware</option>
+            </select>
             <button onClick={onRun} disabled={isRunning || !hasSteps} style={runBtnStyle}>
-              {isRunning ? "Running..." : "Run Protocol"}
+              {isRunning ? "Running..." : runMode === "simulation" ? "Run Simulation" : "Run Hardware"}
             </button>
           </div>
 
@@ -223,7 +236,7 @@ export default function ProtocolEditor({
           )}
           {runResult && (
             <p style={{ color: "#059669", fontSize: 12, margin: "6px 0 0" }}>
-              Protocol complete — {runResult.steps_executed} steps executed.
+              {runResult.status === "simulated" ? "Simulation ready" : "Protocol complete"} — {runResult.steps_executed} steps.
             </p>
           )}
           {runError && (
@@ -316,6 +329,15 @@ const saveBtnStyle: React.CSSProperties = {
   cursor: "pointer",
   fontSize: 13,
   fontWeight: 600,
+};
+
+const runTargetStyle: React.CSSProperties = {
+  background: "#fff",
+  color: "#1a1a1a",
+  border: "1px solid #ccc",
+  padding: "5px 8px",
+  borderRadius: 4,
+  fontSize: 12,
 };
 
 const runBtnStyle: React.CSSProperties = {

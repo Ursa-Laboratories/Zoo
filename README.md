@@ -1,6 +1,6 @@
 # Zoo
 
-`Zoo` is the local web UI for `CubOS`. It edits YAML configs, visualizes deck state, controls gantry motion, and triggers protocol execution through CubOS.
+`Zoo` is the local web UI for `CubOS`. It edits YAML configs, visualizes deck state, controls gantry motion, simulates protocol motion, and triggers protocol execution through CubOS.
 
 See also:
 
@@ -14,6 +14,7 @@ See also:
 - Zoo should stay a thin layer over CubOS loaders, schemas, registries, and motion logic.
 - The checked-in dependency currently points at a Git branch in `pyproject.toml`. Confirm branch strategy before changing it.
 - Zoo uses CubOS' current three-config runtime surface: gantry, deck, and protocol. Mounted instruments are edited and saved inside gantry YAML.
+- Zoo includes a copied/adapted Digital Sim exporter and viewer surface. Simulation export stays loader-backed: Zoo resolves selected YAML paths, then CubOS loaders and the Digital Sim motion planner produce the browser bundle.
 
 ## Local Config Storage
 
@@ -21,6 +22,14 @@ See also:
 - The active directory is exposed through `/api/settings` as `config_dir`.
 - Operators can point Zoo at another config directory through the settings UI or API.
 - Gantry YAMLs are read back through CubOS validation before Zoo returns or saves them; missing current fields must be filled and saved in the gantry editor.
+
+## Viewer And Protocol Modes
+
+- The deck viewer defaults to the live Top/2D view, matching Zoo's existing coordinate convention.
+- Operators can switch the position source between Live and Simulation.
+- Operators can switch the viewer between Top and 3D. The 3D view uses the Digital Sim coordinate mapping: CubOS `(x, y, z)` renders into a Y-up Three.js world as `(x, z, -y)`.
+- `Run Simulation` builds a Digital Sim bundle through `/api/simulation/digital-twin` and never touches hardware.
+- Hardware protocol execution remains explicit through the existing `/api/protocol/run` path and still requires a connected gantry.
 
 ## Run
 

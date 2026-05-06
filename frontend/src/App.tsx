@@ -1,13 +1,13 @@
 import React, { useRef, useState, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import AppLayout from "./components/layout/AppLayout";
-import DeckVisualization from "./components/deck/DeckVisualization";
 import GantryPositionWidget from "./components/gantry/GantryPositionWidget";
 import EditorTabs from "./components/editor/EditorTabs";
 import DeckEditor from "./components/editor/DeckEditor";
 import GantryEditor from "./components/editor/GantryEditor";
 import ProtocolEditor from "./components/editor/ProtocolEditor";
-import { settingsApi, deckApi, protocolApi } from "./api/client";
+import ViewerPanel, { type ViewerDimension, type ViewerMode } from "./components/viewer/ViewerPanel";
+import { settingsApi, deckApi, protocolApi, simulationApi } from "./api/client";
 import { useDeckConfigs, useDeck, useSaveDeck } from "./hooks/useDeck";
 import {
   useGantryPosition,
@@ -25,6 +25,7 @@ import type {
   ProtocolStep,
   GantryResponse,
   WorkingVolume,
+  DigitalTwinBundle,
 } from "./types";
 import type { SettingsResponse } from "./api/client";
 
@@ -48,6 +49,13 @@ export default function App() {
   const [runResult, setRunResult] = useState<{ status: string; steps_executed: number } | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [protocolRunMode, setProtocolRunMode] = useState<"simulation" | "hardware">("simulation");
+  const [viewerMode, setViewerMode] = useState<ViewerMode>("live");
+  const [viewerDimension, setViewerDimension] = useState<ViewerDimension>("2d");
+  const [simulationTwin, setSimulationTwin] = useState<DigitalTwinBundle | null>(null);
+  const [simulationPathIndex, setSimulationPathIndex] = useState(0);
+  const [simulationLoading, setSimulationLoading] = useState(false);
+  const [simulationError, setSimulationError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
 
   // Load the local config directory on mount.
@@ -152,6 +160,11 @@ export default function App() {
   React.useEffect(() => {
     setLocalProtocolSteps(null);
   }, [protocolFile]);
+  React.useEffect(() => {
+    setSimulationTwin(null);
+    setSimulationPathIndex(0);
+    setSimulationError(null);
+  }, [deckFile, gantryFile, protocolFile]);
 
   const displayDeck = useMemo(() => {
     const base = localDeck ?? deckQuery.data ?? null;
@@ -168,13 +181,6 @@ export default function App() {
 
   const displayGantry = localGantry ?? gantryQuery.data ?? null;
   const workingVolume: WorkingVolume | null = displayGantry?.config.working_volume ?? null;
-  const yAxisMotion = displayGantry?.config.cnc?.y_axis_motion ?? "head";
-  const machineXRange: [number, number] = workingVolume
-    ? [workingVolume.x_min, workingVolume.x_max]
-    : [0, 300];
-  const machineYRange: [number, number] = workingVolume
-    ? [workingVolume.y_min, workingVolume.y_max]
-    : [0, 200];
 
   const refreshAll = () => {
     qc.invalidateQueries({ queryKey: ["deck"] });
@@ -184,6 +190,9 @@ export default function App() {
     setLocalGantry(null);
     setLocalProtocolSteps(null);
     setDeckImportedFrom(null);
+    setSimulationTwin(null);
+    setSimulationPathIndex(0);
+    setSimulationError(null);
   };
 
   const handleImportDeck = async (filename: string) => {
@@ -205,8 +214,37 @@ export default function App() {
     }
   };
 
+  const handleRunSimulation = async () => {
+    if (!gantryFile || !deckFile || !protocolFile) return;
+    setSimulationLoading(true);
+    setSimulationError(null);
+    setRunResult(null);
+    setRunError(null);
+    try {
+      const result = await simulationApi.buildDigitalTwin({
+        gantry_file: gantryFile,
+        deck_file: deckFile,
+        protocol_file: protocolFile,
+      });
+      setSimulationTwin(result);
+      setSimulationPathIndex(0);
+      setViewerMode("simulation");
+      setRunResult({ status: "simulated", steps_executed: result.protocol.timeline.length });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setSimulationError(message);
+      setRunError(message);
+    } finally {
+      setSimulationLoading(false);
+    }
+  };
+
   const handleRunProtocol = async () => {
     if (!gantryFile || !deckFile || !protocolFile) return;
+    if (protocolRunMode === "simulation") {
+      await handleRunSimulation();
+      return;
+    }
     setIsRunning(true);
     setRunResult(null);
     setRunError(null);
@@ -336,7 +374,9 @@ export default function App() {
           isValidating={validateProtocol.isPending}
           onRefresh={refreshAll}
           onRun={handleRunProtocol}
-          isRunning={isRunning}
+          isRunning={isRunning || simulationLoading}
+          runMode={protocolRunMode}
+          onRunModeChange={setProtocolRunMode}
           runResult={runResult}
           runError={runError}
         />
@@ -345,17 +385,22 @@ export default function App() {
   );
 
   const topRight = (
-    <div>
-      <h3 style={{ margin: "0 0 8px", fontSize: 14, color: "#666" }}>Deck Visualization</h3>
-      <DeckVisualization
-        deck={displayDeck}
-        instruments={displayGantry?.config.instruments ?? null}
-        gantryPosition={gantryPosition.data ?? null}
-        machineXRange={machineXRange}
-        machineYRange={machineYRange}
-        yAxisMotion={yAxisMotion}
-      />
-    </div>
+    <ViewerPanel
+      deck={displayDeck}
+      gantry={displayGantry}
+      livePosition={gantryPosition.data ?? null}
+      mode={viewerMode}
+      view={viewerDimension}
+      simulationTwin={simulationTwin}
+      simulationPathIndex={simulationPathIndex}
+      simulationLoading={simulationLoading}
+      simulationError={simulationError}
+      canSimulate={Boolean(gantryFile && deckFile && protocolFile)}
+      onModeChange={setViewerMode}
+      onViewChange={setViewerDimension}
+      onSimulationPathIndexChange={setSimulationPathIndex}
+      onRunSimulation={handleRunSimulation}
+    />
   );
 
   const bottomRight = (

@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from zoo.routers import deck, gantry, protocol, raw, settings
+from zoo.routers import deck, gantry, protocol, raw, settings, simulation
 
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 logger = logging.getLogger(__name__)
@@ -33,6 +33,7 @@ def create_app() -> FastAPI:
     app.include_router(protocol.router)
     app.include_router(raw.router)
     app.include_router(settings.router)
+    app.include_router(simulation.router)
 
     if FRONTEND_DIST.is_dir():
         app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
