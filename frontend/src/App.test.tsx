@@ -470,4 +470,26 @@ describe("Zoo editor interactions", () => {
       expect.objectContaining({ method: "POST" }),
     );
   });
+
+  it("shows the Digital Sim-style 3D viewer for a protocol simulation", async () => {
+    const user = userEvent.setup();
+    installFetchMock(createState());
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+    await user.click(screen.getByRole("button", { name: "Run Simulation" }));
+    await waitFor(() => expect(screen.getByText(/Simulation ready/)).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "3D" }));
+
+    expect(screen.getByRole("main", { name: "CubOS Digital Twin" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "CubOS Digital Twin" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Motion path sample")).toBeInTheDocument();
+    expect(screen.getByText("Current Pose")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Protocol" })).toBeInTheDocument();
+    expect(screen.getByText("No first-pass AABB warnings.")).toBeInTheDocument();
+  });
 });

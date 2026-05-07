@@ -27,7 +27,7 @@ See also:
 
 - The deck viewer defaults to the live Top/2D view, matching Zoo's existing coordinate convention.
 - Operators can switch the position source between Live and Simulation.
-- Operators can switch the viewer between Top and 3D. The 3D view uses the Digital Sim coordinate mapping: CubOS `(x, y, z)` renders into a Y-up Three.js world as `(x, z, -y)`.
+- Operators can switch the viewer between Top and 3D. The 3D view uses a Digital Sim-style scene and sidebar, including path sampling, current pose, protocol timeline, warnings, and the Digital Sim coordinate mapping: CubOS `(x, y, z)` renders into a Y-up Three.js world as `(x, z, -y)`.
 - `Run Simulation` builds a Digital Sim bundle through `/api/simulation/digital-twin` and never touches hardware.
 - Hardware protocol execution remains explicit through the existing `/api/protocol/run` path and still requires a connected gantry.
 

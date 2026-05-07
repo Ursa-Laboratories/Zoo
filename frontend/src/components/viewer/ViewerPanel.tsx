@@ -1,4 +1,3 @@
-import type { CSSProperties } from "react";
 import DeckVisualization from "../deck/DeckVisualization";
 import type {
   DeckResponse,
@@ -11,6 +10,7 @@ import type {
 } from "../../types";
 import DigitalTwinScene from "./DigitalTwinScene";
 import { liveTwinFromZoo, simulationPointToGantryPosition } from "./digitalTwinAdapter";
+import "./viewer.css";
 
 export type ViewerMode = "live" | "simulation";
 export type ViewerDimension = "2d" | "3d";
@@ -66,10 +66,10 @@ export default function ViewerPanel({
   const instruments: Record<string, InstrumentConfig> | null = gantry?.config.instruments ?? null;
 
   return (
-    <div>
-      <div style={headerStyle}>
-        <h3 style={{ margin: 0, fontSize: 14, color: "#666" }}>Deck Visualization</h3>
-        <div style={controlsStyle}>
+    <div className="viewer-panel">
+      <div className="viewer-panel__header">
+        <h3 className="viewer-panel__title">Deck Visualization</h3>
+        <div className="viewer-panel__controls">
           <SegmentedControl
             label="Position source"
             value={mode}
@@ -93,27 +93,36 @@ export default function ViewerPanel({
             aria-label="Build simulation viewer"
             onClick={onRunSimulation}
             disabled={!canSimulate || simulationLoading}
-            style={simulateButtonStyle}
+            className="viewer-panel__simulate"
           >
             {simulationLoading ? "Simulating..." : "Run Simulation"}
           </button>
         </div>
       </div>
 
-      {view === "2d" ? (
-        <DeckVisualization
-          deck={deck}
-          instruments={instruments}
-          gantryPosition={position}
-          machineXRange={machineXRange}
-          machineYRange={machineYRange}
-          yAxisMotion={yAxisMotion}
-        />
-      ) : (
-        <DigitalTwinScene twin={twin} current={current} />
-      )}
+      <div className="viewer-panel__body">
+        {view === "2d" ? (
+          <DeckVisualization
+            deck={deck}
+            instruments={instruments}
+            gantryPosition={position}
+            machineXRange={machineXRange}
+            machineYRange={machineYRange}
+            yAxisMotion={yAxisMotion}
+          />
+        ) : (
+          <DigitalTwinScene
+            twin={twin}
+            current={current}
+            pathIndex={simulationPathIndex}
+            loading={simulationLoading}
+            error={simulationError}
+            onPathIndexChange={mode === "simulation" ? onSimulationPathIndexChange : undefined}
+          />
+        )}
+      </div>
 
-      {mode === "simulation" && (
+      {mode === "simulation" && view === "2d" && (
         <SimulationTimeline
           twin={simulationTwin}
           pathIndex={simulationPathIndex}
@@ -143,8 +152,8 @@ function SimulationTimeline({
   const pathLength = twin?.motion.path.length ?? 0;
 
   return (
-    <div style={timelineStyle}>
-      <div style={timelineTopStyle}>
+    <div className="simulation-timeline">
+      <div className="simulation-timeline__top">
         <span>
           Simulation path {pathLength ? pathIndex + 1 : 0} / {pathLength}
         </span>
@@ -162,18 +171,18 @@ function SimulationTimeline({
         value={Math.min(pathIndex, Math.max(pathLength - 1, 0))}
         onChange={(event) => onPathIndexChange(Number(event.target.value))}
         disabled={!pathLength}
-        style={{ width: "100%" }}
+        className="simulation-timeline__range"
       />
-      {loading && <p style={infoStyle}>Building Digital Sim motion bundle...</p>}
-      {error && <p style={errorStyle}>{error}</p>}
+      {loading && <p className="simulation-timeline__info">Building Digital Sim motion bundle...</p>}
+      {error && <p className="simulation-timeline__error">{error}</p>}
       {twin && (
-        <div style={timelineButtonsStyle}>
+        <div className="simulation-timeline__steps">
           {twin.protocol.timeline.slice(0, 12).map((step) => (
             <button
               type="button"
               key={step.index}
               onClick={() => onPathIndexChange(step.pathStart)}
-              style={stepButtonStyle(current?.stepIndex === step.index)}
+              className={current?.stepIndex === step.index ? "active" : undefined}
             >
               {step.index}: {step.command}
             </button>
@@ -181,7 +190,7 @@ function SimulationTimeline({
         </div>
       )}
       {twin && twin.warnings.length > 0 && (
-        <p style={warningStyle}>{twin.warnings.length} AABB warning(s) in the simulated path.</p>
+        <p className="simulation-timeline__warning">{twin.warnings.length} AABB warning(s) in the simulated path.</p>
       )}
     </div>
   );
@@ -204,14 +213,13 @@ function SegmentedControl<T extends string>({
   onChange: (value: T) => void;
 }) {
   return (
-    <div role="group" aria-label={label} style={segmentStyle}>
+    <div role="group" aria-label={label} className="viewer-panel__segment">
       {options.map((option) => (
         <button
           key={option.value}
           type="button"
           onClick={() => onChange(option.value)}
           aria-pressed={value === option.value}
-          style={segmentButtonStyle(value === option.value)}
         >
           {option.label}
         </button>
@@ -219,106 +227,3 @@ function SegmentedControl<T extends string>({
     </div>
   );
 }
-
-const headerStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: 12,
-  marginBottom: 8,
-  flexWrap: "wrap",
-};
-
-const controlsStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  flexWrap: "wrap",
-};
-
-const segmentStyle: CSSProperties = {
-  display: "flex",
-  border: "1px solid #cfd6df",
-  borderRadius: 6,
-  overflow: "hidden",
-  background: "#fff",
-};
-
-function segmentButtonStyle(active: boolean): CSSProperties {
-  return {
-    border: "none",
-    borderRight: "1px solid #cfd6df",
-    background: active ? "#253041" : "#fff",
-    color: active ? "#fff" : "#1f2937",
-    padding: "5px 10px",
-    cursor: "pointer",
-    fontSize: 12,
-    fontWeight: 600,
-  };
-}
-
-const simulateButtonStyle: CSSProperties = {
-  background: "#0f766e",
-  color: "#fff",
-  border: "none",
-  padding: "6px 12px",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontSize: 12,
-  fontWeight: 600,
-};
-
-const timelineStyle: CSSProperties = {
-  marginTop: 10,
-  padding: 10,
-  border: "1px solid #d7dde5",
-  borderRadius: 8,
-  background: "#fbfcfd",
-};
-
-const timelineTopStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  fontSize: 12,
-  color: "#4b5563",
-  marginBottom: 6,
-  flexWrap: "wrap",
-};
-
-const timelineButtonsStyle: CSSProperties = {
-  display: "flex",
-  gap: 6,
-  flexWrap: "wrap",
-  marginTop: 6,
-};
-
-function stepButtonStyle(active: boolean): CSSProperties {
-  return {
-    background: active ? "#dbeafe" : "#fff",
-    color: "#1f2937",
-    border: "1px solid #cfd6df",
-    borderRadius: 4,
-    padding: "3px 6px",
-    cursor: "pointer",
-    fontSize: 11,
-  };
-}
-
-const infoStyle: CSSProperties = {
-  margin: "6px 0 0",
-  color: "#4b5563",
-  fontSize: 12,
-};
-
-const errorStyle: CSSProperties = {
-  margin: "6px 0 0",
-  color: "#dc2626",
-  fontSize: 12,
-};
-
-const warningStyle: CSSProperties = {
-  margin: "6px 0 0",
-  color: "#b45309",
-  fontSize: 12,
-};

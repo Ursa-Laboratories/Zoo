@@ -27,7 +27,7 @@
 
 - The right-side viewer defaults to Live + Top, preserving the previous Zoo SVG top view.
 - Simulation mode calls `/api/simulation/digital-twin`, which resolves the selected gantry/deck/protocol filenames and delegates loading and motion expansion to CubOS-backed Digital Sim exporter code.
-- 3D mode uses Three.js inside Zoo's frontend. It preserves CubOS deck-frame semantics by mapping CubOS `(x, y, z)` into Three.js `(x, z, -y)`.
+- 3D mode uses Three.js inside Zoo's frontend with a Digital Sim-style viewport/sidebar layout for path sampling, current pose, protocol timeline, and warnings. It preserves CubOS deck-frame semantics by mapping CubOS `(x, y, z)` into Three.js `(x, z, -y)`.
 - Protocol execution has two explicit targets: Simulation builds the Digital Sim timeline/path and does not touch hardware; Hardware uses the existing `/api/protocol/run` endpoint with the connected gantry.
 
 ## How To Run

@@ -33,7 +33,8 @@ export default function AppLayout({ left, topRight, bottomRight }: Props) {
         style={{
           gridRow: "1",
           gridColumn: "2",
-          overflow: "auto",
+          minHeight: 0,
+          overflow: "hidden",
           padding: 16,
           background: "#fafafa",
         }}
