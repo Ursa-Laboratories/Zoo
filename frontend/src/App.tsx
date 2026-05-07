@@ -5,20 +5,24 @@ import DeckVisualization from "./components/deck/DeckVisualization";
 import GantryPositionWidget from "./components/gantry/GantryPositionWidget";
 import EditorTabs from "./components/editor/EditorTabs";
 import DeckEditor from "./components/editor/DeckEditor";
-import BoardEditor from "./components/editor/BoardEditor";
 import GantryEditor from "./components/editor/GantryEditor";
 import ProtocolEditor from "./components/editor/ProtocolEditor";
 import { settingsApi, deckApi, protocolApi } from "./api/client";
 import { useDeckConfigs, useDeck, useSaveDeck } from "./hooks/useDeck";
-import { useBoardConfigs, useBoard, useSaveBoard, useInstrumentTypes, useInstrumentSchemas } from "./hooks/useBoard";
-import { useGantryPosition, useGantryConfigs, useGantry, useSaveGantry } from "./hooks/useGantryPosition";
+import {
+  useGantryPosition,
+  useGantryConfigs,
+  useGantry,
+  useSaveGantry,
+  useInstrumentTypes,
+  useInstrumentSchemas,
+} from "./hooks/useGantryPosition";
 import { useProtocolCommands, useProtocolConfigs, useProtocol, useSaveProtocol, useValidateProtocol } from "./hooks/useProtocol";
 import type {
   DeckResponse,
   WellPosition,
   ProtocolValidationResponse,
   ProtocolStep,
-  BoardResponse,
   GantryResponse,
   WorkingVolume,
 } from "./types";
@@ -38,7 +42,6 @@ export default function App() {
   const [browseLoading, setBrowseLoading] = useState(false);
 
   const [deckFile, setDeckFile] = useState<string | null>(null);
-  const [boardFile, setBoardFile] = useState<string | null>(null);
   const [gantryFile, setGantryFile] = useState<string | null>(null);
   const [protocolFile, setProtocolFile] = useState<string | null>(null);
   const [validationResult, setValidationResult] = useState<ProtocolValidationResponse | null>(null);
@@ -76,16 +79,12 @@ export default function App() {
   const deckQuery = useDeck(deckFile);
   const saveDeck = useSaveDeck();
 
-  const boardConfigs = useBoardConfigs();
-  const boardQuery = useBoard(boardFile);
-  const saveBoard = useSaveBoard();
-  const instrumentTypes = useInstrumentTypes();
-  const instrumentSchemas = useInstrumentSchemas();
-
   const gantryConfigs = useGantryConfigs();
   const gantryQuery = useGantry(gantryFile);
   const saveGantry = useSaveGantry();
   const gantryPosition = useGantryPosition(!isRunning);
+  const instrumentTypes = useInstrumentTypes();
+  const instrumentSchemas = useInstrumentSchemas();
 
   const protocolCommands = useProtocolCommands();
   const protocolConfigs = useProtocolConfigs();
@@ -98,7 +97,6 @@ export default function App() {
   // would otherwise discard its useState). Cleared on refresh/load via
   // refreshAll and on save via each editor's mutation onSuccess.
   const [localDeck, setLocalDeck] = useState<DeckResponse | null>(null);
-  const [localBoard, setLocalBoard] = useState<BoardResponse | null>(null);
   const [localGantry, setLocalGantry] = useState<GantryResponse | null>(null);
   const [localProtocolSteps, setLocalProtocolSteps] = useState<ProtocolStep[] | null>(null);
   // Imports always save to WORKING_DECK_FILENAME so the source file
@@ -149,9 +147,6 @@ export default function App() {
     }
   }, [deckFile]);
   React.useEffect(() => {
-    setLocalBoard(null);
-  }, [boardFile]);
-  React.useEffect(() => {
     setLocalGantry(null);
   }, [gantryFile]);
   React.useEffect(() => {
@@ -171,8 +166,9 @@ export default function App() {
     };
   }, [localDeck, deckQuery.data, previewWells]);
 
-  const workingVolume: WorkingVolume | null = gantryQuery.data?.config.working_volume ?? null;
-  const yAxisMotion = gantryQuery.data?.config.cnc?.y_axis_motion ?? "head";
+  const displayGantry = localGantry ?? gantryQuery.data ?? null;
+  const workingVolume: WorkingVolume | null = displayGantry?.config.working_volume ?? null;
+  const yAxisMotion = displayGantry?.config.cnc?.y_axis_motion ?? "head";
   const machineXRange: [number, number] = workingVolume
     ? [workingVolume.x_min, workingVolume.x_max]
     : [0, 300];
@@ -182,11 +178,9 @@ export default function App() {
 
   const refreshAll = () => {
     qc.invalidateQueries({ queryKey: ["deck"] });
-    qc.invalidateQueries({ queryKey: ["board"] });
     qc.invalidateQueries({ queryKey: ["gantry"] });
     qc.invalidateQueries({ queryKey: ["protocol"] });
     setLocalDeck(null);
-    setLocalBoard(null);
     setLocalGantry(null);
     setLocalProtocolSteps(null);
     setDeckImportedFrom(null);
@@ -212,7 +206,7 @@ export default function App() {
   };
 
   const handleRunProtocol = async () => {
-    if (!gantryFile || !deckFile || !boardFile || !protocolFile) return;
+    if (!gantryFile || !deckFile || !protocolFile) return;
     setIsRunning(true);
     setRunResult(null);
     setRunError(null);
@@ -220,7 +214,6 @@ export default function App() {
       const result = await protocolApi.run({
         gantry_file: gantryFile,
         deck_file: deckFile,
-        board_file: boardFile,
         protocol_file: protocolFile,
       });
       setRunResult(result);
@@ -269,12 +262,11 @@ export default function App() {
       <EditorTabs
           activeTab={activeTab}
           onTabChange={setActiveTab}
-          disabledTabs={!deckQuery.data || !boardQuery.data || !gantryQuery.data ? ["Protocol"] : []}
+          disabledTabs={!deckQuery.data || !gantryQuery.data ? ["Protocol"] : []}
           disabledMessage={(() => {
             const missing = [
               !gantryQuery.data && "Gantry",
               !deckQuery.data && "Deck",
-              !boardQuery.data && "Board",
             ].filter(Boolean);
             if (missing.length === 0) return null;
             return `Please load ${missing.join(", ")} config${missing.length > 1 ? "s" : ""} first.`;
@@ -289,7 +281,6 @@ export default function App() {
             // "imported from" label instead of the working-copy name.
             Gantry: gantryQuery.data?.filename ?? null,
             Deck: deckImportedFrom ?? deckQuery.data?.filename ?? null,
-            Board: boardQuery.data?.filename ?? null,
             Protocol: protocolQuery.data?.filename ?? null,
           }}
         />
@@ -311,21 +302,6 @@ export default function App() {
           />
         </>
       )}
-      {activeTab === "Board" && (
-        <BoardEditor
-          key={boardQuery.data ? `loaded:${boardQuery.data.filename}` : `selected:${boardFile ?? "none"}`}
-          configs={boardConfigs.data ?? []}
-          selectedFile={boardFile}
-          onSelectFile={setBoardFile}
-          board={localBoard ?? boardQuery.data ?? null}
-          baseline={boardQuery.data ?? null}
-          instrumentTypes={instrumentTypes.data ?? []}
-          instrumentSchemas={instrumentSchemas.data ?? {}}
-          onSave={(filename, body) => saveBoard.mutate({ filename, body })}
-          onLocalChange={setLocalBoard}
-          onRefresh={refreshAll}
-        />
-      )}
       {activeTab === "Gantry" && (
         <GantryEditor
           key={gantryQuery.data ? `loaded:${gantryQuery.data.filename}` : `selected:${gantryFile ?? "none"}`}
@@ -334,12 +310,14 @@ export default function App() {
           onSelectFile={setGantryFile}
           gantry={localGantry ?? gantryQuery.data ?? null}
           baseline={gantryQuery.data ?? null}
+          instrumentTypes={instrumentTypes.data ?? []}
+          instrumentSchemas={instrumentSchemas.data ?? {}}
           onSave={(filename, body) => saveGantry.mutate({ filename, body })}
           onLocalChange={setLocalGantry}
           onRefresh={refreshAll}
         />
       )}
-      {activeTab === "Protocol" && deckQuery.data && boardQuery.data && gantryQuery.data && (
+      {activeTab === "Protocol" && deckQuery.data && gantryQuery.data && (
         <ProtocolEditor
           key={protocolQuery.data ? `loaded:${protocolQuery.data.filename}` : `selected:${protocolFile ?? "none"}`}
           configs={protocolConfigs.data ?? []}
@@ -367,16 +345,18 @@ export default function App() {
   );
 
   const topRight = (
-    <div>
-      <h3 style={{ margin: "0 0 8px", fontSize: 14, color: "#666" }}>Deck Visualization</h3>
-      <DeckVisualization
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+      <h3 style={{ margin: "0 0 8px", fontSize: 14, color: "#666", flex: "0 0 auto" }}>Deck Visualization</h3>
+      <div style={{ flex: "1 1 auto", minHeight: 0 }}>
+        <DeckVisualization
         deck={displayDeck}
-        board={boardQuery.data ?? null}
+        instruments={displayGantry?.config.instruments ?? null}
         gantryPosition={gantryPosition.data ?? null}
         machineXRange={machineXRange}
         machineYRange={machineYRange}
-        yAxisMotion={yAxisMotion}
-      />
+          yAxisMotion={yAxisMotion}
+        />
+      </div>
     </div>
   );
 
@@ -384,7 +364,7 @@ export default function App() {
     <GantryPositionWidget
       position={gantryPosition.data ?? null}
       workingVolume={workingVolume}
-      configSelected={!!gantryFile}
+      gantryFile={gantryFile}
     />
   );
 

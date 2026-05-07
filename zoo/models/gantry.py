@@ -23,3 +23,4 @@ class GantryPosition(BaseModel):
     work_z: Optional[float] = None
     status: str = "Unknown"
     connected: bool = False
+    calibration_warning: Optional[str] = None

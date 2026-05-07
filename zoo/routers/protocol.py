@@ -148,13 +148,12 @@ def validate_protocol(body: ProtocolConfig) -> ProtocolValidationResponse:
 class RunProtocolRequest(BaseModel):
     gantry_file: str
     deck_file: str
-    board_file: str
     protocol_file: str
 
 
 @router.post("/run")
 def run_protocol_endpoint(body: RunProtocolRequest) -> dict:
-    """Run a protocol with all four configs and the connected gantry.
+    """Run a protocol with gantry/deck/protocol configs and the connected gantry.
 
     Holds ``_serial_lock`` for the full duration of the run so the
     frontend's 200 ms ``/position`` poll cannot race the protocol's
@@ -173,7 +172,6 @@ def run_protocol_endpoint(body: RunProtocolRequest) -> dict:
     settings = get_settings()
     gantry_path = resolve_config_path(settings.configs_dir, "gantry", body.gantry_file)
     deck_path = resolve_config_path(settings.configs_dir, "deck", body.deck_file)
-    board_path = resolve_config_path(settings.configs_dir, "board", body.board_file)
     protocol_path = resolve_config_path(settings.configs_dir, "protocol", body.protocol_file)
 
     if _gantry is None:
@@ -188,7 +186,7 @@ def run_protocol_endpoint(body: RunProtocolRequest) -> dict:
             if not _gantry.is_healthy():
                 raise HTTPException(400, "Gantry is not connected")
             results = run_protocol(
-                str(gantry_path), str(deck_path), str(board_path), str(protocol_path),
+                str(gantry_path), str(deck_path), str(protocol_path),
                 gantry=_gantry,
             )
     except HTTPException:

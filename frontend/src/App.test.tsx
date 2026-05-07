@@ -4,8 +4,6 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type {
-  BoardConfig,
-  BoardResponse,
   DeckConfig,
   DeckResponse,
   GantryConfig,
@@ -16,7 +14,6 @@ import type {
 
 type ApiState = {
   decks: Record<string, DeckResponse>;
-  boards: Record<string, BoardResponse>;
   gantries: Record<string, GantryResponse>;
   protocols: Record<string, ProtocolResponse>;
 };
@@ -44,7 +41,7 @@ function createState(): ApiState {
                 a2: { x: 20, y: 20, z: 30 },
               },
               x_offset_mm: 9,
-              y_offset_mm: -9,
+              y_offset_mm: 9,
               capacity_ul: 200,
               working_volume_ul: 150,
             },
@@ -53,26 +50,31 @@ function createState(): ApiState {
         ],
       },
     },
-    boards: {
-      "board.yaml": {
-        filename: "board.yaml",
-        instruments: {
-          pipette_1: {
-            type: "pipette",
-            offset_x: 1,
-            offset_y: 2,
-            port: "/dev/ttyUSB0",
-          },
-        },
-      },
-    },
     gantries: {
       "cubos.yaml": {
         filename: "cubos.yaml",
         config: {
           serial_port: "",
-          cnc: { homing_strategy: "xy_hard_limits", y_axis_motion: "head" },
+          cnc: {
+            homing_strategy: "standard",
+            total_z_height: 80,
+            y_axis_motion: "head",
+            structure_clearance_z: 80,
+          },
           working_volume: { x_min: 0, x_max: 300, y_min: 0, y_max: 200, z_min: 0, z_max: 80 },
+          grbl_settings: {},
+          instruments: {
+            pipette_1: {
+              type: "pipette",
+              vendor: "opentrons",
+              offset_x: 1,
+              offset_y: 2,
+              depth: 0,
+              measurement_height: 0,
+              safe_approach_height: 0,
+              port: "/dev/ttyUSB0",
+            },
+          },
         },
       },
     },
@@ -105,13 +107,6 @@ function toDeckResponse(filename: string, body: DeckConfig): DeckResponse {
       config,
       wells: null,
     })),
-  };
-}
-
-function toBoardResponse(filename: string, body: BoardConfig): BoardResponse {
-  return {
-    filename,
-    instruments: body.instruments,
   };
 }
 
@@ -151,19 +146,16 @@ function installFetchMock(state: ApiState) {
     if (path === "/api/deck/configs") {
       return jsonResponse(Object.keys(state.decks));
     }
-    if (path === "/api/board/configs") {
-      return jsonResponse(Object.keys(state.boards));
-    }
     if (path === "/api/gantry/configs") {
       return jsonResponse(Object.keys(state.gantries));
     }
     if (path === "/api/protocol/configs") {
       return jsonResponse(Object.keys(state.protocols));
     }
-    if (path === "/api/board/instrument-types") {
-      return jsonResponse([{ type: "pipette", is_mock: false }]);
+    if (path === "/api/gantry/instrument-types") {
+      return jsonResponse([{ type: "pipette", vendors: ["opentrons"], is_mock: false }]);
     }
-    if (path === "/api/board/instrument-schemas") {
+    if (path === "/api/gantry/instrument-schemas") {
       return jsonResponse({
         pipette: [
           { name: "port", type: "str", required: true, default: "/dev/ttyUSB0", choices: null },
@@ -209,13 +201,6 @@ function installFetchMock(state: ApiState) {
       if (method === "PUT") {
         state.decks[filename] = toDeckResponse(filename, body as DeckConfig);
         return jsonResponse(state.decks[filename]);
-      }
-    }
-    if (kind === "board") {
-      if (method === "GET") return jsonResponse(state.boards[filename]);
-      if (method === "PUT") {
-        state.boards[filename] = toBoardResponse(filename, body as BoardConfig);
-        return jsonResponse(state.boards[filename]);
       }
     }
     if (kind === "gantry") {
@@ -270,8 +255,6 @@ async function loadRequiredProtocolDependencies(user: ReturnType<typeof userEven
   await importConfig(user, "Import gantry config", "cubos.yaml");
   await user.click(screen.getByRole("button", { name: "Deck" }));
   await importConfig(user, "Import deck config", "deck.yaml");
-  await user.click(screen.getByRole("button", { name: "Board" }));
-  await importConfig(user, "Import board config", "board.yaml");
 }
 
 describe("Zoo editor interactions", () => {
@@ -352,21 +335,20 @@ describe("Zoo editor interactions", () => {
     expect(state.decks["panda-deck.yaml"]?.labware).toEqual(state.decks["deck.yaml"]?.labware);
   });
 
-  it("loads and saves a board config across tab switches", async () => {
+  it("loads and saves gantry instruments across tab switches", async () => {
     const user = userEvent.setup();
     renderApp();
     await waitForSettingsLoad();
 
-    await user.click(screen.getByRole("button", { name: "Board" }));
-    await importConfig(user, "Import board config", "board.yaml");
+    await importConfig(user, "Import gantry config", "cubos.yaml");
     const portField = await screen.findByLabelText("Port *");
     expect(portField).toHaveValue("/dev/ttyUSB0");
 
     await user.clear(portField);
     await user.type(portField, "/dev/ttyUSB4");
     await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Deck" }));
     await user.click(screen.getByRole("button", { name: "Gantry" }));
-    await user.click(screen.getByRole("button", { name: "Board" }));
 
     await waitFor(() => expect(screen.getByLabelText("Port *")).toHaveValue("/dev/ttyUSB4"));
   });

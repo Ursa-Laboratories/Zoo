@@ -25,11 +25,11 @@ const EMPTY_WELL_PLATE: WellPlateConfig = {
   height_mm: 14.22,
   a1: null,
   calibration: {
-    a1: { x: -10.0, y: -10.0, z: -15.0 },
-    a2: { x: -1.0, y: -10.0, z: -15.0 },
+    a1: { x: 100.0, y: 50.0, z: 20.0 },
+    a2: { x: 91.0, y: 50.0, z: 20.0 },
   },
   x_offset_mm: 9.0,
-  y_offset_mm: -9.0,
+  y_offset_mm: 9.0,
   capacity_ul: 200.0,
   working_volume_ul: 150.0,
 };
@@ -40,7 +40,7 @@ const EMPTY_VIAL: VialConfig = {
   model_name: "",
   height_mm: 66.75,
   diameter_mm: 28.0,
-  location: { x: -30.0, y: -40.0, z: -20.0 },
+  location: { x: 30.0, y: 40.0, z: 20.0 },
   capacity_ul: 1500.0,
   working_volume_ul: 1200.0,
 };

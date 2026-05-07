@@ -12,7 +12,7 @@ export default function AppLayout({ left, topRight, bottomRight }: Props) {
       style={{
         display: "grid",
         gridTemplateColumns: "3fr 2fr",
-        gridTemplateRows: "1fr auto",
+        gridTemplateRows: "minmax(0, 1fr) auto",
         height: "100vh",
         gap: 0,
       }}
@@ -33,9 +33,12 @@ export default function AppLayout({ left, topRight, bottomRight }: Props) {
         style={{
           gridRow: "1",
           gridColumn: "2",
-          overflow: "auto",
+          overflow: "hidden",
           padding: 16,
           background: "#fafafa",
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
         }}
       >
         {topRight}
@@ -47,6 +50,7 @@ export default function AppLayout({ left, topRight, bottomRight }: Props) {
           borderTop: "1px solid #ddd",
           padding: 16,
           background: "#fff",
+          overflow: "hidden",
         }}
       >
         {bottomRight}

@@ -5,12 +5,12 @@ import type { GantryPosition, WorkingVolume } from "../../types";
 interface Props {
   position: GantryPosition | null;
   workingVolume: WorkingVolume | null;
-  configSelected: boolean;
+  gantryFile: string | null;
 }
 
 const JOG_INTERVAL_MS = 150;
 
-export default function GantryPositionWidget({ position, workingVolume, configSelected }: Props) {
+export default function GantryPositionWidget({ position, workingVolume, gantryFile }: Props) {
   const [loading, setLoading] = useState(false);
   const [jogBusy, setJogBusy] = useState(false);
   const [stepXY, setStepXY] = useState("0.5");
@@ -20,10 +20,12 @@ export default function GantryPositionWidget({ position, workingVolume, configSe
   const [moveZ, setMoveZ] = useState("");
   const jogTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const configSelected = !!gantryFile;
   const connected = configSelected && (position?.connected ?? false);
   const status = position?.status ?? "Not connected";
   const isAlarm = status.toLowerCase().includes("alarm");
   const isMoving = status === "Run" || status === "Jog";
+  const calibrationWarning = connected ? position?.calibration_warning : null;
 
   const jog = useCallback((x: number, y: number, z: number) => {
     if (!connected) return;
@@ -46,7 +48,7 @@ export default function GantryPositionWidget({ position, workingVolume, configSe
   // Clean up on unmount
   useEffect(() => () => stopJog(), [stopJog]);
 
-  // Keyboard support: arrow keys for XY, Z/X for Z axis
+  // Keyboard support: arrow keys for XY, X/Z for Z axis
   useEffect(() => {
     const held = new Set<string>();
 
@@ -64,10 +66,10 @@ export default function GantryPositionWidget({ position, workingVolume, configSe
       switch (key) {
         case "ArrowLeft":  e.preventDefault(); startJog(-xy, 0, 0); break;
         case "ArrowRight": e.preventDefault(); startJog(xy, 0, 0); break;
-        case "ArrowUp":    e.preventDefault(); startJog(0, -xy, 0); break;
-        case "ArrowDown":  e.preventDefault(); startJog(0, xy, 0); break;
-        case "z": case "Z": startJog(0, 0, z); break;
-        case "x": case "X": startJog(0, 0, -z); break;
+        case "ArrowUp":    e.preventDefault(); startJog(0, xy, 0); break;
+        case "ArrowDown":  e.preventDefault(); startJog(0, -xy, 0); break;
+        case "x": case "X": startJog(0, 0, z); break;
+        case "z": case "Z": startJog(0, 0, -z); break;
       }
     };
 
@@ -87,9 +89,10 @@ export default function GantryPositionWidget({ position, workingVolume, configSe
   }, [connected, stepXY, stepZ, startJog, stopJog]);
 
   const handleConnect = async () => {
+    if (!gantryFile) return;
     setLoading(true);
     try {
-      await gantryApi.connect();
+      await gantryApi.connect(gantryFile);
     } catch (e) {
       alert(`Connection failed: ${e}`);
     }
@@ -204,6 +207,24 @@ export default function GantryPositionWidget({ position, workingVolume, configSe
         </div>
       )}
 
+      {calibrationWarning && (
+        <div style={{
+          background: "#fffbeb",
+          border: "1px solid #f59e0b",
+          borderRadius: 4,
+          padding: "8px 12px",
+          marginBottom: 12,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}>
+          <span style={{ color: "#b45309", fontWeight: 700, fontSize: 13 }}>CALIBRATION NEEDED</span>
+          <span style={{ color: "#92400e", fontSize: 11 }}>
+            {calibrationWarning}
+          </span>
+        </div>
+      )}
+
       {/* Top row: D-pad + Z on left, XYZ readout on right */}
       <div style={{ display: "flex", gap: 24, marginBottom: 12 }}>
         {/* Jog controls */}
@@ -212,7 +233,7 @@ export default function GantryPositionWidget({ position, workingVolume, configSe
             {/* XY D-pad */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 40px)", gridTemplateRows: "repeat(3, 40px)", gap: 2 }}>
               <div />
-              <button className="jog-btn" style={jogBtnStyle} disabled={jogDisabled} {...jogBtnProps(0, -xyStep, 0)} title="Y-">
+              <button className="jog-btn" style={jogBtnStyle} disabled={jogDisabled} {...jogBtnProps(0, xyStep, 0)} title="Y+">
                 ↑
               </button>
               <div />
@@ -226,7 +247,7 @@ export default function GantryPositionWidget({ position, workingVolume, configSe
                 →
               </button>
               <div />
-              <button className="jog-btn" style={jogBtnStyle} disabled={jogDisabled} {...jogBtnProps(0, xyStep, 0)} title="Y+">
+              <button className="jog-btn" style={jogBtnStyle} disabled={jogDisabled} {...jogBtnProps(0, -xyStep, 0)} title="Y-">
                 ↓
               </button>
               <div />
@@ -275,12 +296,11 @@ export default function GantryPositionWidget({ position, workingVolume, configSe
         {/* XYZ Readout */}
         <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
           {(["X", "Y", "Z"] as const).map((axis) => {
-            const negateAxis = axis === "X" || axis === "Y";
             const rawMpos = connected ? position![axis.toLowerCase() as "x" | "y" | "z"] : null;
-            const mpos = rawMpos != null && negateAxis ? -rawMpos : rawMpos;
+            const mpos = rawMpos;
             const wKey = `work_${axis.toLowerCase()}` as "work_x" | "work_y" | "work_z";
             const rawWpos = connected ? position![wKey] : null;
-            const wpos = rawWpos != null && negateAxis ? -rawWpos : rawWpos;
+            const wpos = rawWpos;
             return (
               <div key={axis} style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
                 <span style={{ color: "#888", fontSize: 13, fontWeight: 600, width: 14 }}>{axis}</span>
@@ -381,7 +401,7 @@ export default function GantryPositionWidget({ position, workingVolume, configSe
       </div>
 
       <div style={{ fontSize: 10, color: "#bbb", marginTop: 8 }}>
-        Keyboard: Arrow keys = XY, Z/X keys = Z up/down
+        Keyboard: Arrow keys = XY, X/Z keys = Z up/down
       </div>
     </div>
   );

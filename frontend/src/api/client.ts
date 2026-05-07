@@ -33,27 +33,15 @@ export const deckApi = {
     }),
 };
 
-// Board
-export const boardApi = {
-  listConfigs: () => request<string[]>("/board/configs"),
-  listInstrumentTypes: () =>
-    request<import("../types").InstrumentTypeInfo[]>("/board/instrument-types"),
-  listPipetteModels: () =>
-    request<import("../types").PipetteModelInfo[]>("/board/pipette-models"),
-  getInstrumentSchemas: () =>
-    request<import("../types").InstrumentSchemas>("/board/instrument-schemas"),
-  get: (filename: string) =>
-    request<import("../types").BoardResponse>(`/board/${filename}`),
-  put: (filename: string, body: import("../types").BoardConfig) =>
-    request<import("../types").BoardResponse>(`/board/${filename}`, {
-      method: "PUT",
-      body: JSON.stringify(body),
-    }),
-};
-
 // Gantry
 export const gantryApi = {
   listConfigs: () => request<string[]>("/gantry/configs"),
+  listInstrumentTypes: () =>
+    request<import("../types").InstrumentTypeInfo[]>("/gantry/instrument-types"),
+  listPipetteModels: () =>
+    request<import("../types").PipetteModelInfo[]>("/gantry/pipette-models"),
+  getInstrumentSchemas: () =>
+    request<import("../types").InstrumentSchemas>("/gantry/instrument-schemas"),
   get: (filename: string) =>
     request<import("../types").GantryResponse>(`/gantry/${filename}`),
   put: (filename: string, body: import("../types").GantryConfig) =>
@@ -63,9 +51,10 @@ export const gantryApi = {
     }),
   getPosition: () =>
     request<import("../types").GantryPosition>("/gantry/position"),
-  connect: () =>
+  connect: (filename: string) =>
     request<import("../types").GantryPosition>("/gantry/connect", {
       method: "POST",
+      body: JSON.stringify({ filename }),
     }),
   disconnect: () =>
     request<import("../types").GantryPosition>("/gantry/disconnect", {
@@ -114,7 +103,6 @@ export const protocolApi = {
   run: (body: {
     gantry_file: string;
     deck_file: string;
-    board_file: string;
     protocol_file: string;
   }) =>
     request<{ status: string; steps_executed: number }>("/protocol/run", {

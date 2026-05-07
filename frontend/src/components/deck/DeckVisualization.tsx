@@ -1,5 +1,12 @@
 import React from "react";
-import type { BoardResponse, DeckResponse, GantryPosition } from "../../types";
+import type {
+  Coordinate3D,
+  DeckResponse,
+  GantryPosition,
+  GeometryResponse,
+  InstrumentConfig,
+  LabwareResponse,
+} from "../../types";
 import { SVG_PADDING } from "../../utils/coordinates";
 import GantryMarker from "./GantryMarker";
 import HolderRenderer from "./HolderRenderer";
@@ -10,7 +17,7 @@ import WellPlateRenderer from "./WellPlateRenderer";
 
 interface Props {
   deck: DeckResponse | null;
-  board: BoardResponse | null;
+  instruments: Record<string, InstrumentConfig> | null;
   gantryPosition: GantryPosition | null;
   machineXRange?: [number, number];
   machineYRange?: [number, number];
@@ -19,6 +26,14 @@ interface Props {
 
 const SVG_W = 600;
 const SVG_H = 420;
+const VISUAL_MARGIN_MM = 10;
+
+type Bounds2D = {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+};
 
 function CoordinateGrid({
   svgWidth,
@@ -38,25 +53,29 @@ function CoordinateGrid({
   const step = 50;
 
   const lines: React.ReactElement[] = [];
-  for (let v = 0; v <= xSpan; v += step) {
-    const x = SVG_PADDING + (v / xSpan) * drawW;
+  const xStart = Math.ceil(machineXRange[0] / step) * step;
+  const xEnd = Math.floor(machineXRange[1] / step) * step;
+  for (let tick = xStart; tick <= xEnd; tick += step) {
+    const x = SVG_PADDING + ((tick - machineXRange[0]) / xSpan) * drawW;
     lines.push(
-      <line key={`vx${v}`} x1={x} y1={SVG_PADDING} x2={x} y2={SVG_PADDING + drawH} stroke="#e0e0e0" strokeWidth={0.5} />
+      <line key={`vx${tick}`} x1={x} y1={SVG_PADDING} x2={x} y2={SVG_PADDING + drawH} stroke="#e0e0e0" strokeWidth={0.5} />
     );
     lines.push(
-      <text key={`lx${v}`} x={x} y={SVG_PADDING + drawH + 14} fill="#999" fontSize={9} textAnchor="middle">
-        {machineXRange[0] + v}
+      <text key={`lx${tick}`} x={x} y={SVG_PADDING + drawH + 14} fill="#999" fontSize={9} textAnchor="middle">
+        {tick}
       </text>
     );
   }
-  for (let v = 0; v <= ySpan; v += step) {
-    const y = SVG_PADDING + drawH - (v / ySpan) * drawH;
+  const yStart = Math.ceil(machineYRange[0] / step) * step;
+  const yEnd = Math.floor(machineYRange[1] / step) * step;
+  for (let tick = yStart; tick <= yEnd; tick += step) {
+    const y = SVG_PADDING + drawH - ((tick - machineYRange[0]) / ySpan) * drawH;
     lines.push(
-      <line key={`vy${v}`} x1={SVG_PADDING} y1={y} x2={SVG_PADDING + drawW} y2={y} stroke="#e0e0e0" strokeWidth={0.5} />
+      <line key={`vy${tick}`} x1={SVG_PADDING} y1={y} x2={SVG_PADDING + drawW} y2={y} stroke="#e0e0e0" strokeWidth={0.5} />
     );
     lines.push(
-      <text key={`ly${v}`} x={SVG_PADDING - 4} y={y + 3} fill="#999" fontSize={9} textAnchor="end">
-        {machineYRange[0] + v}
+      <text key={`ly${tick}`} x={SVG_PADDING - 4} y={y + 3} fill="#999" fontSize={9} textAnchor="end">
+        {tick}
       </text>
     );
   }
@@ -66,12 +85,15 @@ function CoordinateGrid({
 
 export default function DeckVisualization({
   deck,
-  board,
+  instruments,
   gantryPosition,
   machineXRange = [0, 300],
   machineYRange = [0, 200],
   yAxisMotion = "head",
 }: Props) {
+  const visualBounds = getVisualizationBounds(deck, instruments, machineXRange, machineYRange);
+  const visualXRange: [number, number] = [visualBounds.minX, visualBounds.maxX];
+  const visualYRange: [number, number] = [visualBounds.minY, visualBounds.maxY];
   const isBedMode = yAxisMotion === "bed";
 
   // In bed mode, compute SVG pixel offset for the deck based on gantry Y.
@@ -81,7 +103,7 @@ export default function DeckVisualization({
   if (isBedMode && gantryPosition?.connected) {
     const gantryY = gantryPosition.work_y ?? gantryPosition.y ?? 0;
     const drawH = SVG_H - 2 * SVG_PADDING;
-    const ySpan = machineYRange[1] - machineYRange[0];
+    const ySpan = visualYRange[1] - visualYRange[0];
     deckTranslateY = -(gantryY / ySpan) * drawH;
   }
 
@@ -94,14 +116,15 @@ export default function DeckVisualization({
     <svg
       width={SVG_W}
       height={SVG_H}
-      style={{ background: "#f8f9fa", borderRadius: 8, border: "1px solid #e0e0e0", width: "100%" }}
+      style={{ background: "#f8f9fa", borderRadius: 8, border: "1px solid #e0e0e0", display: "block", width: "100%", height: "100%" }}
       viewBox={`0 0 ${SVG_W} ${SVG_H}`}
+      preserveAspectRatio="none"
     >
       <CoordinateGrid
         svgWidth={SVG_W}
         svgHeight={SVG_H}
-        machineXRange={machineXRange}
-        machineYRange={machineYRange}
+        machineXRange={visualXRange}
+        machineYRange={visualYRange}
       />
 
       {isBedMode && (
@@ -121,8 +144,8 @@ export default function DeckVisualization({
                 wells={item.wells ?? {}}
                 svgWidth={SVG_W}
                 svgHeight={SVG_H}
-                machineXRange={machineXRange}
-                machineYRange={machineYRange}
+                machineXRange={visualXRange}
+                machineYRange={visualYRange}
               />
             );
           }
@@ -134,8 +157,8 @@ export default function DeckVisualization({
                 positions={filterRenderablePositions(item.positions)}
                 svgWidth={SVG_W}
                 svgHeight={SVG_H}
-                machineXRange={machineXRange}
-                machineYRange={machineYRange}
+                machineXRange={visualXRange}
+                machineYRange={visualYRange}
               />
             );
           }
@@ -152,8 +175,8 @@ export default function DeckVisualization({
                   childPositions={Object.values(item.positions ?? {})}
                   svgWidth={SVG_W}
                   svgHeight={SVG_H}
-                  machineXRange={machineXRange}
-                  machineYRange={machineYRange}
+                  machineXRange={visualXRange}
+                  machineYRange={visualYRange}
                 />
                 {nestedConfig && Object.keys(nestedWells).length > 0 && (
                   <WellPlateRenderer
@@ -179,8 +202,8 @@ export default function DeckVisualization({
                     wells={nestedWells}
                     svgWidth={SVG_W}
                     svgHeight={SVG_H}
-                    machineXRange={machineXRange}
-                    machineYRange={machineYRange}
+                    machineXRange={visualXRange}
+                    machineYRange={visualYRange}
                   />
                 )}
               </g>
@@ -196,8 +219,8 @@ export default function DeckVisualization({
                   childPositions={Object.values(item.positions ?? {})}
                   svgWidth={SVG_W}
                   svgHeight={SVG_H}
-                  machineXRange={machineXRange}
-                  machineYRange={machineYRange}
+                  machineXRange={visualXRange}
+                  machineYRange={visualYRange}
                 />
                 {Object.entries(item.config.vials ?? {}).map(([vialId, vialConfig]) => {
                   const position = item.positions?.[vialId];
@@ -218,8 +241,8 @@ export default function DeckVisualization({
                       }}
                       svgWidth={SVG_W}
                       svgHeight={SVG_H}
-                      machineXRange={machineXRange}
-                      machineYRange={machineYRange}
+                      machineXRange={visualXRange}
+                      machineYRange={visualYRange}
                     />
                   );
                 })}
@@ -234,8 +257,8 @@ export default function DeckVisualization({
                 config={item.config}
                 svgWidth={SVG_W}
                 svgHeight={SVG_H}
-                machineXRange={machineXRange}
-                machineYRange={machineYRange}
+                machineXRange={visualXRange}
+                machineYRange={visualYRange}
               />
             );
           }
@@ -243,8 +266,8 @@ export default function DeckVisualization({
         })}
       </g>
 
-      {board &&
-        Object.entries(board.instruments).map(([key, inst]) => (
+      {instruments &&
+        Object.entries(instruments).map(([key, inst]) => (
           <InstrumentRenderer
             key={key}
             label={key}
@@ -252,8 +275,8 @@ export default function DeckVisualization({
             gantryPosition={gantryPosition}
             svgWidth={SVG_W}
             svgHeight={SVG_H}
-            machineXRange={machineXRange}
-            machineYRange={machineYRange}
+            machineXRange={visualXRange}
+            machineYRange={visualYRange}
           />
         ))}
 
@@ -262,12 +285,189 @@ export default function DeckVisualization({
           position={markerPosition}
           svgWidth={SVG_W}
           svgHeight={SVG_H}
-          machineXRange={machineXRange}
-          machineYRange={machineYRange}
+          machineXRange={visualXRange}
+          machineYRange={visualYRange}
         />
       )}
     </svg>
   );
+}
+
+function getVisualizationBounds(
+  deck: DeckResponse | null,
+  instruments: Record<string, InstrumentConfig> | null,
+  machineXRange: [number, number],
+  machineYRange: [number, number],
+): Bounds2D {
+  const bounds: Bounds2D = {
+    minX: machineXRange[0],
+    maxX: machineXRange[1],
+    minY: machineYRange[0],
+    maxY: machineYRange[1],
+  };
+
+  for (const item of deck?.labware ?? []) {
+    expandForLabware(bounds, item);
+  }
+
+  if (instruments) {
+    for (const instrument of Object.values(instruments)) {
+      expandForInstrumentOffset(bounds, instrument, machineXRange, machineYRange);
+    }
+  }
+
+  bounds.minX = Math.floor((bounds.minX - VISUAL_MARGIN_MM) / VISUAL_MARGIN_MM) * VISUAL_MARGIN_MM;
+  bounds.maxX = Math.ceil((bounds.maxX + VISUAL_MARGIN_MM) / VISUAL_MARGIN_MM) * VISUAL_MARGIN_MM;
+  bounds.minY = Math.floor((bounds.minY - VISUAL_MARGIN_MM) / VISUAL_MARGIN_MM) * VISUAL_MARGIN_MM;
+  bounds.maxY = Math.ceil((bounds.maxY + VISUAL_MARGIN_MM) / VISUAL_MARGIN_MM) * VISUAL_MARGIN_MM;
+
+  if (bounds.maxX <= bounds.minX) bounds.maxX = bounds.minX + 1;
+  if (bounds.maxY <= bounds.minY) bounds.maxY = bounds.minY + 1;
+  return bounds;
+}
+
+function expandForInstrumentOffset(
+  bounds: Bounds2D,
+  instrument: InstrumentConfig,
+  machineXRange: [number, number],
+  machineYRange: [number, number],
+) {
+  const offsetX = instrument.offset_x ?? 0;
+  const offsetY = instrument.offset_y ?? 0;
+  const pad = 12;
+  expandRect(
+    bounds,
+    machineXRange[0] + Math.min(0, offsetX) - pad,
+    machineYRange[0] + Math.min(0, offsetY) - pad,
+    machineXRange[1] + Math.max(0, offsetX) + pad,
+    machineYRange[1] + Math.max(0, offsetY) + pad,
+  );
+}
+
+function expandForLabware(bounds: Bounds2D, item: LabwareResponse) {
+  if (item.config.type === "well_plate") {
+    expandPositions(
+      bounds,
+      Object.values(item.wells ?? {}),
+      wellPlatePad(item.config.x_offset_mm, item.config.y_offset_mm),
+    );
+    return;
+  }
+
+  if (item.config.type === "tip_rack") {
+    expandPositions(
+      bounds,
+      Object.values(filterRenderablePositions(item.positions)),
+      4.5,
+    );
+    return;
+  }
+
+  if (item.config.type === "well_plate_holder") {
+    expandHolder(
+      bounds,
+      item.geometry ?? null,
+      item.location ?? null,
+      Object.values(item.positions ?? {}),
+    );
+    expandPositions(
+      bounds,
+      Object.values(filterChildPositions(item.positions, "plate")),
+      wellPlatePad(
+        item.config.well_plate?.x_offset_mm ?? 9,
+        item.config.well_plate?.y_offset_mm ?? 9,
+      ),
+    );
+    return;
+  }
+
+  if (item.config.type === "vial_holder") {
+    expandHolder(
+      bounds,
+      item.geometry ?? null,
+      item.location ?? null,
+      Object.values(item.positions ?? {}),
+    );
+    for (const [vialId, vialConfig] of Object.entries(item.config.vials ?? {})) {
+      const position = item.positions?.[vialId];
+      if (position) {
+        expandPoint(bounds, position.x, position.y, Math.max(6, vialConfig.diameter_mm * 0.5));
+      }
+    }
+    return;
+  }
+
+  if (item.config.type === "vial") {
+    expandPoint(
+      bounds,
+      item.config.location.x,
+      item.config.location.y,
+      Math.max(6, item.config.diameter_mm * 0.5),
+    );
+  }
+}
+
+function expandHolder(
+  bounds: Bounds2D,
+  geometry: GeometryResponse | null,
+  anchor: Coordinate3D | null,
+  childPositions: Coordinate3D[],
+) {
+  if (!geometry) {
+    expandPositions(bounds, childPositions, 0);
+    if (anchor) expandPoint(bounds, anchor.x, anchor.y, 0);
+    return;
+  }
+
+  const center = getPositionCenter(childPositions, anchor);
+
+  if (!center) return;
+  const length = geometry.length_mm ?? 20;
+  const width = geometry.width_mm ?? 20;
+  expandRect(
+    bounds,
+    center.x - length * 0.5,
+    center.y - width * 0.5,
+    center.x + length * 0.5,
+    center.y + width * 0.5,
+  );
+}
+
+function getPositionCenter(
+  positions: Coordinate3D[],
+  anchor: Coordinate3D | null,
+): { x: number; y: number } | null {
+  if (positions.length === 0) {
+    return anchor ? { x: anchor.x, y: anchor.y } : null;
+  }
+
+  const xs = positions.map((position) => position.x);
+  const ys = positions.map((position) => position.y);
+  return {
+    x: (Math.min(...xs) + Math.max(...xs)) * 0.5,
+    y: (Math.min(...ys) + Math.max(...ys)) * 0.5,
+  };
+}
+
+function expandPositions(bounds: Bounds2D, positions: Coordinate3D[], pad: number) {
+  for (const position of positions) {
+    expandPoint(bounds, position.x, position.y, pad);
+  }
+}
+
+function expandPoint(bounds: Bounds2D, x: number, y: number, pad: number) {
+  expandRect(bounds, x - pad, y - pad, x + pad, y + pad);
+}
+
+function expandRect(bounds: Bounds2D, minX: number, minY: number, maxX: number, maxY: number) {
+  bounds.minX = Math.min(bounds.minX, minX);
+  bounds.maxX = Math.max(bounds.maxX, maxX);
+  bounds.minY = Math.min(bounds.minY, minY);
+  bounds.maxY = Math.max(bounds.maxY, maxY);
+}
+
+function wellPlatePad(xOffset: number, yOffset: number): number {
+  return Math.max(Math.abs(xOffset), Math.abs(yOffset), 9) * 0.5;
 }
 
 function filterRenderablePositions(positions?: Record<string, { x: number; y: number; z: number }> | null) {
