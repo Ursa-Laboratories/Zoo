@@ -10,6 +10,7 @@ import type {
   GantryResponse,
   ProtocolConfig,
   ProtocolResponse,
+  DigitalTwinBundle,
 } from "./types";
 
 type ApiState = {
@@ -124,6 +125,73 @@ function toProtocolResponse(filename: string, body: ProtocolConfig): ProtocolRes
   };
 }
 
+function digitalTwinFixture(): DigitalTwinBundle {
+  return {
+    schemaVersion: "digital-twin.v1",
+    generatedAt: "2026-05-06T00:00:00Z",
+    source: { gantry: "cubos.yaml", deck: "deck.yaml", protocol: "move.yaml" },
+    coordinateSystem: {
+      frame: "CubOS deck frame",
+      origin: "front-left-bottom reachable work volume",
+      axes: { "+x": "right", "+y": "back", "+z": "up" },
+      units: "millimeters",
+    },
+    gantry: {
+      workingVolume: { x_min: 0, x_max: 300, y_min: 0, y_max: 200, z_min: 0, z_max: 80 },
+      homePosition: { x: 300, y: 200, z: 80 },
+      instruments: [],
+    },
+    deck: { labware: [] },
+    protocol: {
+      positions: {},
+      timeline: [{ index: 0, command: "move", args: {}, pathStart: 0, pathEnd: 1 }],
+    },
+    motion: {
+      timeline: [{ index: 0, command: "move", args: {}, pathStart: 0, pathEnd: 1 }],
+      segments: [],
+      path: [
+        {
+          index: 0,
+          stepIndex: -1,
+          command: "home",
+          phase: "home",
+          targetRef: "home",
+          instrument: "pipette_1",
+          tool: { x: 300, y: 200, z: 80 },
+          gantry: { x: 300, y: 200, z: 80 },
+          envelope: {
+            label: "pipette_1",
+            kind: "instrument_envelope",
+            min: { x: 291, y: 191, z: 80 },
+            max: { x: 309, y: 209, z: 100 },
+            size: { x: 18, y: 18, z: 20 },
+            center: { x: 300, y: 200, z: 90 },
+          },
+        },
+        {
+          index: 1,
+          stepIndex: 0,
+          command: "move",
+          phase: "target",
+          targetRef: "deck:plate_1.A1",
+          instrument: "pipette_1",
+          tool: { x: 10, y: 20, z: 30 },
+          gantry: { x: 9, y: 18, z: 30 },
+          envelope: {
+            label: "pipette_1",
+            kind: "instrument_envelope",
+            min: { x: 1, y: 11, z: 30 },
+            max: { x: 19, y: 29, z: 50 },
+            size: { x: 18, y: 18, z: 20 },
+            center: { x: 10, y: 20, z: 40 },
+          },
+        },
+      ],
+    },
+    warnings: [],
+  };
+}
+
 function installFetchMock(state: ApiState) {
   const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(
@@ -189,6 +257,9 @@ function installFetchMock(state: ApiState) {
     }
     if (path === "/api/deck/preview-wells" && method === "POST") {
       return jsonResponse({});
+    }
+    if (path === "/api/simulation/digital-twin" && method === "POST") {
+      return jsonResponse(digitalTwinFixture());
     }
 
     const [, api, kind, filename] = path.split("/");
@@ -371,5 +442,54 @@ describe("Zoo editor interactions", () => {
     await user.click(screen.getByRole("button", { name: "Protocol" }));
 
     await waitFor(() => expect(screen.getByDisplayValue("42")).toBeInTheDocument());
+  });
+
+  it("defaults to the top live viewer and can run protocol simulation without hardware", async () => {
+    const user = userEvent.setup();
+    const fetchMock = installFetchMock(createState());
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+
+    expect(screen.getByRole("button", { name: "Live" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Top" })).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+    expect(screen.getByRole("combobox", { name: "Protocol run target" })).toHaveValue("simulation");
+    await user.click(screen.getByRole("button", { name: "Run Simulation" }));
+
+    await waitFor(() => expect(screen.getByText(/Simulation ready/)).toBeInTheDocument());
+    expect(screen.getByLabelText("Simulation path sample")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/simulation/digital-twin",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/protocol/run",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("shows the Digital Sim-style 3D viewer for a protocol simulation", async () => {
+    const user = userEvent.setup();
+    installFetchMock(createState());
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+    await user.click(screen.getByRole("button", { name: "Run Simulation" }));
+    await waitFor(() => expect(screen.getByText(/Simulation ready/)).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "3D" }));
+
+    expect(screen.getByRole("main", { name: "CubOS Digital Twin" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "CubOS Digital Twin" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Motion path sample")).toBeInTheDocument();
+    expect(screen.getByText("Current Pose")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Protocol" })).toBeInTheDocument();
+    expect(screen.getByText("No first-pass AABB warnings.")).toBeInTheDocument();
   });
 });
