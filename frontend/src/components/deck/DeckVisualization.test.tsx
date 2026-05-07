@@ -110,6 +110,31 @@ describe("DeckVisualization", () => {
     expect(screen.getByText("Sample 1")).toBeInTheDocument();
   });
 
+  it("keeps the coordinate scale fixed as the gantry moves", () => {
+    render(
+      <DeckVisualization
+        deck={{ filename: "empty.yaml", labware: [] }}
+        instruments={{ pipette: { type: "mock_pipette", vendor: "mock", offset_x: 40, offset_y: 0 } }}
+        gantryPosition={{
+          connected: true,
+          status: "Idle",
+          x: 490,
+          y: 20,
+          z: 0,
+          work_x: 490,
+          work_y: 20,
+          work_z: 0,
+        }}
+        machineXRange={[0, 300]}
+        machineYRange={[0, 400]}
+      />,
+    );
+
+    expect(screen.getAllByText("300").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("350").length).toBeGreaterThan(0);
+    expect(screen.queryByText("500")).not.toBeInTheDocument();
+  });
+
   it("expands the visible range for labware wider than the working volume", () => {
     const wideDeck: DeckResponse = {
       filename: "wide_deck.yaml",

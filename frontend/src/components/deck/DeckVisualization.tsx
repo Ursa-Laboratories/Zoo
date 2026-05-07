@@ -91,7 +91,7 @@ export default function DeckVisualization({
   machineYRange = [0, 200],
   yAxisMotion = "head",
 }: Props) {
-  const visualBounds = getVisualizationBounds(deck, instruments, gantryPosition, machineXRange, machineYRange);
+  const visualBounds = getVisualizationBounds(deck, instruments, machineXRange, machineYRange);
   const visualXRange: [number, number] = [visualBounds.minX, visualBounds.maxX];
   const visualYRange: [number, number] = [visualBounds.minY, visualBounds.maxY];
   const isBedMode = yAxisMotion === "bed";
@@ -116,8 +116,9 @@ export default function DeckVisualization({
     <svg
       width={SVG_W}
       height={SVG_H}
-      style={{ background: "#f8f9fa", borderRadius: 8, border: "1px solid #e0e0e0", width: "100%" }}
+      style={{ background: "#f8f9fa", borderRadius: 8, border: "1px solid #e0e0e0", display: "block", width: "100%", height: "100%" }}
       viewBox={`0 0 ${SVG_W} ${SVG_H}`}
+      preserveAspectRatio="none"
     >
       <CoordinateGrid
         svgWidth={SVG_W}
@@ -295,7 +296,6 @@ export default function DeckVisualization({
 function getVisualizationBounds(
   deck: DeckResponse | null,
   instruments: Record<string, InstrumentConfig> | null,
-  gantryPosition: GantryPosition | null,
   machineXRange: [number, number],
   machineYRange: [number, number],
 ): Bounds2D {
@@ -312,27 +312,8 @@ function getVisualizationBounds(
 
   if (instruments) {
     for (const instrument of Object.values(instruments)) {
-      if (gantryPosition?.connected && gantryPosition.work_x != null && gantryPosition.work_y != null) {
-        expandPoint(
-          bounds,
-          gantryPosition.work_x + (instrument.offset_x ?? 0),
-          gantryPosition.work_y + (instrument.offset_y ?? 0),
-          12,
-        );
-      } else {
-        expandPoint(bounds, 0, 0, 12);
-        expandPoint(bounds, instrument.offset_x ?? 0, instrument.offset_y ?? 0, 12);
-      }
+      expandForInstrumentOffset(bounds, instrument, machineXRange, machineYRange);
     }
-  }
-
-  if (gantryPosition?.connected) {
-    expandPoint(
-      bounds,
-      gantryPosition.work_x ?? gantryPosition.x,
-      gantryPosition.work_y ?? gantryPosition.y,
-      14,
-    );
   }
 
   bounds.minX = Math.floor((bounds.minX - VISUAL_MARGIN_MM) / VISUAL_MARGIN_MM) * VISUAL_MARGIN_MM;
@@ -343,6 +324,24 @@ function getVisualizationBounds(
   if (bounds.maxX <= bounds.minX) bounds.maxX = bounds.minX + 1;
   if (bounds.maxY <= bounds.minY) bounds.maxY = bounds.minY + 1;
   return bounds;
+}
+
+function expandForInstrumentOffset(
+  bounds: Bounds2D,
+  instrument: InstrumentConfig,
+  machineXRange: [number, number],
+  machineYRange: [number, number],
+) {
+  const offsetX = instrument.offset_x ?? 0;
+  const offsetY = instrument.offset_y ?? 0;
+  const pad = 12;
+  expandRect(
+    bounds,
+    machineXRange[0] + Math.min(0, offsetX) - pad,
+    machineYRange[0] + Math.min(0, offsetY) - pad,
+    machineXRange[1] + Math.max(0, offsetX) + pad,
+    machineYRange[1] + Math.max(0, offsetY) + pad,
+  );
 }
 
 function expandForLabware(bounds: Bounds2D, item: LabwareResponse) {

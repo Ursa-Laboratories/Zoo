@@ -345,16 +345,18 @@ export default function App() {
   );
 
   const topRight = (
-    <div>
-      <h3 style={{ margin: "0 0 8px", fontSize: 14, color: "#666" }}>Deck Visualization</h3>
-      <DeckVisualization
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+      <h3 style={{ margin: "0 0 8px", fontSize: 14, color: "#666", flex: "0 0 auto" }}>Deck Visualization</h3>
+      <div style={{ flex: "1 1 auto", minHeight: 0 }}>
+        <DeckVisualization
         deck={displayDeck}
         instruments={displayGantry?.config.instruments ?? null}
         gantryPosition={gantryPosition.data ?? null}
         machineXRange={machineXRange}
         machineYRange={machineYRange}
-        yAxisMotion={yAxisMotion}
-      />
+          yAxisMotion={yAxisMotion}
+        />
+      </div>
     </div>
   );
 
