@@ -402,7 +402,11 @@ describe("Zoo editor interactions", () => {
 
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
-    expect(await screen.findByRole("button", { name: "Set XY origin and continue" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Home gantry" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Home gantry" }));
+
+    expect(await screen.findByRole("button", { name: "Set XY origin" })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/gantry/calibration/prepare-origin",
       expect.objectContaining({ method: "POST" }),
