@@ -6,7 +6,7 @@ type CapturedPosition = {
   z: number;
 };
 
-export function getTheoreticalZRange(config: GantryConfig): number {
+export function getCalculatedZRange(config: GantryConfig): number {
   const value = Number(config.cnc.total_z_range);
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error("Gantry config must seed cnc.total_z_range before calibration.");

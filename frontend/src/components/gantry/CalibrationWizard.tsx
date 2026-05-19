@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TouchEvent } from "react";
 import { gantryApi } from "../../api/client";
 import type { GantryConfig, GantryPosition, GantryResponse } from "../../types";
-import { buildCalibratedConfig, getTheoreticalZRange } from "./calibrationMath";
+import { buildCalibratedConfig, getCalculatedZRange } from "./calibrationMath";
 
 interface Props {
   open: boolean;
@@ -252,13 +252,13 @@ export default function CalibrationWizard({
     const result = await gantryApi.home();
     const captured = requirePosition(result);
     setMeasuredVolume(captured);
-    const theoreticalZRange = getTheoreticalZRange(config);
+    const calculatedZRange = getCalculatedZRange(config);
     const zMin = 0;
-    const zMax = roundMm(zMin + theoreticalZRange);
+    const zMax = roundMm(zMin + calculatedZRange);
     const maxTravel = {
       x: roundMm(captured.x),
       y: roundMm(captured.y),
-      z: roundMm(theoreticalZRange),
+      z: roundMm(calculatedZRange),
     };
     if (maxTravel.x <= 0 || maxTravel.y <= 0 || maxTravel.z <= 0) {
       throw new Error("Measured travel spans must be positive.");
@@ -593,7 +593,7 @@ export default function CalibrationWizard({
               <div>
                 <h3 style={sectionTitleStyle}>Measure And Save</h3>
                 <p style={instructionStyle}>
-                  The next action re-homes, captures calibrated X/Y maxima, uses the seeded theoretical Z range, optionally programs GRBL soft-limit spans, and writes the calibrated YAML.
+                  The next action re-homes, captures calibrated X/Y maxima, uses the calculated Z range, optionally programs GRBL soft-limit spans, and writes the calibrated YAML.
                 </p>
                 {measuredVolume && (
                   <div style={summaryGridStyle}>
@@ -765,7 +765,7 @@ function formatCaptured(label: string, position: CapturedPosition): string {
 function safeZRange(config: GantryConfig | null): string {
   if (!config) return "Unavailable";
   try {
-    return getTheoreticalZRange(config).toFixed(3);
+    return getCalculatedZRange(config).toFixed(3);
   } catch {
     return "Invalid config";
   }
