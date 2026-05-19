@@ -434,6 +434,23 @@ def test_blocking_jog_waits_for_idle_before_returning(monkeypatch):
     assert mock_gantry.get_status.call_count == 2
 
 
+def test_jog_surfaces_alarm_errors(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.jog.side_effect = RuntimeError("ALARM:1 hard limit")
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/jog",
+        json={"x": 0, "y": 0, "z": -1},
+    )
+
+    assert response.status_code == 409
+    assert "alarm" in response.text.lower()
+    mock_gantry.jog.assert_called_once_with(x=0.0, y=0.0, z=-1.0)
+
+
 def test_gantry_exposes_instrument_registry_endpoints():
     response = api_request(create_app(), "GET", "/api/gantry/instrument-types")
 

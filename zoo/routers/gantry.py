@@ -49,6 +49,11 @@ _BASE_PARAMS = {
 }
 
 
+def _looks_like_alarm_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "alarm" in text or "hard limit" in text or "reset to continue" in text
+
+
 class PipetteModelInfo(BaseModel):
     name: str
     family: str
@@ -372,7 +377,13 @@ def jog(req: JogRequest) -> dict:
         try:
             _gantry.jog(x=req.x, y=req.y, z=req.z)
         except Exception as e:
-            logging.warning("Jog error (non-fatal): %s", e)
+            logging.warning("Jog error: %s", e)
+            if _looks_like_alarm_error(e):
+                raise HTTPException(
+                    409,
+                    "Gantry entered an alarm state during jog. "
+                    "Unlock the controller, then jog away from the limit before continuing.",
+                )
     return {"status": "ok"}
 
 

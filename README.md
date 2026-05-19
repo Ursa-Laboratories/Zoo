@@ -25,9 +25,11 @@ See also:
 ## Gantry Calibration
 
 - The Gantry Control panel includes a `Calibrate` wizard after a gantry YAML is loaded.
-- The wizard mirrors CubOS' `setup/calibrate_gantry.py` operator flow as a serial, one-way workflow: prepare/home, jog XY origin with stale soft limits temporarily disabled, set Z from the calibration block, measure the homed volume, then save a calibrated gantry YAML.
+- The wizard mirrors CubOS' `setup/calibrate_gantry.py` operator flow as a serial, one-way workflow: prepare/home, jog XY origin with stale soft limits temporarily disabled, capture the block-touch Z reference, measure homed X/Y bounds, then save a calibrated gantry YAML.
+- Calibration preserves the input gantry YAML's seeded `cnc.total_z_range`; Zoo uses that theoretical Z range for `working_volume.z_max` and GRBL `max_travel_z` instead of rewriting the range from homed readback.
 - Multi-instrument gantries add a tool-recording step that writes instrument `offset_x`, `offset_y`, and `depth` values from a shared block point.
 - The multi-instrument path automatically re-homes after XY origining, captures XY travel bounds, moves to deck center, and retracts Z after each tool record while controls are locked.
+- If a calibration jog triggers a GRBL alarm, the wizard stops jog repeats, disables jog controls, and prompts the operator to unlock before jogging away from the limit.
 - Calibration routes stay thin over CubOS `Gantry` methods for work-coordinate assignment and GRBL soft-limit programming; Zoo does not send raw serial commands directly.
 
 ## Run

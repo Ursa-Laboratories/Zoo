@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TouchEvent } from "react";
 import { gantryApi } from "../../api/client";
 import type { GantryConfig, GantryPosition, GantryResponse } from "../../types";
+import { buildCalibratedConfig, getTheoreticalZRange } from "./calibrationMath";
 
 interface Props {
   open: boolean;
@@ -35,6 +36,7 @@ export default function CalibrationWizard({
   const [busy, setBusy] = useState(false);
   const [operation, setOperation] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [alarmPrompt, setAlarmPrompt] = useState<string | null>(null);
   const [statusNote, setStatusNote] = useState<string | null>(null);
   const [xyOrigin, setXyOrigin] = useState<CapturedPosition | null>(null);
   const [zReference, setZReference] = useState<CapturedPosition | null>(null);
@@ -53,6 +55,13 @@ export default function CalibrationWizard({
   const instruments = useMemo(() => Object.keys(config?.instruments ?? {}), [config]);
   const isMulti = instruments.length > 1;
   const connected = position?.connected ?? false;
+  const status = position?.status ?? "";
+  const isAlarm = status.toLowerCase().includes("alarm");
+  const alarmRecoveryMessage = alarmPrompt ?? (
+    isAlarm
+      ? `${status} — unlock the controller, then jog Z+ away from the limit before lowering again.`
+      : null
+  );
   const current = currentWpos(position);
   const normalizedOutput = outputFile.trim() || defaultOutputFilename(filename);
   const selectedReference = referenceInstrument || instruments[0] || "";
@@ -70,6 +79,7 @@ export default function CalibrationWizard({
     setBusy(false);
     setOperation(null);
     setError(null);
+    setAlarmPrompt(null);
     setStatusNote(null);
     setXyOrigin(null);
     setZReference(null);
@@ -83,10 +93,29 @@ export default function CalibrationWizard({
     setSaved(false);
   }, [filename, instruments, open]);
 
+  const stopJog = useCallback(() => {
+    if (jogTimer.current) {
+      clearInterval(jogTimer.current);
+      jogTimer.current = null;
+    }
+  }, []);
+
+  const reportError = useCallback((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    if (looksLikeAlarm(message)) {
+      stopJog();
+      setAlarmPrompt(
+        "Gantry entered an alarm state. Unlock the controller, then jog Z+ away from the limit before lowering again.",
+      );
+    }
+    setError(message);
+  }, [stopJog]);
+
   const resetFlow = () => {
     setStep(0);
     setOperation(null);
     setError(null);
+    setAlarmPrompt(null);
     setStatusNote(null);
     setXyOrigin(null);
     setZReference(null);
@@ -111,15 +140,22 @@ export default function CalibrationWizard({
     setBusy(true);
     setOperation(label);
     setError(null);
+    setAlarmPrompt(null);
     try {
       await action();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      reportError(err);
     } finally {
       setOperation(null);
       setBusy(false);
     }
   };
+
+  const unlockAlarm = () => runAction("Unlocking gantry alarm", async () => {
+    await gantryApi.unlock();
+    setAlarmPrompt(null);
+    setStatusNote("Unlock command sent. Jog Z+ away from the limit before lowering again.");
+  });
 
   // Step 0 → 1: just navigate, no hardware action yet.
   const goToHome = () => {
@@ -172,7 +208,13 @@ export default function CalibrationWizard({
       : "Setting Z reference",
     async () => {
     const height = parsePositive(blockHeight, "Calibration block height");
-    const result = await gantryApi.setWorkCoordinates({ z: height });
+    const zReferenceValue = isMulti
+      ? height
+      : roundMm(requirePosition(await gantryApi.getPosition()).z);
+    if (!isMulti && zReferenceValue <= 0) {
+      throw new Error("Block-touch WPos Z must be positive to place the lower reachable Z at WPos 0.");
+    }
+    const result = await gantryApi.setWorkCoordinates({ z: zReferenceValue });
     const captured = requirePosition(result);
     setZReference(captured);
     if (isMulti && selectedLowest) {
@@ -180,7 +222,8 @@ export default function CalibrationWizard({
       await gantryApi.jogBlocking(0, 0, 15, 15);
       setStatusNote(formatCaptured(`Recorded ${selectedLowest} and retracted Z`, captured));
     } else {
-      setStatusNote(formatCaptured("Z reference set", captured));
+      const inferredLowerReach = roundMm(height - captured.z);
+      setStatusNote(`${formatCaptured("Z reference set", captured)}; inferred lowest reachable height above deck=${inferredLowerReach.toFixed(3)} mm.`);
     }
     setStep(isMulti ? 4 : 3);
   });
@@ -203,11 +246,13 @@ export default function CalibrationWizard({
     const result = await gantryApi.home();
     const captured = requirePosition(result);
     setMeasuredVolume(captured);
-    const zMin = isMulti ? 0 : parsePositive(blockHeight, "Calibration block height");
+    const theoreticalZRange = getTheoreticalZRange(config);
+    const zMin = 0;
+    const zMax = roundMm(zMin + theoreticalZRange);
     const maxTravel = {
       x: roundMm(captured.x),
       y: roundMm(captured.y),
-      z: roundMm(captured.z - zMin),
+      z: roundMm(theoreticalZRange),
     };
     if (maxTravel.x <= 0 || maxTravel.y <= 0 || maxTravel.z <= 0) {
       throw new Error("Measured travel spans must be positive.");
@@ -223,6 +268,7 @@ export default function CalibrationWizard({
       config,
       measuredVolume: captured,
       zMin,
+      zMax,
       maxTravel,
       isMulti,
       instruments,
@@ -237,20 +283,13 @@ export default function CalibrationWizard({
     setStatusNote(`Saved ${normalizedOutput}.`);
   });
 
-  const stopJog = () => {
-    if (jogTimer.current) {
-      clearInterval(jogTimer.current);
-      jogTimer.current = null;
-    }
-  };
-
   const jog = useCallback((x: number, y: number, z: number) => {
-    if (!connected || busy) return;
-    gantryApi.jog(x, y, z).catch((err) => setError(err instanceof Error ? err.message : String(err)));
-  }, [busy, connected]);
+    if (!connected || busy || alarmRecoveryMessage) return;
+    gantryApi.jog(x, y, z).catch(reportError);
+  }, [alarmRecoveryMessage, busy, connected, reportError]);
 
   const startJog = (x: number, y: number, z: number) => {
-    if (busy) return;
+    if (busy || alarmRecoveryMessage) return;
     stopJog();
     jog(x, y, z);
     jogTimer.current = setInterval(() => jog(x, y, z), JOG_INTERVAL_MS);
@@ -296,6 +335,19 @@ export default function CalibrationWizard({
           </aside>
 
           <section style={contentStyle}>
+            {alarmRecoveryMessage && (
+              <div style={alarmStyle}>
+                <span style={alarmTitleStyle}>GANTRY ALARM</span>
+                <span>{alarmRecoveryMessage}</span>
+                <button
+                  onClick={unlockAlarm}
+                  disabled={busy}
+                  style={buttonStateStyle(alarmButtonStyle, busy)}
+                >
+                  Unlock alarm
+                </button>
+              </div>
+            )}
             {error && <div style={errorStyle}>{error}</div>}
             {operation && <div style={busyStyle}>{operation}. Controls are locked while the gantry finishes.</div>}
             {statusNote && <div style={noteStyle}>{statusNote}</div>}
@@ -377,6 +429,7 @@ export default function CalibrationWizard({
                   setXyStep={setXyStep}
                   setZStep={setZStep}
                   disabled={!connected || busy}
+                  alarmed={!!alarmRecoveryMessage}
                   onStartJog={startJog}
                   onStopJog={stopJog}
                   xy={xy}
@@ -421,6 +474,7 @@ export default function CalibrationWizard({
                   setXyStep={setXyStep}
                   setZStep={setZStep}
                   disabled={!connected || busy}
+                  alarmed={!!alarmRecoveryMessage}
                   onStartJog={startJog}
                   onStopJog={stopJog}
                   xy={xy}
@@ -462,6 +516,7 @@ export default function CalibrationWizard({
                   setXyStep={setXyStep}
                   setZStep={setZStep}
                   disabled={!connected || busy}
+                  alarmed={!!alarmRecoveryMessage}
                   onStartJog={startJog}
                   onStopJog={stopJog}
                   xy={xy}
@@ -506,6 +561,7 @@ export default function CalibrationWizard({
                       setXyStep={setXyStep}
                       setZStep={setZStep}
                       disabled={!connected || busy}
+                      alarmed={!!alarmRecoveryMessage}
                       onStartJog={startJog}
                       onStopJog={stopJog}
                       xy={xy}
@@ -531,7 +587,7 @@ export default function CalibrationWizard({
               <div>
                 <h3 style={sectionTitleStyle}>Measure And Save</h3>
                 <p style={instructionStyle}>
-                  The next action re-homes, captures the calibrated WPos maxima, optionally programs GRBL soft-limit spans, and writes the calibrated YAML.
+                  The next action re-homes, captures calibrated X/Y maxima, uses the seeded theoretical Z range, optionally programs GRBL soft-limit spans, and writes the calibrated YAML.
                 </p>
                 {measuredVolume && (
                   <div style={summaryGridStyle}>
@@ -541,7 +597,7 @@ export default function CalibrationWizard({
                     />
                     <Readout label="X travel" value={roundMm(measuredVolume.x).toFixed(3)} />
                     <Readout label="Y travel" value={roundMm(measuredVolume.y).toFixed(3)} />
-                    <Readout label="Z travel" value={roundMm(measuredVolume.z - (isMulti ? 0 : parseFloat(blockHeight) || 0)).toFixed(3)} />
+                    <Readout label="Z travel" value={config ? getTheoreticalZRange(config).toFixed(3) : "Unavailable"} />
                     <Readout label="Output" value={normalizedOutput} />
                   </div>
                 )}
@@ -570,6 +626,7 @@ function JogPanel({
   setXyStep,
   setZStep,
   disabled,
+  alarmed,
   onStartJog,
   onStopJog,
   xy,
@@ -580,18 +637,19 @@ function JogPanel({
   setXyStep: (value: string) => void;
   setZStep: (value: string) => void;
   disabled: boolean;
+  alarmed: boolean;
   onStartJog: (x: number, y: number, z: number) => void;
   onStopJog: () => void;
   xy: number;
   z: number;
 }) {
   const props = (x: number, y: number, dz: number) => ({
-    onMouseDown: () => !disabled && onStartJog(x, y, dz),
+    onMouseDown: () => !disabled && !alarmed && onStartJog(x, y, dz),
     onMouseUp: onStopJog,
     onMouseLeave: onStopJog,
     onTouchStart: (event: TouchEvent) => {
       event.preventDefault();
-      if (!disabled) onStartJog(x, y, dz);
+      if (!disabled && !alarmed) onStartJog(x, y, dz);
     },
     onTouchEnd: onStopJog,
   });
@@ -600,19 +658,19 @@ function JogPanel({
     <div style={jogPanelStyle}>
       <div style={dpadStyle}>
         <div />
-        <button style={buttonStateStyle(jogButtonStyle, disabled)} disabled={disabled} {...props(0, xy, 0)} title="Y+">↑</button>
+        <button style={buttonStateStyle(jogButtonStyle, disabled || alarmed)} disabled={disabled || alarmed} {...props(0, xy, 0)} title="Y+">↑</button>
         <div />
-        <button style={buttonStateStyle(jogButtonStyle, disabled)} disabled={disabled} {...props(-xy, 0, 0)} title="X-">←</button>
+        <button style={buttonStateStyle(jogButtonStyle, disabled || alarmed)} disabled={disabled || alarmed} {...props(-xy, 0, 0)} title="X-">←</button>
         <div style={padCenterStyle}>XY</div>
-        <button style={buttonStateStyle(jogButtonStyle, disabled)} disabled={disabled} {...props(xy, 0, 0)} title="X+">→</button>
+        <button style={buttonStateStyle(jogButtonStyle, disabled || alarmed)} disabled={disabled || alarmed} {...props(xy, 0, 0)} title="X+">→</button>
         <div />
-        <button style={buttonStateStyle(jogButtonStyle, disabled)} disabled={disabled} {...props(0, -xy, 0)} title="Y-">↓</button>
+        <button style={buttonStateStyle(jogButtonStyle, disabled || alarmed)} disabled={disabled || alarmed} {...props(0, -xy, 0)} title="Y-">↓</button>
         <div />
       </div>
       <div style={zPadStyle}>
-        <button style={buttonStateStyle(jogButtonStyle, disabled)} disabled={disabled} {...props(0, 0, z)} title="Z+">Z+</button>
+        <button style={buttonStateStyle(jogButtonStyle, disabled || alarmed)} disabled={disabled || alarmed} {...props(0, 0, z)} title="Z+">Z+</button>
         <div style={padCenterStyle}>Z</div>
-        <button style={buttonStateStyle(jogButtonStyle, disabled)} disabled={disabled} {...props(0, 0, -z)} title="Z-">Z-</button>
+        <button style={buttonStateStyle(jogButtonStyle, disabled || alarmed)} disabled={disabled || alarmed} {...props(0, 0, -z)} title="Z-">Z-</button>
       </div>
       <div style={stepFieldsStyle}>
         <label style={stepFieldStyle}>
@@ -620,9 +678,9 @@ function JogPanel({
           <input
             value={xyStep}
             onChange={(event) => setXyStep(event.target.value)}
-            disabled={disabled}
+            disabled={disabled || alarmed}
             inputMode="decimal"
-            style={buttonStateStyle(smallInputStyle, disabled)}
+            style={buttonStateStyle(smallInputStyle, disabled || alarmed)}
           />
         </label>
         <label style={stepFieldStyle}>
@@ -630,9 +688,9 @@ function JogPanel({
           <input
             value={zStep}
             onChange={(event) => setZStep(event.target.value)}
-            disabled={disabled}
+            disabled={disabled || alarmed}
             inputMode="decimal"
-            style={buttonStateStyle(smallInputStyle, disabled)}
+            style={buttonStateStyle(smallInputStyle, disabled || alarmed)}
           />
         </label>
       </div>
@@ -692,6 +750,11 @@ function formatCaptured(label: string, position: CapturedPosition): string {
   return `${label}: X=${position.x.toFixed(3)} Y=${position.y.toFixed(3)} Z=${position.z.toFixed(3)}`;
 }
 
+function looksLikeAlarm(message: string): boolean {
+  const lower = message.toLowerCase();
+  return lower.includes("alarm") || lower.includes("hard limit") || lower.includes("reset to continue");
+}
+
 function buttonStateStyle(base: React.CSSProperties, disabled: boolean): React.CSSProperties {
   if (!disabled) return base;
   return {
@@ -718,74 +781,6 @@ function allInstrumentPositionsReady(
 ): boolean {
   const required = unique([referenceInstrument, lowestInstrument, ...instruments]);
   return required.length > 0 && required.every((name) => !!positions[name]);
-}
-
-function buildCalibratedConfig({
-  config,
-  measuredVolume,
-  zMin,
-  maxTravel,
-  isMulti,
-  instruments,
-  instrumentPositions,
-  referenceInstrument,
-  lowestInstrument,
-}: {
-  config: GantryConfig;
-  measuredVolume: CapturedPosition;
-  zMin: number;
-  maxTravel: CapturedPosition;
-  isMulti: boolean;
-  instruments: string[];
-  instrumentPositions: Record<string, CapturedPosition>;
-  referenceInstrument: string;
-  lowestInstrument: string;
-}): GantryConfig {
-  const next = structuredClone(config);
-  next.working_volume = {
-    x_min: 0,
-    x_max: roundMm(measuredVolume.x),
-    y_min: 0,
-    y_max: roundMm(measuredVolume.y),
-    z_min: roundMm(zMin),
-    z_max: roundMm(measuredVolume.z),
-  };
-  next.cnc = {
-    ...next.cnc,
-    total_z_range: roundMm(measuredVolume.z),
-  };
-  if (next.cnc.safe_z != null) {
-    next.cnc.safe_z = Math.min(Math.max(roundMm(next.cnc.safe_z), roundMm(zMin)), roundMm(measuredVolume.z));
-  }
-  next.grbl_settings = {
-    ...(next.grbl_settings ?? {}),
-    status_report: 0,
-    soft_limits: true,
-    homing_enable: true,
-    max_travel_x: maxTravel.x,
-    max_travel_y: maxTravel.y,
-    max_travel_z: maxTravel.z,
-  };
-
-  if (isMulti) {
-    const reference = instrumentPositions[referenceInstrument];
-    const lowest = instrumentPositions[lowestInstrument];
-    if (!reference || !lowest) {
-      throw new Error("Reference and lowest instrument positions are required.");
-    }
-    for (const name of instruments) {
-      const coords = instrumentPositions[name];
-      if (!coords || !next.instruments[name]) continue;
-      next.instruments[name] = {
-        ...next.instruments[name],
-        offset_x: roundMm(reference.x - coords.x),
-        offset_y: roundMm(reference.y - coords.y),
-        depth: roundMm(coords.z - lowest.z),
-      };
-    }
-  }
-
-  return next;
 }
 
 function stepLabels(isMulti: boolean): string[] {
@@ -1009,6 +1004,34 @@ const errorStyle: React.CSSProperties = {
   padding: "8px 10px",
   fontSize: 12,
   marginBottom: 10,
+};
+
+const alarmStyle: React.CSSProperties = {
+  border: "1px solid #dc2626",
+  background: "#fef2f2",
+  color: "#991b1b",
+  borderRadius: 6,
+  padding: "8px 10px",
+  fontSize: 12,
+  marginBottom: 10,
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  flexWrap: "wrap",
+};
+
+const alarmTitleStyle: React.CSSProperties = {
+  color: "#dc2626",
+  fontWeight: 800,
+};
+
+const alarmButtonStyle: React.CSSProperties = {
+  ...buttonStyle,
+  background: "#dc2626",
+  border: "1px solid #dc2626",
+  color: "#fff",
+  fontWeight: 700,
+  marginLeft: "auto",
 };
 
 const noteStyle: React.CSSProperties = {
