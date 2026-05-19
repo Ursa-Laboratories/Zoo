@@ -21,3 +21,5 @@ unlock affordance was hidden behind the modal.
 - `npm run test -- CalibrationWizardAlarm.test.tsx CalibrationWizard.test.ts App.test.tsx`
 - `npm run lint`
 - `npm run build`
+- Hardware check on the gantry: operator confirmed the alarm prompt/unlock flow
+  looked good after testing.

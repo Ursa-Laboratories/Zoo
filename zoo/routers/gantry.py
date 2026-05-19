@@ -384,6 +384,7 @@ def jog(req: JogRequest) -> dict:
                     "Gantry entered an alarm state during jog. "
                     "Unlock the controller, then jog away from the limit before continuing.",
                 )
+            raise HTTPException(500, f"Jog failed: {e}")
     return {"status": "ok"}
 
 
@@ -685,6 +686,9 @@ def disconnect() -> GantryPosition:
     with _serial_lock:
         try:
             _restore_calibration_soft_limits_if_needed()
+        except Exception as e:
+            logging.error("Failed to restore soft limits during disconnect: %s", e)
+        try:
             _gantry.disconnect()
         finally:
             _gantry = None

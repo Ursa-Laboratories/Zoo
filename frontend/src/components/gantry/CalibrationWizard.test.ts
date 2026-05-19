@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCalibratedConfig } from "./calibrationMath";
+import { buildCalibratedConfig, getTheoreticalZRange } from "./calibrationMath";
 import type { GantryConfig } from "../../types";
 
 function gantryConfig(): GantryConfig {
@@ -34,6 +34,30 @@ function gantryConfig(): GantryConfig {
     },
   };
 }
+
+describe("getTheoreticalZRange", () => {
+  it("returns rounded total_z_range from config", () => {
+    expect(getTheoreticalZRange(gantryConfig())).toBe(110);
+  });
+
+  it("throws when total_z_range is missing", () => {
+    const config = gantryConfig();
+    delete (config.cnc as Record<string, unknown>).total_z_range;
+    expect(() => getTheoreticalZRange(config)).toThrow("cnc.total_z_range");
+  });
+
+  it("throws when total_z_range is zero", () => {
+    const config = gantryConfig();
+    config.cnc.total_z_range = 0;
+    expect(() => getTheoreticalZRange(config)).toThrow("cnc.total_z_range");
+  });
+
+  it("throws when total_z_range is negative", () => {
+    const config = gantryConfig();
+    config.cnc.total_z_range = -50;
+    expect(() => getTheoreticalZRange(config)).toThrow("cnc.total_z_range");
+  });
+});
 
 describe("buildCalibratedConfig", () => {
   it("preserves seeded theoretical z range for calibrated bounds and soft limits", () => {

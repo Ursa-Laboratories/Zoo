@@ -108,4 +108,85 @@ describe("CalibrationWizard alarm recovery", () => {
     ));
     expect(await screen.findByText(/Unlock command sent/)).toBeInTheDocument();
   });
+
+  it("shows alarm and stops jogs when a reset-to-continue error fires during a jog", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      if (url.pathname === "/api/gantry/calibration/prepare-origin" && init?.method === "POST") {
+        return jsonResponse(position());
+      }
+      if (url.pathname === "/api/gantry/jog" && init?.method === "POST") {
+        return new Response("error:9 Reset to continue", { status: 409 });
+      }
+      return jsonResponse(position());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <CalibrationWizard
+        open
+        onClose={() => undefined}
+        gantry={{ filename: "cubos.yaml", config: gantryConfig() }}
+        position={position()}
+        onSaveCalibrated={async () => undefined}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByRole("button", { name: "Home gantry" }));
+    const zDown = await screen.findByRole("button", { name: "Z-" });
+
+    await user.click(zDown);
+
+    expect(await screen.findByText("GANTRY ALARM")).toBeInTheDocument();
+    expect(zDown).toBeDisabled();
+  });
+
+  it("stops jog repeats and shows error when a non-alarm jog error fires", async () => {
+    const user = userEvent.setup({ delay: null });
+    let jogCallCount = 0;
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      if (url.pathname === "/api/gantry/calibration/prepare-origin" && init?.method === "POST") {
+        return jsonResponse(position());
+      }
+      if (url.pathname === "/api/gantry/jog" && init?.method === "POST") {
+        jogCallCount++;
+        return new Response("serial port timed out", { status: 500 });
+      }
+      return jsonResponse(position());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <CalibrationWizard
+        open
+        onClose={() => undefined}
+        gantry={{ filename: "cubos.yaml", config: gantryConfig() }}
+        position={position()}
+        onSaveCalibrated={async () => undefined}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByRole("button", { name: "Home gantry" }));
+    await screen.findByRole("button", { name: "Z-" });
+
+    const zDown = screen.getByRole("button", { name: "Z-" });
+    await user.click(zDown);
+
+    await waitFor(() => expect(screen.queryByText(/serial port timed out/i)).toBeInTheDocument());
+    expect(screen.queryByText("GANTRY ALARM")).not.toBeInTheDocument();
+
+    const countAfterError = jogCallCount;
+    await new Promise((r) => setTimeout(r, 300));
+    expect(jogCallCount).toBe(countAfterError);
+  });
 });

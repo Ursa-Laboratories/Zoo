@@ -451,6 +451,66 @@ def test_jog_surfaces_alarm_errors(monkeypatch):
     mock_gantry.jog.assert_called_once_with(x=0.0, y=0.0, z=-1.0)
 
 
+def test_jog_surfaces_reset_to_continue_as_alarm_error(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.jog.side_effect = RuntimeError("error:9 Reset to continue")
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/jog",
+        json={"x": 0, "y": 0, "z": -1},
+    )
+
+    assert response.status_code == 409
+    assert "alarm" in response.text.lower()
+
+
+def test_jog_returns_500_for_non_alarm_hardware_errors(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.jog.side_effect = RuntimeError("serial port timed out")
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/jog",
+        json={"x": 1, "y": 0, "z": 0},
+    )
+
+    assert response.status_code == 500
+
+
+def test_unlock_delegates_to_gantry(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.get_position_info.return_value = idle_position_info()
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(create_app(), "POST", "/api/gantry/unlock")
+
+    assert response.status_code == 200
+    mock_gantry.unlock.assert_called_once()
+
+
+def test_unlock_returns_400_when_not_connected(monkeypatch):
+    monkeypatch.setattr(gantry_router, "_gantry", None)
+
+    response = api_request(create_app(), "POST", "/api/gantry/unlock")
+
+    assert response.status_code == 400
+
+
+def test_unlock_returns_500_when_unlock_raises(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.unlock.side_effect = RuntimeError("serial error")
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(create_app(), "POST", "/api/gantry/unlock")
+
+    assert response.status_code == 500
+
+
 def test_gantry_exposes_instrument_registry_endpoints():
     response = api_request(create_app(), "GET", "/api/gantry/instrument-types")
 

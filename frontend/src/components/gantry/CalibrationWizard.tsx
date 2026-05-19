@@ -101,9 +101,9 @@ export default function CalibrationWizard({
   }, []);
 
   const reportError = useCallback((err: unknown) => {
+    stopJog();
     const message = err instanceof Error ? err.message : String(err);
     if (looksLikeAlarm(message)) {
-      stopJog();
       setAlarmPrompt(
         "Gantry entered an alarm state. Unlock the controller, then jog Z+ away from the limit before lowering again.",
       );
@@ -129,10 +129,17 @@ export default function CalibrationWizard({
     setSaved(false);
   };
 
-  const close = () => {
+  const close = async () => {
     if (busy) return;
     stopJog();
-    gantryApi.restoreCalibrationSoftLimits().catch(console.error);
+    try {
+      await gantryApi.restoreCalibrationSoftLimits();
+    } catch (err) {
+      setError(
+        `Failed to restore soft limits: ${err instanceof Error ? err.message : String(err)}. Reconnect before running protocols.`,
+      );
+      return;
+    }
     onClose();
   };
 
@@ -140,7 +147,6 @@ export default function CalibrationWizard({
     setBusy(true);
     setOperation(label);
     setError(null);
-    setAlarmPrompt(null);
     try {
       await action();
     } catch (err) {
@@ -597,7 +603,7 @@ export default function CalibrationWizard({
                     />
                     <Readout label="X travel" value={roundMm(measuredVolume.x).toFixed(3)} />
                     <Readout label="Y travel" value={roundMm(measuredVolume.y).toFixed(3)} />
-                    <Readout label="Z travel" value={config ? getTheoreticalZRange(config).toFixed(3) : "Unavailable"} />
+                    <Readout label="Z travel" value={safeZRange(config)} />
                     <Readout label="Output" value={normalizedOutput} />
                   </div>
                 )}
@@ -721,9 +727,15 @@ function currentWpos(position: GantryPosition | null): CapturedPosition | null {
 }
 
 function requirePosition(position: GantryPosition): CapturedPosition {
-  const captured = currentWpos(position);
-  if (!captured) throw new Error("Connected position did not include readable coordinates.");
-  return captured;
+  if (!position.connected) throw new Error("Gantry is not connected.");
+  if (position.work_x == null || position.work_y == null || position.work_z == null) {
+    throw new Error("Work coordinate position is not available. Ensure homing and work coordinate setup completed before recording positions.");
+  }
+  return {
+    x: Number(position.work_x),
+    y: Number(position.work_y),
+    z: Number(position.work_z),
+  };
 }
 
 function capturedFromPlain(position: { x: number; y: number; z: number }): CapturedPosition {
@@ -748,6 +760,15 @@ function roundMm(value: number): number {
 
 function formatCaptured(label: string, position: CapturedPosition): string {
   return `${label}: X=${position.x.toFixed(3)} Y=${position.y.toFixed(3)} Z=${position.z.toFixed(3)}`;
+}
+
+function safeZRange(config: GantryConfig | null): string {
+  if (!config) return "Unavailable";
+  try {
+    return getTheoreticalZRange(config).toFixed(3);
+  } catch {
+    return "Invalid config";
+  }
 }
 
 function looksLikeAlarm(message: string): boolean {

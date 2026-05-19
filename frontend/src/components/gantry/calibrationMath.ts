@@ -70,9 +70,9 @@ export function buildCalibratedConfig({
       if (!coords || !next.instruments[name]) continue;
       next.instruments[name] = {
         ...next.instruments[name],
-        offset_x: roundMm(reference.x - coords.x),
-        offset_y: roundMm(reference.y - coords.y),
-        depth: roundMm(coords.z - lowest.z),
+        offset_x: roundMm(requireFinite(reference.x - coords.x, `${name} offset_x`)),
+        offset_y: roundMm(requireFinite(reference.y - coords.y, `${name} offset_y`)),
+        depth: roundMm(requireFinite(coords.z - lowest.z, `${name} depth`)),
       };
     }
   }
@@ -82,4 +82,11 @@ export function buildCalibratedConfig({
 
 function roundMm(value: number): number {
   return Math.round(value * 1000) / 1000;
+}
+
+function requireFinite(value: number, label: string): number {
+  if (!Number.isFinite(value)) {
+    throw new Error(`${label} is not a valid number (${value}); captured position data may be incomplete.`);
+  }
+  return value;
 }
