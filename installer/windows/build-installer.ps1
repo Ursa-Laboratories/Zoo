@@ -4,6 +4,7 @@ param(
     [string]$Branch = "main",
     [string]$ZooSourceDir = "",
     [string]$PythonVersion = "3.11.9",
+    [string]$AppVersion = "0.1.0",
     [string]$BuildPythonPath = "",
     [string]$BuildRoot = (Join-Path $PSScriptRoot "build"),
     [string]$InnoCompiler = ""
@@ -176,11 +177,11 @@ $BuildInfo = [ordered]@{
     cubos_branch = $CubOSBranch
     cubos_commit = $CubOSCommit
     python_version = $PythonVersion
+    app_version = $AppVersion
 }
 $BuildInfo | ConvertTo-Json -Depth 3 | Set-Content -Path (Join-Path $Stage "build-info.json") -Encoding UTF8
 
 $Inno = Resolve-InnoCompiler $InnoCompiler
-$AppVersion = "0.1.0"
 Invoke-Checked $Inno @(
     "/DSourceDir=$Stage",
     "/DOutputDir=$Dist",

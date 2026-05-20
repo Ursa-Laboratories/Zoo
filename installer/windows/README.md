@@ -46,7 +46,9 @@ installer\windows\build\dist\
 The same build can be run from GitHub Actions through the `Windows Installer`
 workflow. The workflow builds on `windows-latest` and uploads the generated
 installer as the `zoo-windows-installer` artifact. It runs on pull requests
-that touch the installer/runtime surface and on pushes to `main`.
+that touch the installer/runtime surface. Every push to `main` builds the
+installer, assigns an automatic version `0.1.<workflow run number>`, and
+publishes the `.exe` to a GitHub Release tagged `v0.1.<workflow run number>`.
 
 Useful overrides:
 
@@ -55,6 +57,7 @@ Useful overrides:
   -ZooRepoUrl https://github.com/Ursa-Laboratories/Zoo.git `
   -CubOSRepoUrl https://github.com/Ursa-Laboratories/CubOS.git `
   -Branch main `
+  -AppVersion 0.1.123 `
   -BuildPythonPath "C:\Python311\python.exe" `
   -PythonVersion 3.11.9 `
   -InnoCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
