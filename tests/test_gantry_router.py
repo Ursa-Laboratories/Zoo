@@ -21,6 +21,7 @@ def idle_position_info(x=0.0, y=0.0, z=0.0):
 def reset_gantry_router_state(monkeypatch):
     monkeypatch.setattr(gantry_router, "_gantry", None)
     monkeypatch.setattr(gantry_router, "_calibration_warning", None)
+    monkeypatch.setattr(gantry_router, "_connected_gantry_config", None)
     monkeypatch.setattr(gantry_router, "_calibration_restore_soft_limits", False)
     monkeypatch.setattr(gantry_router, "_last_position", None)
     yield
@@ -304,6 +305,77 @@ def test_get_gantry_normalizes_legacy_config_for_editing(monkeypatch, tmp_path):
     assert config["instruments"] == {}
 
 
+def test_move_to_blocking_allows_targets_inside_working_volume(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.config = {
+        "working_volume": {
+            "x_min": 0.0,
+            "x_max": 300.0,
+            "y_min": 0.0,
+            "y_max": 200.0,
+            "z_min": 0.0,
+            "z_max": 80.0,
+        }
+    }
+    mock_gantry.get_position_info.return_value = idle_position_info(
+        x=150.0, y=100.0, z=40.0,
+    )
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/move-to-blocking",
+        json={"x": 150, "y": 100, "z": 40},
+    )
+
+    assert response.status_code == 200
+    mock_gantry.move_to.assert_called_once_with(x=150.0, y=100.0, z=40.0)
+
+
+def test_move_to_rejects_targets_outside_working_volume(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.config = {
+        "working_volume": {
+            "x_min": 0.0,
+            "x_max": 300.0,
+            "y_min": 0.0,
+            "y_max": 200.0,
+            "z_min": 0.0,
+            "z_max": 80.0,
+        }
+    }
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/move-to",
+        json={"x": 301, "y": 100, "z": 40},
+    )
+
+    assert response.status_code == 400
+    assert "outside configured gantry working volume" in response.text
+    mock_gantry.move_to.assert_not_called()
+
+
+def test_move_to_requires_loaded_working_volume(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.config = {}
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/move-to-blocking",
+        json={"x": 10, "y": 10, "z": 10},
+    )
+
+    assert response.status_code == 409
+    assert "working_volume" in response.text
+    mock_gantry.move_to.assert_not_called()
+
+
 def test_set_work_coordinates_delegates_to_gantry(monkeypatch):
     mock_gantry = MagicMock()
     mock_gantry.get_position_info.return_value = {
@@ -349,6 +421,51 @@ def test_configure_soft_limits_delegates_to_gantry(monkeypatch):
         tolerance_mm=0.1,
     )
     assert gantry_router._calibration_restore_soft_limits is False
+
+
+def test_configure_soft_limits_refreshes_calibration_warning(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.read_grbl_settings.return_value = {
+        "$20": "1",
+        "$22": "1",
+        "$130": "300",
+        "$131": "200",
+        "$132": "80",
+    }
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(
+        gantry_router,
+        "_calibration_warning",
+        "Calibration needed: $20 expected 1, got 0",
+    )
+    monkeypatch.setattr(
+        gantry_router,
+        "_connected_gantry_config",
+        {
+            "grbl_settings": {
+                "soft_limits": True,
+                "homing_enable": True,
+                "max_travel_x": 300.0,
+                "max_travel_y": 200.0,
+                "max_travel_z": 80.0,
+            }
+        },
+    )
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/soft-limits",
+        json={
+            "max_travel_x": 300,
+            "max_travel_y": 200,
+            "max_travel_z": 80,
+            "tolerance_mm": 0.1,
+        },
+    )
+
+    assert response.status_code == 200
+    assert gantry_router._calibration_warning is None
 
 
 def test_prepare_calibration_origin_homes_clears_offsets_and_disables_soft_limits(monkeypatch):
@@ -432,6 +549,41 @@ def test_blocking_jog_waits_for_idle_before_returning(monkeypatch):
     assert response.status_code == 200
     mock_gantry.jog.assert_called_once_with(x=0.0, y=0.0, z=15.0)
     assert mock_gantry.get_status.call_count == 2
+
+
+def test_blocking_jog_surfaces_alarm_status_as_recoverable(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.get_status.return_value = "Alarm"
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(gantry_router.time, "sleep", lambda _seconds: None)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/jog-blocking",
+        json={"x": 0, "y": 0, "z": 15, "timeout_s": 1},
+    )
+
+    assert response.status_code == 409
+    assert "alarm state" in response.text
+    mock_gantry.jog.assert_called_once_with(x=0.0, y=0.0, z=15.0)
+
+
+def test_blocking_jog_surfaces_alarm_jog_errors_as_recoverable(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.jog.side_effect = RuntimeError("ALARM:1 hard limit")
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/jog-blocking",
+        json={"x": 0, "y": 0, "z": 15, "timeout_s": 1},
+    )
+
+    assert response.status_code == 409
+    assert "alarm state" in response.text
+    mock_gantry.get_status.assert_not_called()
 
 
 def test_jog_surfaces_alarm_errors(monkeypatch):
@@ -546,3 +698,18 @@ def test_disconnect_clears_module_gantry_inside_lock(monkeypatch):
     assert ("module_gantry_still_set", True) in observations
     assert gantry_router._gantry is None
     assert gantry_router._serial_lock.locked() is False
+
+
+def test_disconnect_reports_soft_limit_restore_failure(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.set_soft_limits_enabled.side_effect = RuntimeError("serial error")
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(gantry_router, "_calibration_restore_soft_limits", True)
+
+    response = api_request(create_app(), "POST", "/api/gantry/disconnect")
+
+    assert response.status_code == 500
+    assert "Soft-limit restore failed" in response.text
+    mock_gantry.disconnect.assert_called_once()
+    assert gantry_router._gantry is None
+    assert gantry_router._calibration_restore_soft_limits is False

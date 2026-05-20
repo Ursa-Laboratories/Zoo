@@ -23,6 +23,8 @@ See also:
 - Gantry YAMLs are read back through CubOS validation before Zoo returns or saves them; missing current fields must be filled and saved in the gantry editor.
 - Protocol YAML `positions` mappings are preserved by the protocol editor save path.
 - The protocol Validate button runs full CubOS setup validation for the selected gantry, deck, and protocol files. The older `/api/protocol/validate` endpoint remains a command-schema check only.
+- Protocol runs are blocked while a gantry calibration warning is active. Connect and calibration remain available so first-time users can program the controller and clear the warning.
+- Manual absolute `Move To` commands are checked against the loaded gantry `working_volume` before Zoo sends motion to CubOS.
 
 ## Gantry Calibration
 
@@ -31,8 +33,9 @@ See also:
 - Calibration preserves the input gantry YAML's seeded `cnc.total_z_range`; Zoo uses that calculated Z range for `working_volume.z_max` and GRBL `max_travel_z` instead of rewriting the range from homed readback.
 - Multi-instrument gantries add a tool-recording step that writes instrument `offset_x`, `offset_y`, and `depth` values from a shared block point.
 - The multi-instrument path automatically re-homes after XY origining, captures XY travel bounds, moves to deck center, and retracts Z after each tool record while controls are locked.
-- If a calibration jog triggers a GRBL alarm, the wizard stops jog repeats, disables jog controls, and prompts the operator to unlock before jogging away from the limit.
+- If a calibration jog or automatic blocking retract triggers a GRBL alarm, the wizard stops jog repeats, disables jog controls, and prompts the operator to unlock before jogging away from the limit.
 - Calibration routes stay thin over CubOS `Gantry` methods for work-coordinate assignment and GRBL soft-limit programming; Zoo does not send raw serial commands directly.
+- Disconnect reports a failure if Zoo cannot restore calibration-disabled soft limits before closing the controller connection.
 
 ## Run
 

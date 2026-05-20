@@ -155,6 +155,24 @@ export default function GantryPositionWidget({
       alert("Coordinates must be positive (user space)");
       return;
     }
+    if (workingVolume) {
+      const axisChecks: Array<[string, number, number, number]> = [
+        ["X", x, workingVolume.x_min, workingVolume.x_max],
+        ["Y", y, workingVolume.y_min, workingVolume.y_max],
+        ["Z", z, workingVolume.z_min, workingVolume.z_max],
+      ];
+      const violations = axisChecks.filter(([, value, min, max]) => (
+        value < min || value > max
+      ));
+      if (violations.length > 0) {
+        alert(
+          `Move target outside working volume: ${violations
+            .map(([axis, value, min, max]) => `${axis}=${Number(value).toFixed(3)} outside [${Number(min).toFixed(3)}, ${Number(max).toFixed(3)}]`)
+            .join("; ")}`,
+        );
+        return;
+      }
+    }
     gantryApi.moveTo(x, y, z).catch((e) => alert(`Move failed: ${e}`));
   };
 

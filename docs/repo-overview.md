@@ -6,6 +6,9 @@
 Protocol editing preserves top-level `positions` mappings, and the protocol
 Validate button calls CubOS offline setup validation for the selected gantry,
 deck, and protocol files rather than only checking command schemas.
+Protocol runs are blocked while Zoo has an active gantry calibration warning;
+operators can still connect and calibrate so new controllers can be brought into
+the expected GRBL state.
 
 The gantry control surface also exposes a calibration wizard that turns CubOS'
 `setup/calibrate_gantry.py` flow into a guided UI. Operators still use CubOS
@@ -84,7 +87,8 @@ npm run build
 - Depends on `CubOS` from Git in `pyproject.toml`
 - Requires Node.js for frontend development and build
 - Talks directly to local gantry hardware through CubOS when operators use motion endpoints
-- Gantry calibration delegates work-coordinate and soft-limit operations to CubOS `Gantry` methods; Zoo only sequences the operator UI and YAML save. During XY origining, Zoo may temporarily disable stale soft limits and restores them on cancel, single-instrument XY completion, disconnect, or successful soft-limit programming. Zoo preserves the seeded `cnc.total_z_range` from the input gantry YAML and uses that calculated range for calibrated Z bounds and `max_travel_z`. If an interactive calibration jog trips a GRBL alarm, Zoo stops repeated jogs and prompts the operator to unlock before moving away from the limit.
+- Manual absolute `Move To` commands are validated against the connected gantry's loaded `working_volume` before Zoo starts motion.
+- Gantry calibration delegates work-coordinate and soft-limit operations to CubOS `Gantry` methods; Zoo only sequences the operator UI and YAML save. During XY origining, Zoo may temporarily disable stale soft limits and restores them on cancel, single-instrument XY completion, disconnect, or successful soft-limit programming. Zoo preserves the seeded `cnc.total_z_range` from the input gantry YAML and uses that calculated range for calibrated Z bounds and `max_travel_z`. If an interactive calibration jog or automatic blocking retract trips a GRBL alarm, Zoo stops repeated jogs and prompts the operator to unlock before moving away from the limit. Disconnect surfaces soft-limit restore failures instead of silently reporting success.
 
 ## Known Pitfalls
 
