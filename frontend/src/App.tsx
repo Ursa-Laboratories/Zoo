@@ -17,7 +17,7 @@ import {
   useInstrumentTypes,
   useInstrumentSchemas,
 } from "./hooks/useGantryPosition";
-import { useProtocolCommands, useProtocolConfigs, useProtocol, useSaveProtocol, useValidateProtocol } from "./hooks/useProtocol";
+import { useProtocolCommands, useProtocolConfigs, useProtocol, useSaveProtocol, useValidateProtocolSetup } from "./hooks/useProtocol";
 import type {
   DeckResponse,
   WellPosition,
@@ -90,7 +90,7 @@ export default function App() {
   const protocolConfigs = useProtocolConfigs();
   const protocolQuery = useProtocol(protocolFile);
   const saveProtocol = useSaveProtocol();
-  const validateProtocol = useValidateProtocol();
+  const validateProtocolSetup = useValidateProtocolSetup();
 
   // Local working copies of each editor's edits, kept in App state so
   // they survive tab switches (each editor unmounts on tab-away, which
@@ -325,15 +325,27 @@ export default function App() {
           onSelectFile={setProtocolFile}
           commands={protocolCommands.data ?? []}
           steps={localProtocolSteps ?? protocolQuery.data?.steps ?? null}
+          positions={protocolQuery.data?.positions ?? null}
           onSave={(filename, body) => saveProtocol.mutate({ filename, body })}
           onLocalChange={setLocalProtocolSteps}
-          onValidate={(body) =>
-            validateProtocol.mutate(body, {
+          onValidate={() => {
+            if (!gantryFile || !deckFile || !protocolFile) {
+              setValidationResult({
+                valid: false,
+                errors: ["Select gantry, deck, and protocol files before setup validation."],
+              });
+              return;
+            }
+            validateProtocolSetup.mutate({
+              gantry_file: gantryFile,
+              deck_file: deckFile,
+              protocol_file: protocolFile,
+            }, {
               onSuccess: (res) => setValidationResult(res),
-            })
-          }
+            });
+          }}
           validationErrors={validationResult?.errors ?? null}
-          isValidating={validateProtocol.isPending}
+          isValidating={validateProtocolSetup.isPending}
           onRefresh={refreshAll}
           onRun={handleRunProtocol}
           isRunning={isRunning}

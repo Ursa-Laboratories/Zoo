@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from protocol_engine.registry import CommandRegistry
 from protocol_engine.setup import run_protocol
+from protocol_engine.setup_validation import run_setup_validation
 from validation.errors import SetupValidationError
 
 # Side-effect import: triggers @protocol_command registration.
@@ -24,6 +25,8 @@ from zoo.models.protocol import (
     CommandInfo,
     ProtocolConfig,
     ProtocolResponse,
+    ProtocolSetupValidationRequest,
+    ProtocolSetupValidationResponse,
     ProtocolStepConfig,
     ProtocolValidationResponse,
 )
@@ -109,7 +112,11 @@ def get_protocol(filename: str) -> ProtocolResponse:
         args = raw_step[cmd_name] or {}
         steps.append(ProtocolStepConfig(command=cmd_name, args=args))
 
-    return ProtocolResponse(filename=filename, steps=steps)
+    positions = data.get("positions")
+    if not isinstance(positions, dict):
+        positions = None
+
+    return ProtocolResponse(filename=filename, positions=positions, steps=steps)
 
 
 @router.put("/{filename}")
@@ -119,7 +126,11 @@ def save_protocol(filename: str, body: ProtocolConfig) -> dict:
     protocol_list = []
     for step in body.protocol:
         protocol_list.append({step.command: step.args if step.args else None})
-    write_yaml(path, {"protocol": protocol_list})
+    data: Dict[str, Any] = {}
+    if body.positions is not None:
+        data["positions"] = body.positions
+    data["protocol"] = protocol_list
+    write_yaml(path, data)
     return {"status": "ok", "filename": filename}
 
 
@@ -143,6 +154,33 @@ def validate_protocol(body: ProtocolConfig) -> ProtocolValidationResponse:
             errors.append(f"Step {i} ({step.command}): {e}")
 
     return ProtocolValidationResponse(valid=len(errors) == 0, errors=errors)
+
+
+@router.post("/validate-setup")
+def validate_protocol_setup(
+    body: ProtocolSetupValidationRequest,
+) -> ProtocolSetupValidationResponse:
+    """Run full CubOS gantry/deck/protocol setup validation."""
+    settings = get_settings()
+    gantry_path = resolve_config_path(settings.configs_dir, "gantry", body.gantry_file)
+    deck_path = resolve_config_path(settings.configs_dir, "deck", body.deck_file)
+    protocol_path = resolve_config_path(settings.configs_dir, "protocol", body.protocol_file)
+
+    try:
+        result = run_setup_validation(
+            str(gantry_path),
+            str(deck_path),
+            str(protocol_path),
+        )
+    except Exception as exc:
+        logging.exception("Setup validation failed unexpectedly")
+        raise HTTPException(500, f"Setup validation failed: {exc}") from exc
+
+    return ProtocolSetupValidationResponse(
+        valid=result.passed,
+        errors=list(result.errors),
+        output=result.output,
+    )
 
 
 class RunProtocolRequest(BaseModel):

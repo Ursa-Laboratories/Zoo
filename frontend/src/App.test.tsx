@@ -82,6 +82,9 @@ function createState(): ApiState {
     protocols: {
       "move.yaml": {
         filename: "move.yaml",
+        positions: {
+          park: [10, 20, 30],
+        },
         steps: [
           {
             command: "move",
@@ -121,6 +124,7 @@ function toGantryResponse(filename: string, body: GantryConfig): GantryResponse 
 function toProtocolResponse(filename: string, body: ProtocolConfig): ProtocolResponse {
   return {
     filename,
+    positions: body.positions,
     steps: body.protocol,
   };
 }
@@ -187,6 +191,13 @@ function installFetchMock(state: ApiState) {
           description: "Move gantry",
         },
       ]);
+    }
+    if (path === "/api/protocol/validate-setup" && method === "POST") {
+      return jsonResponse({
+        valid: true,
+        errors: [],
+        output: "RESULT: PASS",
+      });
     }
     if (path === "/api/gantry/position") {
       return jsonResponse(gantryPosition());
@@ -415,6 +426,8 @@ describe("Zoo editor interactions", () => {
 
   it("loads and saves a protocol config across tab switches", async () => {
     const user = userEvent.setup();
+    const state = createState();
+    installFetchMock(state);
     renderApp();
     await waitForSettingsLoad();
     await loadRequiredProtocolDependencies(user);
@@ -427,9 +440,35 @@ describe("Zoo editor interactions", () => {
     await user.clear(xField);
     await user.type(xField, "42");
     await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(state.protocols["move.yaml"]?.positions).toEqual({ park: [10, 20, 30] }));
     await user.click(screen.getByRole("button", { name: "Gantry" }));
     await user.click(screen.getByRole("button", { name: "Protocol" }));
 
     await waitFor(() => expect(screen.getByDisplayValue("42")).toBeInTheDocument());
+  });
+
+  it("validates the selected setup through the full CubOS setup endpoint", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+    await user.click(await screen.findByRole("button", { name: "Validate" }));
+
+    await waitFor(() => expect(screen.getByText("Protocol is valid.")).toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/protocol/validate-setup",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          gantry_file: "cubos.yaml",
+          deck_file: "panda-deck.yaml",
+          protocol_file: "move.yaml",
+        }),
+      }),
+    );
   });
 });

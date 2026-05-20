@@ -3,6 +3,9 @@
 ## Purpose
 
 `Zoo` is a local web UI for `CubOS`. It edits YAML configs, visualizes deck state, controls gantry motion, and triggers protocol execution through CubOS APIs and classes.
+Protocol editing preserves top-level `positions` mappings, and the protocol
+Validate button calls CubOS offline setup validation for the selected gantry,
+deck, and protocol files rather than only checking command schemas.
 
 The gantry control surface also exposes a calibration wizard that turns CubOS'
 `setup/calibrate_gantry.py` flow into a guided UI. Operators still use CubOS
