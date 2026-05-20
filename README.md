@@ -57,6 +57,19 @@ Defaults:
 - Frontend tests: `cd frontend && npm run test`
 - Frontend build: `cd frontend && npm run build`
 
+## Windows Operator Installer
+
+The Windows installer builder lives in `installer/windows/`. It clones Zoo
+`main` and CubOS `main`, builds the frontend, prepares an offline wheelhouse,
+and emits an Inno Setup installer that installs an app-local Python runtime.
+
+Build it on a Windows packaging machine with Git, Python 3.11, Node.js, and
+Inno Setup 6:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\installer\windows\build-installer.ps1
+```
+
 ## Notes
 
 - If `frontend/dist/` is missing, `python -m zoo` builds it automatically.

@@ -71,6 +71,10 @@ npm run build
 
 - Local operator-facing UI
 - Depends on the published or installable `CubOS` package
+- `installer/windows/` builds a Windows operator installer from Zoo `main` and
+  CubOS `main`; the generated installer includes a private Python runtime,
+  prebuilt frontend assets, an offline wheelhouse, Start Menu shortcuts, config
+  seeding, logs, and diagnostic export.
 
 ## Dependencies On Other Repos Or Services
 
@@ -86,5 +90,5 @@ npm run build
 - The shared gantry instance is process-local and serial access is deliberately locked.
 - `raw` endpoints bypass schema-aware editing and can write malformed YAML if used carelessly.
 - The checked-in frontend README is a template and not authoritative project documentation.
-- CubOS staging no longer uses a separate mounted-instrument config in Zoo; instruments belong in gantry YAML.
+- Current CubOS configs no longer use a separate mounted-instrument config in Zoo; instruments belong in gantry YAML.
 - Calibration can write a new gantry YAML and optionally program live GRBL soft-limit settings, so it should not be exercised without hardware clearance and an E-stop within reach.

@@ -5,6 +5,7 @@ __pycache__/
 dist/
 node_modules/
 frontend/dist/
+installer/windows/build/
 .omx/
 .pi/
 .env
