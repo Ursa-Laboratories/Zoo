@@ -9,6 +9,7 @@ interface Props {
   onSelectFile: (f: string) => void;
   commands: CommandInfo[];
   steps: ProtocolStep[] | null;
+  positions?: Record<string, number[]> | null;
   onSave: (filename: string, body: ProtocolConfig) => void;
   /** Called on every local edit so the parent can persist the working
    * copy across tab switches. */
@@ -52,6 +53,7 @@ export default function ProtocolEditor({
   onSelectFile,
   commands,
   steps: loadedSteps,
+  positions,
   onSave,
   onLocalChange,
   onValidate,
@@ -99,7 +101,9 @@ export default function ProtocolEditor({
     commit(next);
   };
 
-  const buildConfig = (): ProtocolConfig => ({ protocol: steps });
+  const buildConfig = (): ProtocolConfig => (
+    positions ? { positions, protocol: steps } : { protocol: steps }
+  );
 
   const handleValidate = () => onValidate(buildConfig());
 
@@ -108,7 +112,7 @@ export default function ProtocolEditor({
     if (!filename) return;
     const normalized = filename.endsWith(".yaml") ? filename : filename + ".yaml";
     onSelectFile(normalized);
-    onSave(normalized, { protocol: steps });
+    onSave(normalized, buildConfig());
     setSaveAs("");
   };
 
@@ -220,6 +224,13 @@ export default function ProtocolEditor({
 
           {validationErrors !== null && validationErrors.length === 0 && (
             <p style={{ color: "#059669", fontSize: 12, margin: "6px 0 0" }}>Protocol is valid.</p>
+          )}
+          {validationErrors !== null && validationErrors.length > 0 && (
+            <div style={{ color: "#dc2626", fontSize: 12, margin: "6px 0 0" }}>
+              {validationErrors.map((error, i) => (
+                <div key={i}>{error}</div>
+              ))}
+            </div>
           )}
           {runResult && (
             <p style={{ color: "#059669", fontSize: 12, margin: "6px 0 0" }}>

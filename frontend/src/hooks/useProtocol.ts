@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { protocolApi } from "../api/client";
-import type { ProtocolConfig } from "../types";
+import type { ProtocolConfig, ProtocolSetupValidationRequest } from "../types";
 
 type SaveProtocolArgs = {
   filename: string;
@@ -44,5 +44,11 @@ export function useSaveProtocol() {
 export function useValidateProtocol() {
   return useMutation({
     mutationFn: (body: ProtocolConfig) => protocolApi.validate(body),
+  });
+}
+
+export function useValidateProtocolSetup() {
+  return useMutation({
+    mutationFn: (body: ProtocolSetupValidationRequest) => protocolApi.validateSetup(body),
   });
 }

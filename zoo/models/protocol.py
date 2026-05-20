@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CommandArg(BaseModel):
@@ -30,16 +30,32 @@ class ProtocolStepConfig(BaseModel):
 
 class ProtocolConfig(BaseModel):
     """Protocol YAML body: a list of steps."""
+    positions: Optional[Dict[str, List[float]]] = None
     protocol: List[ProtocolStepConfig]
 
 
 class ProtocolResponse(BaseModel):
     """Parsed protocol file returned by the API."""
     filename: str
+    positions: Optional[Dict[str, List[float]]] = None
     steps: List[ProtocolStepConfig]
 
 
 class ProtocolValidationResponse(BaseModel):
     """Result of protocol validation."""
     valid: bool
-    errors: List[str] = []
+    errors: List[str] = Field(default_factory=list)
+
+
+class ProtocolSetupValidationRequest(BaseModel):
+    """Request body for full CubOS setup validation."""
+    gantry_file: str
+    deck_file: str
+    protocol_file: str
+
+
+class ProtocolSetupValidationResponse(BaseModel):
+    """Result of full CubOS setup validation."""
+    valid: bool
+    errors: List[str] = Field(default_factory=list)
+    output: str

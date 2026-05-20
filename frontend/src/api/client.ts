@@ -140,6 +140,14 @@ export const protocolApi = {
         body: JSON.stringify(body),
       },
     ),
+  validateSetup: (body: import("../types").ProtocolSetupValidationRequest) =>
+    request<import("../types").ProtocolValidationResponse>(
+      "/protocol/validate-setup",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
   run: (body: {
     gantry_file: string;
     deck_file: string;

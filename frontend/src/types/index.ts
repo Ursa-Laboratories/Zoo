@@ -274,15 +274,24 @@ export interface ProtocolStep {
 }
 
 export interface ProtocolConfig {
+  positions?: Record<string, number[]> | null;
   protocol: ProtocolStep[];
 }
 
 export interface ProtocolResponse {
   filename: string;
+  positions?: Record<string, number[]> | null;
   steps: ProtocolStep[];
 }
 
 export interface ProtocolValidationResponse {
   valid: boolean;
   errors: string[];
+  output?: string;
+}
+
+export interface ProtocolSetupValidationRequest {
+  gantry_file: string;
+  deck_file: string;
+  protocol_file: string;
 }

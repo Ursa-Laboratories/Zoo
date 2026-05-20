@@ -8,7 +8,7 @@ import pytest
 from tests.api_client import api_request
 from zoo.app import create_app
 from zoo.config import get_settings
-from zoo.services.yaml_io import write_yaml
+from zoo.services.yaml_io import read_yaml, write_yaml
 
 
 @pytest.fixture()
@@ -19,6 +19,9 @@ def tmp_configs(monkeypatch):
         configs.mkdir()
 
         protocol_data = {
+            "positions": {
+                "park": [10.0, 20.0, 30.0],
+            },
             "protocol": [
                 {"move": {"instrument": "pipette", "position": "plate_1.A1"}},
                 {"aspirate": {"position": "plate_1.A1", "volume_ul": 100.0}},
@@ -79,6 +82,7 @@ def test_get_protocol(client, tmp_configs):
     assert r.status_code == 200
     data = r.json()
     assert data["filename"] == "test_protocol.yaml"
+    assert data["positions"] == {"park": [10.0, 20.0, 30.0]}
     assert len(data["steps"]) == 2
     assert data["steps"][0]["command"] == "move"
     assert data["steps"][1]["command"] == "aspirate"
@@ -87,6 +91,7 @@ def test_get_protocol(client, tmp_configs):
 
 def test_save_protocol(client, tmp_configs):
     body = {
+        "positions": {"park": [10.0, 20.0, 30.0]},
         "protocol": [
             {"command": "move", "args": {"instrument": "uvvis", "position": "plate_1.A1"}},
         ]
@@ -94,6 +99,7 @@ def test_save_protocol(client, tmp_configs):
     r = api_request(client, "PUT", "/api/protocol/new_protocol.yaml", json=body)
     assert r.status_code == 200
     assert (tmp_configs / "new_protocol.yaml").exists()
+    assert read_yaml(tmp_configs / "new_protocol.yaml")["positions"] == body["positions"]
 
 
 def test_validate_protocol_ok(client):
@@ -147,6 +153,94 @@ def test_validate_protocol_unknown_args(client):
     data = r.json()
     assert data["valid"] is False
     assert "turbo" in data["errors"][0]
+
+
+def test_validate_setup_endpoint_calls_cubos_validation(monkeypatch, tmp_path):
+    from zoo.routers import protocol as protocol_router
+
+    for subdir in ("gantry", "deck", "protocol"):
+        (tmp_path / subdir).mkdir()
+
+    observed: dict[str, tuple[str, str, str]] = {}
+
+    class FakeResult:
+        passed = True
+        errors = ()
+        output = "RESULT: PASS"
+
+    def fake_run_setup_validation(gantry_path: str, deck_path: str, protocol_path: str):
+        observed["paths"] = (gantry_path, deck_path, protocol_path)
+        return FakeResult()
+
+    monkeypatch.setattr(protocol_router, "run_setup_validation", fake_run_setup_validation)
+    monkeypatch.setattr(
+        protocol_router,
+        "get_settings",
+        lambda: type("S", (), {"configs_dir": tmp_path})(),
+    )
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/protocol/validate-setup",
+        json={
+            "gantry_file": "gantry.yaml",
+            "deck_file": "deck.yaml",
+            "protocol_file": "protocol.yaml",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "valid": True,
+        "errors": [],
+        "output": "RESULT: PASS",
+    }
+    assert observed["paths"] == (
+        str(tmp_path / "gantry" / "gantry.yaml"),
+        str(tmp_path / "deck" / "deck.yaml"),
+        str(tmp_path / "protocol" / "protocol.yaml"),
+    )
+
+
+def test_validate_setup_endpoint_returns_validation_errors(monkeypatch, tmp_path):
+    from zoo.routers import protocol as protocol_router
+
+    for subdir in ("gantry", "deck", "protocol"):
+        (tmp_path / subdir).mkdir()
+
+    class FakeResult:
+        passed = False
+        errors = ("park.location.target: gantry (-3.0, 50.0, 30.0) violates x_min=0.0",)
+        output = "RESULT: FAIL"
+
+    monkeypatch.setattr(
+        protocol_router,
+        "run_setup_validation",
+        lambda *_args: FakeResult(),
+    )
+    monkeypatch.setattr(
+        protocol_router,
+        "get_settings",
+        lambda: type("S", (), {"configs_dir": tmp_path})(),
+    )
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/protocol/validate-setup",
+        json={
+            "gantry_file": "gantry.yaml",
+            "deck_file": "deck.yaml",
+            "protocol_file": "protocol.yaml",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["valid"] is False
+    assert "park.location.target" in data["errors"][0]
+    assert data["output"] == "RESULT: FAIL"
 
 
 def test_run_endpoint_holds_serial_lock_for_duration(monkeypatch, tmp_configs):
