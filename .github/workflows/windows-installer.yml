@@ -1,0 +1,54 @@
+name: Windows Installer
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/windows-installer.yml"
+      - "installer/windows/**"
+      - "frontend/**"
+      - "zoo/**"
+      - "pyproject.toml"
+      - "requirements.txt"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/windows-installer.yml"
+      - "installer/windows/**"
+      - "frontend/**"
+      - "zoo/**"
+      - "pyproject.toml"
+      - "requirements.txt"
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: powershell
+        run: .\installer\windows\build-installer.ps1 -ZooSourceDir "$env:GITHUB_WORKSPACE"
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: zoo-windows-installer
+          path: installer/windows/build/dist/*.exe
+          if-no-files-found: error
