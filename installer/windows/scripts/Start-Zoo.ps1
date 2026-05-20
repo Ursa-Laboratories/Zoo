@@ -72,8 +72,15 @@ try {
 
     Push-Location $ZooDir
     try {
-        & $Python -m zoo 2>&1 | Tee-Object -FilePath $LogPath -Append
-        $ExitCode = $LASTEXITCODE
+        $PreviousErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            & $Python -m zoo 2>&1 | ForEach-Object { $_.ToString() } | Tee-Object -FilePath $LogPath -Append
+            $ExitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $PreviousErrorActionPreference
+        }
     }
     finally {
         Pop-Location

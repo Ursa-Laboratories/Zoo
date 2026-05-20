@@ -55,6 +55,7 @@ Useful overrides:
   -ZooRepoUrl https://github.com/Ursa-Laboratories/Zoo.git `
   -CubOSRepoUrl https://github.com/Ursa-Laboratories/CubOS.git `
   -Branch main `
+  -BuildPythonPath "C:\Python311\python.exe" `
   -PythonVersion 3.11.9 `
   -InnoCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 ```

@@ -4,6 +4,7 @@ param(
     [string]$Branch = "main",
     [string]$ZooSourceDir = "",
     [string]$PythonVersion = "3.11.9",
+    [string]$BuildPythonPath = "",
     [string]$BuildRoot = (Join-Path $PSScriptRoot "build"),
     [string]$InnoCompiler = ""
 )
@@ -38,6 +39,18 @@ function Invoke-RobocopyChecked {
 }
 
 function Resolve-BuildPython {
+    param([string]$ExplicitPath)
+
+    if ($ExplicitPath) {
+        if (-not (Test-Path $ExplicitPath)) {
+            throw "Build Python not found at $ExplicitPath"
+        }
+        return [pscustomobject]@{
+            Path = (Resolve-Path -Path $ExplicitPath).Path
+            Args = @()
+        }
+    }
+
     $py = Get-Command py -ErrorAction SilentlyContinue
     if ($py) {
         return [pscustomobject]@{
@@ -133,7 +146,7 @@ finally {
     Pop-Location
 }
 
-$BuildPython = Resolve-BuildPython
+$BuildPython = Resolve-BuildPython $BuildPythonPath
 $PythonExe = $BuildPython.Path
 $PythonPrefixArgs = [string[]]$BuildPython.Args
 
