@@ -23,6 +23,7 @@ import type {
   WellPosition,
   ProtocolValidationResponse,
   ProtocolStep,
+  ProtocolConfig,
   GantryResponse,
   WorkingVolume,
 } from "./types";
@@ -30,6 +31,10 @@ import type { SettingsResponse } from "./api/client";
 
 function configDirFromSettings(settings: SettingsResponse): string {
   return settings.config_dir ?? "";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 const WORKING_DECK_FILENAME = "panda-deck.yaml";
@@ -99,6 +104,7 @@ export default function App() {
   const [localDeck, setLocalDeck] = useState<DeckResponse | null>(null);
   const [localGantry, setLocalGantry] = useState<GantryResponse | null>(null);
   const [localProtocolSteps, setLocalProtocolSteps] = useState<ProtocolStep[] | null>(null);
+  const [localProtocolPositions, setLocalProtocolPositions] = useState<ProtocolConfig["positions"] | undefined>(undefined);
   // Imports always save to WORKING_DECK_FILENAME so the source file
   // isn't touched — but we remember what the user picked so the Deck
   // tab can display that label instead of the working-copy name.
@@ -151,6 +157,7 @@ export default function App() {
   }, [gantryFile]);
   React.useEffect(() => {
     setLocalProtocolSteps(null);
+    setLocalProtocolPositions(undefined);
   }, [protocolFile]);
 
   const displayDeck = useMemo(() => {
@@ -167,6 +174,7 @@ export default function App() {
   }, [localDeck, deckQuery.data, previewWells]);
 
   const displayGantry = localGantry ?? gantryQuery.data ?? null;
+  const gantryConnected = gantryPosition.data?.connected ?? false;
   const workingVolume: WorkingVolume | null = displayGantry?.config.working_volume ?? null;
   const yAxisMotion = displayGantry?.config.cnc?.y_axis_motion ?? "head";
   const machineXRange: [number, number] = workingVolume
@@ -183,6 +191,7 @@ export default function App() {
     setLocalDeck(null);
     setLocalGantry(null);
     setLocalProtocolSteps(null);
+    setLocalProtocolPositions(undefined);
     setDeckImportedFrom(null);
   };
 
@@ -207,6 +216,11 @@ export default function App() {
 
   const handleRunProtocol = async () => {
     if (!gantryFile || !deckFile || !protocolFile) return;
+    if (!gantryConnected) {
+      setRunResult(null);
+      setRunError("Connect gantry before running a protocol.");
+      return;
+    }
     setIsRunning(true);
     setRunResult(null);
     setRunError(null);
@@ -289,6 +303,9 @@ export default function App() {
           {importError && (
             <div style={importErrorStyle}>Import failed: {importError}</div>
           )}
+          {deckQuery.isError && deckFile && (
+            <div style={importErrorStyle}>Deck load failed: {errorMessage(deckQuery.error)}</div>
+          )}
           <DeckEditor
             key={deckQuery.data ? `loaded:${deckQuery.data.filename}` : `selected:${deckFile ?? "none"}`}
             configs={deckConfigs.data ?? []}
@@ -296,64 +313,86 @@ export default function App() {
             onSelectFile={setDeckFile}
             onImportFile={handleImportDeck}
             deck={localDeck ?? deckQuery.data ?? null}
-            onSave={(filename, body) => saveDeck.mutate({ filename, body })}
+            onSave={async (filename, body) => {
+              await saveDeck.mutateAsync({ filename, body });
+              setLocalDeck(null);
+            }}
             onLocalChange={setLocalDeck}
             onRefresh={refreshAll}
           />
         </>
       )}
       {activeTab === "Gantry" && (
-        <GantryEditor
-          key={gantryQuery.data ? `loaded:${gantryQuery.data.filename}` : `selected:${gantryFile ?? "none"}`}
-          configs={gantryConfigs.data ?? []}
-          selectedFile={gantryFile}
-          onSelectFile={setGantryFile}
-          gantry={localGantry ?? gantryQuery.data ?? null}
-          baseline={gantryQuery.data ?? null}
-          instrumentTypes={instrumentTypes.data ?? []}
-          instrumentSchemas={instrumentSchemas.data ?? {}}
-          onSave={(filename, body) => saveGantry.mutate({ filename, body })}
-          onLocalChange={setLocalGantry}
-          onRefresh={refreshAll}
-        />
+        <>
+          {gantryQuery.isError && gantryFile && (
+            <div style={importErrorStyle}>Gantry load failed: {errorMessage(gantryQuery.error)}</div>
+          )}
+          <GantryEditor
+            key={gantryQuery.data ? `loaded:${gantryQuery.data.filename}` : `selected:${gantryFile ?? "none"}`}
+            configs={gantryConfigs.data ?? []}
+            selectedFile={gantryFile}
+            onSelectFile={setGantryFile}
+            gantry={localGantry ?? gantryQuery.data ?? null}
+            baseline={gantryQuery.data ?? null}
+            instrumentTypes={instrumentTypes.data ?? []}
+            instrumentSchemas={instrumentSchemas.data ?? {}}
+            onSave={async (filename, body) => {
+              await saveGantry.mutateAsync({ filename, body });
+              setLocalGantry(null);
+            }}
+            onLocalChange={setLocalGantry}
+            onRefresh={refreshAll}
+          />
+        </>
       )}
       {activeTab === "Protocol" && deckQuery.data && gantryQuery.data && (
-        <ProtocolEditor
-          key={protocolQuery.data ? `loaded:${protocolQuery.data.filename}` : `selected:${protocolFile ?? "none"}`}
-          configs={protocolConfigs.data ?? []}
-          selectedFile={protocolFile}
-          onSelectFile={setProtocolFile}
-          commands={protocolCommands.data ?? []}
-          deck={(displayDeck ?? deckQuery.data)!}
-          gantry={(displayGantry ?? gantryQuery.data)!}
-          steps={localProtocolSteps ?? protocolQuery.data?.steps ?? null}
-          positions={protocolQuery.data?.positions ?? null}
-          onSave={(filename, body) => saveProtocol.mutate({ filename, body })}
-          onLocalChange={setLocalProtocolSteps}
-          onValidate={() => {
-            if (!gantryFile || !deckFile || !protocolFile) {
-              setValidationResult({
-                valid: false,
-                errors: ["Select gantry, deck, and protocol files before setup validation."],
+        <>
+          {protocolQuery.isError && protocolFile && (
+            <div style={importErrorStyle}>Protocol load failed: {errorMessage(protocolQuery.error)}</div>
+          )}
+          <ProtocolEditor
+            key={protocolQuery.data ? `loaded:${protocolQuery.data.filename}` : `selected:${protocolFile ?? "none"}`}
+            configs={protocolConfigs.data ?? []}
+            selectedFile={protocolFile}
+            onSelectFile={setProtocolFile}
+            commands={protocolCommands.data ?? []}
+            deck={(displayDeck ?? deckQuery.data)!}
+            gantry={(displayGantry ?? gantryQuery.data)!}
+            steps={localProtocolSteps ?? protocolQuery.data?.steps ?? null}
+            positions={localProtocolPositions !== undefined ? localProtocolPositions : protocolQuery.data?.positions ?? null}
+            onSave={async (filename, body) => {
+              await saveProtocol.mutateAsync({ filename, body });
+              setLocalProtocolSteps(null);
+              setLocalProtocolPositions(undefined);
+            }}
+            onLocalChange={setLocalProtocolSteps}
+            onPositionsChange={setLocalProtocolPositions}
+            onValidate={() => {
+              if (!gantryFile || !deckFile || !protocolFile) {
+                setValidationResult({
+                  valid: false,
+                  errors: ["Select gantry, deck, and protocol files before setup validation."],
+                });
+                return;
+              }
+              validateProtocolSetup.mutate({
+                gantry_file: gantryFile,
+                deck_file: deckFile,
+                protocol_file: protocolFile,
+              }, {
+                onSuccess: (res) => setValidationResult(res),
               });
-              return;
-            }
-            validateProtocolSetup.mutate({
-              gantry_file: gantryFile,
-              deck_file: deckFile,
-              protocol_file: protocolFile,
-            }, {
-              onSuccess: (res) => setValidationResult(res),
-            });
-          }}
-          validationErrors={validationResult?.errors ?? null}
-          isValidating={validateProtocolSetup.isPending}
-          onRefresh={refreshAll}
-          onRun={handleRunProtocol}
-          isRunning={isRunning}
-          runResult={runResult}
-          runError={runError}
-        />
+            }}
+            validationErrors={validationResult?.errors ?? null}
+            isValidating={validateProtocolSetup.isPending}
+            onRefresh={refreshAll}
+            onRun={handleRunProtocol}
+            canRun={gantryConnected}
+            isRunning={isRunning}
+            runResult={runResult}
+            runError={runError}
+          />
+        </>
       )}
     </div>
   );
@@ -378,7 +417,7 @@ export default function App() {
     <GantryPositionWidget
       position={gantryPosition.data ?? null}
       workingVolume={workingVolume}
-      gantryFile={gantryFile}
+      gantryFile={displayGantry ? gantryFile : null}
       gantry={displayGantry}
       onSaveCalibrated={async (filename, body) => {
         const saved = await saveGantry.mutateAsync({ filename, body });

@@ -10,6 +10,10 @@ interface Props {
   machineYRange: [number, number];
 }
 
+type LegacyVialConfig = VialConfig & {
+  diameter?: number;
+};
+
 export default function VialRenderer({
   label,
   config,
@@ -26,7 +30,9 @@ export default function VialRenderer({
     machineXRange,
     machineYRange
   );
-  const r = Math.max(6, config.diameter_mm * 0.5);
+  const vialConfig = config as LegacyVialConfig;
+  const diameter = finiteNumber(vialConfig.diameter_mm ?? vialConfig.diameter, 0);
+  const r = Math.max(6, diameter * 0.5);
 
   return (
     <g>
@@ -40,4 +46,9 @@ export default function VialRenderer({
       </text>
     </g>
   );
+}
+
+function finiteNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }

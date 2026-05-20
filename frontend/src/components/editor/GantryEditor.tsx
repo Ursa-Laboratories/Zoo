@@ -22,7 +22,7 @@ interface Props {
   baseline: GantryResponse | null;
   instrumentTypes: InstrumentTypeInfo[];
   instrumentSchemas: InstrumentSchemas;
-  onSave: (filename: string, body: GantryConfig) => void;
+  onSave: (filename: string, body: GantryConfig) => Promise<void> | void;
   /** Called on every local edit so the parent can persist the working
    * copy across tab switches (the editor unmounts on tab-away and would
    * otherwise lose its useState). */
@@ -97,6 +97,7 @@ export default function GantryEditor({
   ));
   const [addType, setAddType] = useState<string>("");
   const [saveAs, setSaveAs] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const selectedAddType = addType || instrumentTypes[0]?.type || "";
 
@@ -186,15 +187,22 @@ export default function GantryEditor({
     z_max: !!wv && !notDirty(wv.z_max, bwv?.z_max),
   };
 
-  const canSave = !!config && isValidGantry(config) && (!!saveAs.trim() || !!selectedFile);
+  const canSave = !!config && isValidGantry(config) && (!!saveAs.trim() || !!selectedFile) && !saving;
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!config || !canSave) return;
     const filename = saveAs.trim() || selectedFile || "";
     const normalized = filename.endsWith(".yaml") ? filename : filename + ".yaml";
-    onSelectFile(normalized);
-    onSave(normalized, config);
-    setSaveAs("");
+    setSaving(true);
+    try {
+      await Promise.resolve(onSave(normalized, config));
+      onSelectFile(normalized);
+      setSaveAs("");
+    } catch (err) {
+      console.error("Gantry save failed:", err);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (

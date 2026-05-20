@@ -304,6 +304,66 @@ def test_get_gantry_normalizes_legacy_config_for_editing(monkeypatch, tmp_path):
     assert config["instruments"] == {}
 
 
+def test_get_gantry_returns_400_for_invalid_yaml(monkeypatch, tmp_path):
+    from zoo.config import get_settings
+
+    config_dir = tmp_path / "configs"
+    gantry_dir = config_dir / "gantry"
+    gantry_dir.mkdir(parents=True)
+    (gantry_dir / "broken.yaml").write_text("serial_port: [\n", encoding="utf-8")
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+
+    response = api_request(create_app(), "GET", "/api/gantry/broken.yaml")
+
+    assert response.status_code == 400
+    assert "Invalid YAML" in response.text
+
+
+def test_connect_returns_400_for_invalid_selected_yaml(monkeypatch, tmp_path):
+    from zoo.config import get_settings
+
+    config_dir = tmp_path / "configs"
+    gantry_dir = config_dir / "gantry"
+    gantry_dir.mkdir(parents=True)
+    (gantry_dir / "broken.yaml").write_text("serial_port: [\n", encoding="utf-8")
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/connect",
+        json={"filename": "broken.yaml"},
+    )
+
+    assert response.status_code == 400
+    assert "Invalid gantry config" in response.text
+
+
+def test_position_query_failure_marks_gantry_disconnected(monkeypatch):
+    from zoo.models.gantry import GantryPosition
+
+    mock_gantry = MagicMock()
+    mock_gantry.get_position_info.side_effect = RuntimeError("serial read failed")
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(
+        gantry_router,
+        "_last_position",
+        GantryPosition(x=1, y=2, z=3, connected=True, status="Idle"),
+    )
+    monkeypatch.setattr(gantry_router, "_calibration_warning", "stale warning")
+    monkeypatch.setattr(gantry_router, "_calibration_restore_soft_limits", True)
+
+    response = api_request(create_app(), "GET", "/api/gantry/position")
+
+    assert response.status_code == 200
+    assert response.json()["connected"] is False
+    assert response.json()["status"] == "Query failed"
+    assert gantry_router._gantry is None
+    assert gantry_router._last_position is None
+    assert gantry_router._calibration_warning is None
+    assert gantry_router._calibration_restore_soft_limits is False
+
+
 def test_set_work_coordinates_delegates_to_gantry(monkeypatch):
     mock_gantry = MagicMock()
     mock_gantry.get_position_info.return_value = {

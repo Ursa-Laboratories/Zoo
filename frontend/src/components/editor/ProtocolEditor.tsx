@@ -7,7 +7,7 @@ import type {
   ProtocolStep,
   ProtocolConfig,
 } from "../../types";
-import { NumberField, TextField } from "./fields";
+import { CoordinateField, NumberField, TextField } from "./fields";
 import ImportFromFile from "./ImportFromFile";
 
 interface Props {
@@ -19,15 +19,17 @@ interface Props {
   gantry: GantryResponse;
   steps: ProtocolStep[] | null;
   positions?: Record<string, number[]> | null;
-  onSave: (filename: string, body: ProtocolConfig) => void;
+  onSave: (filename: string, body: ProtocolConfig) => Promise<void> | void;
   /** Called on every local edit so the parent can persist the working
    * copy across tab switches. */
   onLocalChange?: (steps: ProtocolStep[]) => void;
+  onPositionsChange?: (positions: Record<string, number[]> | null) => void;
   onValidate: (body: ProtocolConfig) => void;
   validationErrors: string[] | null;
   isValidating: boolean;
   onRefresh: () => void;
   onRun: () => void;
+  canRun: boolean;
   isRunning: boolean;
   runResult: { status: string; steps_executed: number } | null;
   runError: string | null;
@@ -49,6 +51,14 @@ type ProtocolChoices = {
   plates: string[];
   positions: string[];
   instrumentTypes: Record<string, string>;
+};
+
+type EditablePosition = {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  z: number;
 };
 
 function defaultArgsForCommand(cmd: CommandInfo, choices: ProtocolChoices): Record<string, unknown> {
@@ -85,10 +95,12 @@ export default function ProtocolEditor({
   positions,
   onSave,
   onLocalChange,
+  onPositionsChange,
   onValidate,
   validationErrors,
   isValidating,
   onRun,
+  canRun,
   isRunning,
   runResult,
   runError,
@@ -96,15 +108,26 @@ export default function ProtocolEditor({
   const [steps, setSteps] = useState<ProtocolStep[]>(() => (
     loadedSteps ? structuredClone(loadedSteps) : []
   ));
+  const [positionRows, setPositionRows] = useState<EditablePosition[]>(() => (
+    positionsToRows(positions)
+  ));
   const [addCommand, setAddCommand] = useState(commands[0]?.name ?? "move");
   const [saveAs, setSaveAs] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const commandsByName = Object.fromEntries(commands.map((c) => [c.name, c]));
-  const choices = buildProtocolChoices(deck, gantry);
+  const choices = buildProtocolChoices(deck, gantry, positionRows);
+  const positionErrors = validatePositionRows(positionRows);
+  const hasPositionErrors = positionErrors.length > 0;
 
   const commit = (next: ProtocolStep[]) => {
     setSteps(next);
     onLocalChange?.(next);
+  };
+
+  const commitPositions = (next: EditablePosition[]) => {
+    setPositionRows(next);
+    onPositionsChange?.(rowsToPositions(next));
   };
 
   const addStep = () => {
@@ -147,23 +170,81 @@ export default function ProtocolEditor({
     commit(next);
   };
 
+  const addPosition = () => {
+    commitPositions([
+      ...positionRows,
+      {
+        id: `new:${Date.now()}:${positionRows.length}`,
+        name: uniquePositionName(positionRows),
+        x: 0,
+        y: 0,
+        z: 0,
+      },
+    ]);
+  };
+
+  const updatePosition = (id: string, patch: Partial<Omit<EditablePosition, "id">>) => {
+    const current = positionRows.find((row) => row.id === id);
+    if (!current) return;
+    const oldName = current.name.trim();
+    const nextRows = positionRows.map((row) => (
+      row.id === id ? { ...row, ...patch } : row
+    ));
+    commitPositions(nextRows);
+    if (typeof patch.name === "string") {
+      const newName = patch.name.trim();
+      if (oldName && newName && oldName !== newName) {
+        renamePositionReferences(oldName, newName);
+      }
+    }
+  };
+
+  const removePosition = (id: string) => {
+    commitPositions(positionRows.filter((row) => row.id !== id));
+  };
+
+  const renamePositionReferences = (oldName: string, newName: string) => {
+    let changed = false;
+    const next = steps.map((step) => {
+      const args = Object.fromEntries(
+        Object.entries(step.args).map(([name, value]) => {
+          if (isPositionArg(name) && value === oldName) {
+            changed = true;
+            return [name, newName];
+          }
+          return [name, value];
+        }),
+      );
+      return changed ? { ...step, args } : step;
+    });
+    if (changed) commit(next);
+  };
+
   const buildConfig = (): ProtocolConfig => (
-    positions ? { positions, protocol: steps } : { protocol: steps }
+    rowsToPositions(positionRows) ? { positions: rowsToPositions(positionRows), protocol: steps } : { protocol: steps }
   );
 
   const handleValidate = () => onValidate(buildConfig());
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const filename = saveAs.trim() || selectedFile || "";
-    if (!filename) return;
+    if (!filename || saving || hasPositionErrors) return;
     const normalized = filename.endsWith(".yaml") ? filename : filename + ".yaml";
-    onSelectFile(normalized);
-    onSave(normalized, buildConfig());
-    setSaveAs("");
+    setSaving(true);
+    try {
+      await Promise.resolve(onSave(normalized, buildConfig()));
+      onSelectFile(normalized);
+      setSaveAs("");
+    } catch (err) {
+      console.error("Protocol save failed:", err);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const hasSteps = steps.length > 0;
-  const canSave = hasSteps && (!!saveAs.trim() || !!selectedFile);
+  const canSave = hasSteps && (!!saveAs.trim() || !!selectedFile) && !saving && !hasPositionErrors;
+  const runDisabled = isRunning || !hasSteps || !canRun;
 
   return (
     <div>
@@ -176,6 +257,60 @@ export default function ProtocolEditor({
           Load a protocol or add steps.
         </div>
       )}
+
+      <div style={namedPositionsStyle}>
+        <div style={namedPositionsHeaderStyle}>
+          <div>
+            <h3 style={sectionTitleStyle}>Named Positions</h3>
+            <p style={sectionSubtextStyle}>Protocol-level targets such as park_position.</p>
+          </div>
+          <button onClick={addPosition} style={addBtnStyle}>
+            Add Position
+          </button>
+        </div>
+
+        {positionRows.length === 0 ? (
+          <div style={emptyNamedPositionsStyle}>No named positions.</div>
+        ) : (
+          <div style={positionRowsStyle}>
+            {positionRows.map((position, i) => (
+              <div key={position.id} style={positionRowStyle}>
+                <label style={positionNameFieldStyle}>
+                  <span style={{ color: "#666" }}>Name</span>
+                  <input
+                    aria-label={`Position ${i + 1} name`}
+                    type="text"
+                    value={position.name}
+                    onChange={(event) => updatePosition(position.id, { name: event.target.value })}
+                    style={inputStyle}
+                  />
+                </label>
+                <CoordinateField
+                  label={`${position.name.trim() || `Position ${i + 1}`} coordinates`}
+                  value={{ x: position.x, y: position.y, z: position.z }}
+                  onChange={(value) => updatePosition(position.id, value)}
+                />
+                <button
+                  onClick={() => removePosition(position.id)}
+                  style={removeBtnStyle}
+                  aria-label={`Remove ${position.name.trim() || `position ${i + 1}`}`}
+                  title="Remove position"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {positionErrors.length > 0 && (
+          <div style={positionErrorStyle}>
+            {positionErrors.map((error) => (
+              <div key={error}>{error}</div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {steps.map((step, i) => {
         const cmd = commandsByName[step.command];
@@ -294,13 +429,13 @@ export default function ProtocolEditor({
               placeholder={selectedFile ?? "my_protocol.yaml"}
               style={filenameInputStyle}
             />
-            <button onClick={handleValidate} disabled={isValidating} style={validateBtnStyle}>
+            <button onClick={handleValidate} disabled={isValidating || hasPositionErrors} style={validateBtnStyle}>
               {isValidating ? "..." : "Validate"}
             </button>
             <button onClick={handleSave} disabled={!canSave} style={saveBtnStyle}>
               Save
             </button>
-            <button onClick={onRun} disabled={isRunning || !hasSteps} style={runBtnStyle}>
+            <button onClick={onRun} disabled={runDisabled} style={runBtnStyle}>
               {isRunning ? "Running..." : "Run Protocol"}
             </button>
           </div>
@@ -340,7 +475,58 @@ function defaultArgValue(name: string, choices: ProtocolChoices, current: Record
   return undefined;
 }
 
-function buildProtocolChoices(deck: DeckResponse, gantry: GantryResponse): ProtocolChoices {
+function positionsToRows(positions: Record<string, number[]> | null | undefined): EditablePosition[] {
+  return Object.entries(positions ?? {}).map(([name, value]) => ({
+    id: `loaded:${name}`,
+    name,
+    x: finiteNumber(value[0]),
+    y: finiteNumber(value[1]),
+    z: finiteNumber(value[2]),
+  }));
+}
+
+function rowsToPositions(rows: EditablePosition[]): Record<string, number[]> | null {
+  const positions: Record<string, number[]> = {};
+  for (const row of rows) {
+    const name = row.name.trim();
+    if (name) positions[name] = [row.x, row.y, row.z];
+  }
+  return Object.keys(positions).length > 0 ? positions : null;
+}
+
+function validatePositionRows(rows: EditablePosition[]): string[] {
+  const errors: string[] = [];
+  const seen = new Map<string, number>();
+  rows.forEach((row, index) => {
+    const name = row.name.trim();
+    if (!name) {
+      errors.push(`Position ${index + 1} needs a name.`);
+    } else {
+      seen.set(name, (seen.get(name) ?? 0) + 1);
+    }
+    if (![row.x, row.y, row.z].every(Number.isFinite)) {
+      errors.push(`${name || `Position ${index + 1}`} needs numeric X, Y, and Z values.`);
+    }
+  });
+  for (const [name, count] of seen) {
+    if (count > 1) errors.push(`Position "${name}" is duplicated.`);
+  }
+  return errors;
+}
+
+function uniquePositionName(rows: EditablePosition[]): string {
+  const existing = new Set(rows.map((row) => row.name.trim()).filter(Boolean));
+  let i = 1;
+  while (existing.has(`position_${i}`)) i += 1;
+  return `position_${i}`;
+}
+
+function finiteNumber(value: unknown): number {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function buildProtocolChoices(deck: DeckResponse, gantry: GantryResponse, protocolPositions: EditablePosition[]): ProtocolChoices {
   const instruments = Object.keys(gantry.config.instruments);
   const instrumentTypes = Object.fromEntries(
     Object.entries(gantry.config.instruments).map(([name, instrument]) => [name, instrument.type]),
@@ -348,7 +534,10 @@ function buildProtocolChoices(deck: DeckResponse, gantry: GantryResponse): Proto
   const plates = deck.labware
     .filter((item) => item.config.type === "well_plate" || item.wells)
     .map((item) => item.key);
-  const positions = uniqueStrings(deck.labware.flatMap(targetsForLabware));
+  const positions = uniqueStrings([
+    ...deck.labware.flatMap(targetsForLabware),
+    ...protocolPositions.map((position) => position.name.trim()),
+  ]);
   return { instruments, plates, positions, instrumentTypes };
 }
 
@@ -588,6 +777,64 @@ const methodOptionsGridStyle: React.CSSProperties = {
   gap: 8,
 };
 
+const namedPositionsStyle: React.CSSProperties = {
+  background: "#f8fafc",
+  border: "1px solid #e5e7eb",
+  borderRadius: 6,
+  padding: 12,
+  marginTop: 8,
+};
+
+const namedPositionsHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "start",
+  gap: 12,
+  marginBottom: 10,
+};
+
+const sectionTitleStyle: React.CSSProperties = {
+  color: "#111827",
+  fontSize: 13,
+  margin: 0,
+};
+
+const sectionSubtextStyle: React.CSSProperties = {
+  color: "#6b7280",
+  fontSize: 11,
+  margin: "2px 0 0",
+};
+
+const positionRowsStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 8,
+};
+
+const positionRowStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(140px, 1fr) minmax(240px, 2fr) auto",
+  gap: 10,
+  alignItems: "end",
+};
+
+const positionNameFieldStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 2,
+  fontSize: 12,
+};
+
+const emptyNamedPositionsStyle: React.CSSProperties = {
+  color: "#6b7280",
+  fontSize: 12,
+};
+
+const positionErrorStyle: React.CSSProperties = {
+  color: "#dc2626",
+  fontSize: 12,
+  marginTop: 8,
+};
+
 const emptyProtocolStyle: React.CSSProperties = {
   border: "1px dashed #d1d5db",
   borderRadius: 6,
@@ -615,6 +862,15 @@ const selectStyle: React.CSSProperties = {
   borderRadius: 4,
   fontSize: 13,
   width: "100%",
+};
+
+const inputStyle: React.CSSProperties = {
+  background: "#fff",
+  border: "1px solid #ccc",
+  color: "#1a1a1a",
+  padding: "4px 6px",
+  borderRadius: 4,
+  fontSize: 13,
 };
 
 const addBtnStyle: React.CSSProperties = {

@@ -67,11 +67,16 @@ export interface NestedWellPlateConfig {
     a1: Coordinate2D | Coordinate3D | null;
     a2: Coordinate2D | Coordinate3D;
   };
-  x_offset_mm: number;
-  y_offset_mm: number;
+  x_offset_mm?: number;
+  y_offset_mm?: number;
+  x_offset?: number;
+  y_offset?: number;
   length_mm?: number;
   width_mm?: number;
   height_mm?: number;
+  length?: number;
+  width?: number;
+  height?: number;
   capacity_ul?: number;
   working_volume_ul?: number;
   [key: string]: unknown;
@@ -80,8 +85,10 @@ export interface NestedWellPlateConfig {
 export interface NestedVialConfig {
   name?: string;
   model_name: string;
-  height_mm: number;
-  diameter_mm: number;
+  height_mm?: number;
+  diameter_mm?: number;
+  height?: number;
+  diameter?: number;
   location: Coordinate2D | Coordinate3D;
   capacity_ul: number;
   working_volume_ul: number;

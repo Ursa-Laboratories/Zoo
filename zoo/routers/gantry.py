@@ -19,7 +19,7 @@ from instruments.registry import (
     get_supported_types,
     get_supported_vendors,
 )
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ValidationError, model_validator
 
 from zoo.config import get_settings
 from zoo.models.gantry import GantryPosition, GantryResponse
@@ -203,6 +203,15 @@ def _validated_gantry_config(data: Dict[str, Any]) -> GantryYamlSchema:
     return GantryYamlSchema.model_validate(_normalize_gantry_yaml(data))
 
 
+def _clear_connected_gantry_state() -> None:
+    """Drop stale connection state after a live serial query fails."""
+    global _gantry, _last_position, _calibration_warning, _calibration_restore_soft_limits
+    _gantry = None
+    _last_position = None
+    _calibration_warning = None
+    _calibration_restore_soft_limits = False
+
+
 def _runtime_connect_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """Return a Gantry config that will not block connect on calibration drift."""
     runtime_config = copy.deepcopy(config)
@@ -335,10 +344,10 @@ def get_position() -> GantryPosition:
             calibration_warning=_calibration_warning,
         )
         return _last_position
-    except Exception:
-        if _last_position is not None:
-            return _last_position
-        return GantryPosition(connected=True, status="Query failed")
+    except Exception as exc:
+        logging.warning("Gantry position query failed; marking disconnected: %s", exc)
+        _clear_connected_gantry_state()
+        return GantryPosition(connected=False, status="Query failed")
     finally:
         _serial_lock.release()
 
@@ -765,6 +774,10 @@ def connect(body: Optional[ConnectRequest] = None) -> GantryPosition:
                 if info["work_pos"] is not None:
                     break
                 time.sleep(0.1)
+        except HTTPException:
+            raise
+        except (ValueError, ValidationError) as e:
+            raise HTTPException(400, f"Invalid gantry config: {e}")
         except Exception as e:
             raise HTTPException(500, f"Failed to connect: {e}")
         _gantry = staged
@@ -802,14 +815,20 @@ def get_gantry(filename: str) -> GantryResponse:
     path = resolve_config_path(get_settings().configs_dir, "gantry", filename)
     if not path.is_file():
         raise HTTPException(404, f"Config not found: {filename}")
-    data = read_yaml(path)
-    config = _validated_gantry_config(data)
+    try:
+        data = read_yaml(path)
+        config = _validated_gantry_config(data)
+    except (ValueError, ValidationError) as e:
+        raise HTTPException(400, str(e))
     return GantryResponse(filename=filename, config=config)
 
 
 @router.put("/{filename}")
 def put_gantry(filename: str, body: dict) -> GantryResponse:
     path = resolve_config_path(get_settings().configs_dir, "gantry", filename)
-    config = _validated_gantry_config(body)
+    try:
+        config = _validated_gantry_config(body)
+    except (ValueError, ValidationError) as e:
+        raise HTTPException(400, str(e))
     write_yaml(path, config.model_dump(mode="json", exclude_none=True))
     return get_gantry(filename)

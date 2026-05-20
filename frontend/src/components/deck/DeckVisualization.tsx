@@ -187,18 +187,18 @@ export default function DeckVisualization({
                       model_name: nestedConfig.model_name,
                       rows: nestedConfig.rows,
                       columns: nestedConfig.columns,
-                      length_mm: nestedConfig.length_mm ?? 0,
-                      width_mm: nestedConfig.width_mm ?? 0,
-                      height_mm: nestedConfig.height_mm ?? 0,
+                      length_mm: numberFromKeys(nestedConfig, "length_mm", "length", 0),
+                      width_mm: numberFromKeys(nestedConfig, "width_mm", "width", 0),
+                      height_mm: numberFromKeys(nestedConfig, "height_mm", "height", 0),
                       a1: null,
                       calibration: {
                         a1: normalizeCoordinate3D(nestedConfig.calibration.a1),
                         a2: normalizeCoordinate3D(nestedConfig.calibration.a2) ?? { x: 0, y: 0, z: 0 },
                       },
-                    x_offset_mm: finiteNumber(nestedConfig.x_offset_mm ?? nestedConfig.x_offset, 9),
-                    y_offset_mm: finiteNumber(nestedConfig.y_offset_mm ?? nestedConfig.y_offset, 9),
-                      capacity_ul: nestedConfig.capacity_ul ?? 0,
-                      working_volume_ul: nestedConfig.working_volume_ul ?? 0,
+                      x_offset_mm: numberFromKeys(nestedConfig, "x_offset_mm", "x_offset", 9),
+                      y_offset_mm: numberFromKeys(nestedConfig, "y_offset_mm", "y_offset", 9),
+                      capacity_ul: finiteNumber(nestedConfig.capacity_ul, 0),
+                      working_volume_ul: finiteNumber(nestedConfig.working_volume_ul, 0),
                     }}
                     wells={nestedWells}
                     svgWidth={SVG_W}
@@ -234,8 +234,8 @@ export default function DeckVisualization({
                         type: "vial",
                         name: vialConfig.name ?? vialId,
                         model_name: vialConfig.model_name,
-                        height_mm: vialConfig.height_mm,
-                        diameter_mm: vialConfig.diameter_mm,
+                        height_mm: numberFromKeys(vialConfig, "height_mm", "height", 0),
+                        diameter_mm: numberFromKeys(vialConfig, "diameter_mm", "diameter", 0),
                         location: position,
                         capacity_ul: vialConfig.capacity_ul,
                         working_volume_ul: vialConfig.working_volume_ul,
@@ -378,8 +378,8 @@ function expandForLabware(bounds: Bounds2D, item: LabwareResponse) {
       bounds,
       Object.values(filterChildPositions(item.positions, "plate")),
       wellPlatePad(
-        item.config.well_plate?.x_offset_mm ?? 9,
-        item.config.well_plate?.y_offset_mm ?? 9,
+        numberFromKeys(item.config.well_plate ?? {}, "x_offset_mm", "x_offset", 9),
+        numberFromKeys(item.config.well_plate ?? {}, "y_offset_mm", "y_offset", 9),
       ),
     );
     return;
@@ -395,7 +395,8 @@ function expandForLabware(bounds: Bounds2D, item: LabwareResponse) {
     for (const [vialId, vialConfig] of Object.entries(item.config.vials ?? {})) {
       const position = item.positions?.[vialId];
       if (position) {
-        expandPoint(bounds, position.x, position.y, Math.max(6, vialConfig.diameter_mm * 0.5));
+        const diameter = numberFromKeys(vialConfig, "diameter_mm", "diameter", 0);
+        expandPoint(bounds, position.x, position.y, Math.max(6, diameter * 0.5));
       }
     }
     return;
@@ -406,7 +407,7 @@ function expandForLabware(bounds: Bounds2D, item: LabwareResponse) {
       bounds,
       item.config.location.x,
       item.config.location.y,
-      Math.max(6, item.config.diameter_mm * 0.5),
+      Math.max(6, numberFromKeys(item.config, "diameter_mm", "diameter", 0) * 0.5),
     );
   }
 }
@@ -460,10 +461,13 @@ function expandPositions(bounds: Bounds2D, positions: Coordinate3D[], pad: numbe
 }
 
 function expandPoint(bounds: Bounds2D, x: number, y: number, pad: number) {
-  expandRect(bounds, x - pad, y - pad, x + pad, y + pad);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+  const safePad = finiteNumber(pad, 0);
+  expandRect(bounds, x - safePad, y - safePad, x + safePad, y + safePad);
 }
 
 function expandRect(bounds: Bounds2D, minX: number, minY: number, maxX: number, maxY: number) {
+  if (![minX, minY, maxX, maxY].every(Number.isFinite)) return;
   bounds.minX = Math.min(bounds.minX, minX);
   bounds.maxX = Math.max(bounds.maxX, maxX);
   bounds.minY = Math.min(bounds.minY, minY);
@@ -479,6 +483,11 @@ function wellPlatePad(xOffset: unknown, yOffset: unknown): number {
 function finiteNumber(value: unknown, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function numberFromKeys(value: object, preferredKey: string, legacyKey: string, fallback: number): number {
+  const record = value as Record<string, unknown>;
+  return finiteNumber(record[preferredKey] ?? record[legacyKey], fallback);
 }
 
 function legacyNumber(value: object, key: string): unknown {

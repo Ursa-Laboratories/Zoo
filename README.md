@@ -21,7 +21,9 @@ See also:
 - The active directory is exposed through `/api/settings` as `config_dir`.
 - Operators can point Zoo at another config directory through the settings UI or API.
 - Gantry YAMLs are read back through CubOS validation before Zoo returns or saves them; missing current fields must be filled and saved in the gantry editor.
-- Protocol YAML `positions` mappings are preserved by the protocol editor save path.
+- Malformed YAML returns a load error instead of a server traceback, and hardware controls only enable after the selected gantry file has loaded through CubOS validation.
+- Deck and gantry save paths validate the converted CubOS YAML before overwriting the target file.
+- Protocol YAML `positions` mappings are editable in the protocol editor's Named Positions panel and are saved with the protocol steps.
 - The protocol Validate button runs full CubOS setup validation for the selected gantry, deck, and protocol files. The older `/api/protocol/validate` endpoint remains a command-schema check only.
 
 ## Gantry Calibration
@@ -37,7 +39,9 @@ See also:
 
 ## Protocol Editing
 
-- The protocol editor builds step fields from CubOS command schemas and uses the loaded deck and gantry config to offer dropdowns for plates, instruments, deck positions, and measurement methods.
+- The protocol editor builds step fields from CubOS command schemas and uses the loaded deck, gantry config, and protocol `positions` mapping to offer dropdowns for plates, instruments, deck targets, named protocol positions, and measurement methods.
+- Top-level protocol `positions` such as `park_position` are edited in a separate Named Positions panel above the step list; they remain CubOS protocol targets, not protocol steps.
+- Protocol execution is only enabled when the gantry position poll reports an active connection.
 - ASMI indentation steps expose first-class method options, including `force_limit`, `step_size`, `baseline_samples`, and `measure_with_return`, which are saved into `method_kwargs`.
 
 ## Run

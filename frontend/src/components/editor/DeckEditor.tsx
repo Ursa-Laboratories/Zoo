@@ -9,7 +9,7 @@ interface Props {
   onSelectFile: (f: string) => void;
   onImportFile: (f: string) => void;
   deck: DeckResponse | null;
-  onSave: (filename: string, body: DeckConfig) => void;
+  onSave: (filename: string, body: DeckConfig) => Promise<void> | void;
   onLocalChange: (deck: DeckResponse) => void;
   onRefresh: () => void;
 }
@@ -80,6 +80,7 @@ function labwareFromDeck(deck: DeckResponse | null): Record<string, LabwareConfi
 export default function DeckEditor({ configs, selectedFile, onSelectFile, onImportFile, deck, onSave, onLocalChange }: Props) {
   const [labware, setLabware] = useState<Record<string, LabwareConfig>>(() => labwareFromDeck(deck));
   const [saveAs, setSaveAs] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setLabware(labwareFromDeck(deck));
@@ -113,15 +114,22 @@ export default function DeckEditor({ configs, selectedFile, onSelectFile, onImpo
 
   const hasItems = Object.keys(labware).length > 0;
   const valid = hasItems && isValid(labware);
-  const canSave = valid && (!!saveAs.trim() || !!selectedFile);
+  const canSave = valid && (!!saveAs.trim() || !!selectedFile) && !saving;
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!canSave) return;
     const filename = saveAs.trim() || selectedFile || "";
     const normalized = filename.endsWith(".yaml") ? filename : `${filename}.yaml`;
-    onSelectFile(normalized);
-    onSave(normalized, { labware });
-    setSaveAs("");
+    setSaving(true);
+    try {
+      await Promise.resolve(onSave(normalized, { labware }));
+      onSelectFile(normalized);
+      setSaveAs("");
+    } catch (err) {
+      console.error("Deck save failed:", err);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (

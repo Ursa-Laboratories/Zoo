@@ -11,9 +11,16 @@ import yaml
 log = logging.getLogger(__name__)
 
 
+class YamlConfigError(ValueError):
+    """Raised when a config file exists but cannot be parsed as YAML."""
+
+
 def read_yaml(path: Path) -> Dict[str, Any]:
-    with path.open() as f:
-        data = yaml.safe_load(f)
+    try:
+        with path.open() as f:
+            data = yaml.safe_load(f)
+    except yaml.YAMLError as exc:
+        raise YamlConfigError(f"Invalid YAML in {path.name}: {exc}") from exc
     return data if data is not None else {}
 
 

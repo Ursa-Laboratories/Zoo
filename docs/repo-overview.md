@@ -3,9 +3,14 @@
 ## Purpose
 
 `Zoo` is a local web UI for `CubOS`. It edits YAML configs, visualizes deck state, controls gantry motion, and triggers protocol execution through CubOS APIs and classes.
-Protocol editing preserves top-level `positions` mappings, and the protocol
-Validate button calls CubOS offline setup validation for the selected gantry,
-deck, and protocol files rather than only checking command schemas.
+Protocol editing exposes top-level `positions` mappings in a separate Named
+Positions panel and saves them with the step list. The protocol Validate button
+calls CubOS offline setup validation for the selected gantry, deck, and
+protocol files rather than only checking command schemas.
+Malformed config YAML is surfaced as a load error, and hardware controls stay
+disabled until the selected gantry file loads through CubOS validation. Deck
+and gantry save paths validate the converted CubOS YAML before overwriting the
+target file.
 
 The gantry control surface also exposes a calibration wizard that turns CubOS'
 `setup/calibrate_gantry.py` flow into a guided UI. Operators still use CubOS
@@ -20,11 +25,14 @@ and lowest instrument, Zoo runs the blocking controller-prep/home steps, locks
 controls during automatic home/center/retract moves, and only exposes the next
 operator action when the current step completes.
 
-The protocol editor derives operator choices from the loaded deck and gantry:
-plate fields use available well plates, instrument fields use mounted
-instruments, position fields use deck targets, and measurement method fields
-use instrument-aware options. ASMI indentation method options expose force
-limit, step size, baseline samples, and measure-with-return controls.
+The protocol editor derives operator choices from the loaded deck, gantry, and
+protocol file: plate fields use available well plates, instrument fields use
+mounted instruments, position fields use deck targets plus top-level protocol
+positions, and measurement method fields use instrument-aware options. ASMI
+indentation method options expose force limit, step size, baseline samples, and
+measure-with-return controls.
+Protocol execution is gated on the gantry position poll reporting an active
+connection.
 
 ## Key Directories
 

@@ -410,6 +410,30 @@ describe("Zoo editor interactions", () => {
     await waitFor(() => expect(screen.getByLabelText("Port *")).toHaveValue("/dev/ttyUSB4"));
   });
 
+  it("saves a new gantry filename before selecting it for fetches", async () => {
+    const user = userEvent.setup();
+    const state = createState();
+    const fetchMock = installFetchMock(state);
+    renderApp();
+    await waitForSettingsLoad();
+
+    await importConfig(user, "Import gantry config", "cubos.yaml");
+    expect(await screen.findByLabelText("Serial port")).toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText("cubos.yaml"), "qa_new_gantry");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(state.gantries["qa_new_gantry.yaml"]).toBeDefined());
+    const newFileCalls = fetchMock.mock.calls.filter(([input]) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      return url.pathname === "/api/gantry/qa_new_gantry.yaml";
+    });
+    expect(newFileCalls.length).toBeGreaterThan(0);
+    expect(newFileCalls[0][1]?.method).toBe("PUT");
+  });
+
   it("opens the gantry calibration wizard from the control panel", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.mocked(fetch);
@@ -448,15 +472,54 @@ describe("Zoo editor interactions", () => {
     await importConfig(user, "Import protocol config", "move.yaml");
     const travelZField = await screen.findByLabelText("Travel Z");
     expect(travelZField).toHaveValue("3");
+    const parkYField = await screen.findByLabelText("park coordinates Y");
+    expect(parkYField).toHaveValue("20");
 
     await user.clear(travelZField);
     await user.type(travelZField, "42");
+    await user.selectOptions(screen.getByLabelText(/^Position \*$/), "park");
+    await user.clear(parkYField);
+    await user.type(parkYField, "40");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(state.protocols["move.yaml"]?.positions).toEqual({ park: [10, 20, 30] }));
+    await waitFor(() => expect(state.protocols["move.yaml"]?.positions).toEqual({ park: [10, 40, 30] }));
+    expect(state.protocols["move.yaml"]?.steps[0].args.position).toBe("park");
     await user.click(screen.getByRole("button", { name: "Gantry" }));
     await user.click(screen.getByRole("button", { name: "Protocol" }));
 
     await waitFor(() => expect(screen.getByDisplayValue("42")).toBeInTheDocument());
+    expect(screen.getByLabelText("park coordinates Y")).toHaveValue("40");
+    expect(screen.getByLabelText(/^Position \*$/)).toHaveValue("park");
+  });
+
+  it("adds protocol named positions independently from protocol steps", async () => {
+    const user = userEvent.setup();
+    const state = createState();
+    installFetchMock(state);
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+    await user.click(await screen.findByRole("button", { name: "Add Position" }));
+    const nameField = await screen.findByLabelText("Position 2 name");
+
+    await user.clear(nameField);
+    await user.type(nameField, "staging_position");
+    await user.clear(screen.getByLabelText("staging_position coordinates X"));
+    await user.type(screen.getByLabelText("staging_position coordinates X"), "11");
+    await user.clear(screen.getByLabelText("staging_position coordinates Y"));
+    await user.type(screen.getByLabelText("staging_position coordinates Y"), "22");
+    await user.clear(screen.getByLabelText("staging_position coordinates Z"));
+    await user.type(screen.getByLabelText("staging_position coordinates Z"), "33");
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      expect(state.protocols["move.yaml"]?.positions).toEqual({
+        park: [10, 20, 30],
+        staging_position: [11, 22, 33],
+      });
+    });
   });
 
   it("validates the selected setup through the full CubOS setup endpoint", async () => {
@@ -482,6 +545,26 @@ describe("Zoo editor interactions", () => {
           protocol_file: "move.yaml",
         }),
       }),
+    );
+  });
+
+  it("keeps Run Protocol disabled while the gantry is disconnected", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+    const runButton = await screen.findByRole("button", { name: "Run Protocol" });
+
+    expect(runButton).toBeDisabled();
+    await user.click(runButton);
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/protocol/run",
+      expect.anything(),
     );
   });
 
