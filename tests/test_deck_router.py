@@ -106,3 +106,37 @@ labware:
     assert vial_holder["geometry"] == {"length_mm": 36.2, "width_mm": 300.2, "height_mm": 35.1}
     assert vial_holder["location"] == {"x": 30.0, "y": 60.0, "z": 8.0}
     assert vial_holder["positions"]["vial_1"] == {"x": 30.0, "y": 60.0, "z": 26.0}
+
+
+def test_get_deck_normalizes_well_plate_editor_fields(monkeypatch, tmp_path: Path):
+    config_dir = tmp_path / "configs"
+    deck_dir = config_dir / "deck"
+    deck_dir.mkdir(parents=True)
+    (deck_dir / "asmi_deck.yaml").write_text(
+        """\
+labware:
+  plate:
+    load_name: sbs_96_wellplate
+    name: asmi_96_well_deck_origin
+    model_name: asmi_96_well_deck_origin
+    calibration:
+      a1: {x: 347.0, y: 42.0, z: 30.0}
+      a2: {x: 338.0, y: 42.0, z: 30.0}
+    x_offset: 9.0
+    y_offset: 9.0
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+    app = create_app()
+
+    response = api_request(app, "GET", "/api/deck/asmi_deck.yaml")
+
+    assert response.status_code == 200
+    plate = response.json()["labware"][0]["config"]
+    assert plate["rows"] == 8
+    assert plate["columns"] == 12
+    assert plate["length_mm"] == 127.76
+    assert plate["width_mm"] == 85.47
+    assert plate["x_offset_mm"] == 9.0
+    assert plate["y_offset_mm"] == 9.0

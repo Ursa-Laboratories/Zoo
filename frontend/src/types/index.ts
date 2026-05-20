@@ -227,6 +227,10 @@ export interface GantryPosition {
   calibration_warning?: string | null;
 }
 
+export interface GrblSettingsResponse {
+  settings: Record<string, string>;
+}
+
 // Gantry-mounted instrument introspection (from CubOS)
 
 export interface InstrumentTypeInfo {

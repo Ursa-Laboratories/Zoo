@@ -116,9 +116,10 @@ export default function DeckVisualization({
     <svg
       width={SVG_W}
       height={SVG_H}
-      style={{ background: "#f8f9fa", borderRadius: 8, border: "1px solid #e0e0e0", display: "block", width: "100%", height: "100%" }}
+      data-testid="deck-visualization"
+      style={{ background: "#f8f9fa", borderRadius: 8, border: "1px solid #e0e0e0", display: "block", width: "100%", height: "auto", maxHeight: "100%" }}
       viewBox={`0 0 ${SVG_W} ${SVG_H}`}
-      preserveAspectRatio="none"
+      preserveAspectRatio="xMidYMid meet"
     >
       <CoordinateGrid
         svgWidth={SVG_W}
@@ -194,8 +195,8 @@ export default function DeckVisualization({
                         a1: normalizeCoordinate3D(nestedConfig.calibration.a1),
                         a2: normalizeCoordinate3D(nestedConfig.calibration.a2) ?? { x: 0, y: 0, z: 0 },
                       },
-                      x_offset_mm: nestedConfig.x_offset_mm,
-                      y_offset_mm: nestedConfig.y_offset_mm,
+                    x_offset_mm: finiteNumber(nestedConfig.x_offset_mm ?? nestedConfig.x_offset, 9),
+                    y_offset_mm: finiteNumber(nestedConfig.y_offset_mm ?? nestedConfig.y_offset, 9),
                       capacity_ul: nestedConfig.capacity_ul ?? 0,
                       working_volume_ul: nestedConfig.working_volume_ul ?? 0,
                     }}
@@ -349,7 +350,10 @@ function expandForLabware(bounds: Bounds2D, item: LabwareResponse) {
     expandPositions(
       bounds,
       Object.values(item.wells ?? {}),
-      wellPlatePad(item.config.x_offset_mm, item.config.y_offset_mm),
+      wellPlatePad(
+        item.config.x_offset_mm ?? legacyNumber(item.config, "x_offset"),
+        item.config.y_offset_mm ?? legacyNumber(item.config, "y_offset"),
+      ),
     );
     return;
   }
@@ -466,8 +470,19 @@ function expandRect(bounds: Bounds2D, minX: number, minY: number, maxX: number, 
   bounds.maxY = Math.max(bounds.maxY, maxY);
 }
 
-function wellPlatePad(xOffset: number, yOffset: number): number {
-  return Math.max(Math.abs(xOffset), Math.abs(yOffset), 9) * 0.5;
+function wellPlatePad(xOffset: unknown, yOffset: unknown): number {
+  const pitchX = finiteNumber(xOffset, 9);
+  const pitchY = finiteNumber(yOffset, 9);
+  return Math.max(Math.abs(pitchX), Math.abs(pitchY), 9) * 0.5;
+}
+
+function finiteNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function legacyNumber(value: object, key: string): unknown {
+  return (value as Record<string, unknown>)[key];
 }
 
 function filterRenderablePositions(positions?: Record<string, { x: number; y: number; z: number }> | null) {

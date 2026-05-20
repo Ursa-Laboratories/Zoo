@@ -29,13 +29,14 @@ export default function GantryMarker({
     machineYRange
   );
   const arm = 12;
+  const labelY = Math.max(10, sy - 2);
 
   return (
     <g>
       <line x1={sx - arm} y1={sy} x2={sx + arm} y2={sy} stroke="#dc2626" strokeWidth={1.5} />
       <line x1={sx} y1={sy - arm} x2={sx} y2={sy + arm} stroke="#dc2626" strokeWidth={1.5} />
       <circle cx={sx} cy={sy} r={4} fill="#dc2626" opacity={0.8} />
-      <text x={sx + arm + 2} y={sy - 2} fill="#dc2626" fontSize={8} fontWeight={600}>
+      <text x={sx + arm + 2} y={labelY} fill="#dc2626" fontSize={8} fontWeight={600}>
         HEAD
       </text>
     </g>

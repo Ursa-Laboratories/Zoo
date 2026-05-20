@@ -6,6 +6,10 @@ function tryParse(s: string): number | null {
   return isNaN(n) ? null : n;
 }
 
+function formatNumberInput(value: number): string {
+  return Number.isFinite(value) ? String(value) : "";
+}
+
 /** Amber "*" rendered next to a field label when the field's current
  * value differs from the last-saved value. Signals "unsaved local
  * edit" — distinct from the red "*" used for required-field markers.
@@ -34,12 +38,13 @@ interface NumberFieldProps {
 }
 
 export function NumberField({ label, value, onChange, required, dirty }: NumberFieldProps) {
-  const [state, setState] = useState({ raw: String(value), value });
-  if (value !== state.value) {
-    setState({ raw: String(value), value });
+  const normalizedValue = Number.isFinite(value) ? value : NaN;
+  const [state, setState] = useState({ raw: formatNumberInput(normalizedValue), value: normalizedValue });
+  if (!Object.is(normalizedValue, state.value)) {
+    setState({ raw: formatNumberInput(normalizedValue), value: normalizedValue });
   }
   const raw = state.raw;
-  const setRaw = (next: string) => setState({ raw: next, value });
+  const setRaw = (next: string) => setState({ raw: next, value: normalizedValue });
 
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
@@ -57,7 +62,7 @@ export function NumberField({ label, value, onChange, required, dirty }: NumberF
           const n = tryParse(e.target.value);
           if (n !== null) onChange(n);
         }}
-        onBlur={() => setRaw(String(value))}
+        onBlur={() => setRaw(formatNumberInput(normalizedValue))}
         style={inputStyle}
       />
     </label>
@@ -126,34 +131,43 @@ export function CoordinateField({ label, value, onChange, required }: Coordinate
   return (
     <div style={{ fontSize: 12 }}>
       <span style={{ color: "#666" }}>{label}{required && <span style={{ color: "#dc2626" }}> *</span>}</span>
-      <div style={{ display: "flex", gap: 4, marginTop: 2 }}>
-        <input
-          type="text"
-          inputMode="decimal"
-          value={rx}
-          onChange={(e) => { setRx(e.target.value); const n = tryParse(e.target.value); if (n !== null) onChange({ ...value, x: n }); }}
-          onBlur={() => setRx(String(value.x))}
-          style={{ ...inputStyle, width: 80 }}
-          placeholder="X"
-        />
-        <input
-          type="text"
-          inputMode="decimal"
-          value={ry}
-          onChange={(e) => { setRy(e.target.value); const n = tryParse(e.target.value); if (n !== null) onChange({ ...value, y: n }); }}
-          onBlur={() => setRy(String(value.y))}
-          style={{ ...inputStyle, width: 80 }}
-          placeholder="Y"
-        />
-        <input
-          type="text"
-          inputMode="decimal"
-          value={rz}
-          onChange={(e) => { setRz(e.target.value); const n = tryParse(e.target.value); if (n !== null) onChange({ ...value, z: n }); }}
-          onBlur={() => setRz(String(value.z))}
-          style={{ ...inputStyle, width: 80 }}
-          placeholder="Z"
-        />
+      <div style={coordinateGridStyle}>
+        <label style={axisFieldStyle}>
+          <span style={axisLabelStyle}>X</span>
+          <input
+            aria-label={`${label} X`}
+            type="text"
+            inputMode="decimal"
+            value={rx}
+            onChange={(e) => { setRx(e.target.value); const n = tryParse(e.target.value); if (n !== null) onChange({ ...value, x: n }); }}
+            onBlur={() => setRx(String(value.x))}
+            style={{ ...inputStyle, width: "100%" }}
+          />
+        </label>
+        <label style={axisFieldStyle}>
+          <span style={axisLabelStyle}>Y</span>
+          <input
+            aria-label={`${label} Y`}
+            type="text"
+            inputMode="decimal"
+            value={ry}
+            onChange={(e) => { setRy(e.target.value); const n = tryParse(e.target.value); if (n !== null) onChange({ ...value, y: n }); }}
+            onBlur={() => setRy(String(value.y))}
+            style={{ ...inputStyle, width: "100%" }}
+          />
+        </label>
+        <label style={axisFieldStyle}>
+          <span style={axisLabelStyle}>Z</span>
+          <input
+            aria-label={`${label} Z`}
+            type="text"
+            inputMode="decimal"
+            value={rz}
+            onChange={(e) => { setRz(e.target.value); const n = tryParse(e.target.value); if (n !== null) onChange({ ...value, z: n }); }}
+            onBlur={() => setRz(String(value.z))}
+            style={{ ...inputStyle, width: "100%" }}
+          />
+        </label>
       </div>
     </div>
   );
@@ -166,6 +180,28 @@ const inputStyle: React.CSSProperties = {
   padding: "4px 6px",
   borderRadius: 4,
   fontSize: 13,
+};
+
+const coordinateGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: 6,
+  marginTop: 3,
+};
+
+const axisFieldStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "18px minmax(0, 1fr)",
+  alignItems: "center",
+  gap: 4,
+  minWidth: 0,
+};
+
+const axisLabelStyle: React.CSSProperties = {
+  color: "#1f2937",
+  fontSize: 11,
+  fontWeight: 700,
+  textAlign: "center",
 };
 
 export function SelectField({

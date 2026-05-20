@@ -199,9 +199,9 @@ export default function GantryEditor({
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+      <div style={configPickerRowStyle}>
         <ImportFromFile configs={configs} onSelectFile={onSelectFile} label="Import gantry config" />
-        {!config && <button onClick={startNew} style={addBtnStyle}>+ New Gantry Config</button>}
+        {!config && <button onClick={startNew} style={newConfigBtnStyle}>+ New config</button>}
       </div>
 
       {config && (
@@ -564,6 +564,14 @@ const instrumentCardStyle: React.CSSProperties = {
   marginTop: 10,
 };
 
+const configPickerRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "end",
+  gap: 10,
+  marginBottom: 12,
+  flexWrap: "wrap",
+};
+
 const selectStyle: React.CSSProperties = {
   background: "#fff",
   border: "1px solid #ccc",
@@ -578,6 +586,19 @@ const addBtnStyle: React.CSSProperties = {
   color: "#16a34a",
   border: "1px solid #16a34a",
   padding: "5px 14px",
+  borderRadius: 4,
+  cursor: "pointer",
+  fontSize: 12,
+  fontWeight: 600,
+  whiteSpace: "nowrap",
+};
+
+const newConfigBtnStyle: React.CSSProperties = {
+  background: "#fff",
+  color: "#16a34a",
+  border: "1px solid #16a34a",
+  height: 34,
+  padding: "0 12px",
   borderRadius: 4,
   cursor: "pointer",
   fontSize: 12,

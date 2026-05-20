@@ -28,6 +28,13 @@ export default function GantryPositionWidget({
   const [moveX, setMoveX] = useState("");
   const [moveY, setMoveY] = useState("");
   const [moveZ, setMoveZ] = useState("");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedBusy, setAdvancedBusy] = useState(false);
+  const [advancedMessage, setAdvancedMessage] = useState<string | null>(null);
+  const [advancedError, setAdvancedError] = useState<string | null>(null);
+  const [grblSettings, setGrblSettings] = useState<Record<string, string> | null>(null);
+  const [settingKey, setSettingKey] = useState("$20");
+  const [settingValue, setSettingValue] = useState("");
   const jogTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const configSelected = !!gantryFile;
@@ -57,6 +64,14 @@ export default function GantryPositionWidget({
 
   // Clean up on unmount
   useEffect(() => () => stopJog(), [stopJog]);
+
+  useEffect(() => {
+    if (!connected) {
+      setGrblSettings(null);
+      setAdvancedMessage(null);
+      setAdvancedError(null);
+    }
+  }, [connected]);
 
   // Keyboard support: arrow keys for XY, X/Z for Z axis
   useEffect(() => {
@@ -130,6 +145,47 @@ export default function GantryPositionWidget({
     setJogBusy(false);
   };
 
+  const runAdvancedAction = async (label: string, action: () => Promise<void>) => {
+    if (!connected) return;
+    setAdvancedBusy(true);
+    setAdvancedMessage(null);
+    setAdvancedError(null);
+    try {
+      await action();
+      setAdvancedMessage(label);
+    } catch (e) {
+      setAdvancedError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAdvancedBusy(false);
+    }
+  };
+
+  const readGrblSettings = () => runAdvancedAction("Read GRBL settings.", async () => {
+    const result = await gantryApi.readGrblSettings();
+    setGrblSettings(result.settings);
+  });
+
+  const applyGrblSetting = () => runAdvancedAction(`Sent ${settingKey}=${settingValue}.`, async () => {
+    const result = await gantryApi.setGrblSetting({ setting: settingKey, value: settingValue });
+    setGrblSettings(result.settings);
+  });
+
+  const resetAndUnlock = () => runAdvancedAction("Reset and unlock sent.", async () => {
+    await gantryApi.resetUnlock();
+  });
+
+  const clearAlarmAdvanced = () => runAdvancedAction("Unlock sent.", async () => {
+    await gantryApi.unlock();
+  });
+
+  const feedHold = () => runAdvancedAction("Feed hold sent.", async () => {
+    await gantryApi.feedHold();
+  });
+
+  const cancelJog = () => runAdvancedAction("Jog cancel sent.", async () => {
+    await gantryApi.jogCancel();
+  });
+
   const handleHome = async () => {
     if (!connected) return;
     if (!window.confirm("Confirm you want to go to home?")) return;
@@ -180,7 +236,24 @@ export default function GantryPositionWidget({
 
   return (
     <div>
-      <h3 style={{ margin: "0 0 12px", fontSize: 14 }}>Gantry Control</h3>
+      <div style={controlHeaderStyle}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 14 }}>Gantry Control</h3>
+          <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{gantryFile ?? "No gantry config loaded"}</div>
+        </div>
+        <button
+          onClick={() => setAdvancedOpen((open) => !open)}
+          style={{
+            ...advancedToggleStyle,
+            background: advancedOpen ? "#111827" : "#fff",
+            color: advancedOpen ? "#fff" : "#374151",
+            borderColor: advancedOpen ? "#111827" : "#d1d5db",
+          }}
+          aria-pressed={advancedOpen}
+        >
+          Advanced
+        </button>
+      </div>
 
       {/* Alarm banner */}
       {isAlarm && connected && (
@@ -423,6 +496,67 @@ export default function GantryPositionWidget({
         )}
       </div>
 
+      {advancedOpen && (
+        <div style={advancedPanelStyle}>
+          <div style={advancedGridStyle}>
+            <button onClick={readGrblSettings} disabled={!connected || advancedBusy} style={buttonStateStyle(btnStyle, !connected || advancedBusy)}>
+              Read GRBL Settings
+            </button>
+            <button onClick={clearAlarmAdvanced} disabled={!connected || advancedBusy} style={buttonStateStyle(btnStyle, !connected || advancedBusy)}>
+              Clear Alarm
+            </button>
+            <button onClick={resetAndUnlock} disabled={!connected || advancedBusy} style={buttonStateStyle(warnBtnStyle, !connected || advancedBusy)}>
+              Reset + Unlock
+            </button>
+            <button onClick={feedHold} disabled={!connected || advancedBusy} style={buttonStateStyle(warnBtnStyle, !connected || advancedBusy)}>
+              Feed Hold
+            </button>
+            <button onClick={cancelJog} disabled={!connected || advancedBusy} style={buttonStateStyle(btnStyle, !connected || advancedBusy)}>
+              Cancel Jog
+            </button>
+          </div>
+          <div style={settingRowStyle}>
+            <label style={settingFieldStyle}>
+              <span style={advancedLabelStyle}>Setting</span>
+              <input
+                value={settingKey}
+                onChange={(event) => setSettingKey(event.target.value)}
+                disabled={!connected || advancedBusy}
+                style={inputStyle}
+                placeholder="$20"
+              />
+            </label>
+            <label style={settingFieldStyle}>
+              <span style={advancedLabelStyle}>Value</span>
+              <input
+                value={settingValue}
+                onChange={(event) => setSettingValue(event.target.value)}
+                disabled={!connected || advancedBusy}
+                style={inputStyle}
+                placeholder="0"
+              />
+            </label>
+            <button onClick={applyGrblSetting} disabled={!connected || advancedBusy || !settingKey.trim() || !settingValue.trim()} style={buttonStateStyle(primarySmallBtnStyle, !connected || advancedBusy || !settingKey.trim() || !settingValue.trim())}>
+              Send Setting
+            </button>
+          </div>
+          {advancedMessage && <div style={advancedMessageStyle}>{advancedMessage}</div>}
+          {advancedError && <div style={advancedErrorStyle}>{advancedError}</div>}
+          {grblSettings && (
+            <div style={settingsTableStyle}>
+              {Object.entries(grblSettings)
+                .sort(([left], [right]) => Number(left.replace("$", "")) - Number(right.replace("$", "")))
+                .map(([key, value]) => (
+                  <div key={key} style={settingsRowStyle}>
+                    <span style={settingsKeyStyle}>{key}</span>
+                    <span style={settingsValueStyle}>{value}</span>
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div style={{ fontSize: 10, color: "#bbb", marginTop: 8 }}>
         Keyboard: Arrow keys = XY, X/Z keys = Z up/down
       </div>
@@ -447,6 +581,32 @@ const coordStyle: React.CSSProperties = {
   color: "#1a1a1a",
 };
 
+function buttonStateStyle(base: React.CSSProperties, disabled: boolean): React.CSSProperties {
+  if (!disabled) return base;
+  return {
+    ...base,
+    opacity: 0.45,
+    cursor: "not-allowed",
+  };
+}
+
+const controlHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 12,
+  marginBottom: 12,
+};
+
+const advancedToggleStyle: React.CSSProperties = {
+  border: "1px solid #d1d5db",
+  borderRadius: 4,
+  padding: "4px 10px",
+  cursor: "pointer",
+  fontSize: 12,
+  fontWeight: 700,
+};
+
 const btnStyle: React.CSSProperties = {
   background: "#f5f5f5",
   color: "#1a1a1a",
@@ -457,6 +617,22 @@ const btnStyle: React.CSSProperties = {
   fontSize: 12,
 };
 
+const primarySmallBtnStyle: React.CSSProperties = {
+  ...btnStyle,
+  background: "#2563eb",
+  color: "#fff",
+  border: "1px solid #2563eb",
+  fontWeight: 700,
+};
+
+const warnBtnStyle: React.CSSProperties = {
+  ...btnStyle,
+  color: "#b45309",
+  border: "1px solid #f59e0b",
+  background: "#fffbeb",
+  fontWeight: 700,
+};
+
 const inputStyle: React.CSSProperties = {
   background: "#fff",
   border: "1px solid #ccc",
@@ -464,6 +640,80 @@ const inputStyle: React.CSSProperties = {
   padding: "4px 8px",
   borderRadius: 4,
   fontSize: 12,
+};
+
+const advancedPanelStyle: React.CSSProperties = {
+  borderTop: "1px solid #eee",
+  marginTop: 10,
+  paddingTop: 10,
+  display: "grid",
+  gap: 8,
+};
+
+const advancedGridStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 6,
+};
+
+const settingRowStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(68px, 92px) minmax(80px, 1fr) auto",
+  gap: 6,
+  alignItems: "end",
+};
+
+const settingFieldStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 3,
+  minWidth: 0,
+};
+
+const advancedLabelStyle: React.CSSProperties = {
+  color: "#666",
+  fontSize: 10,
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: 0,
+};
+
+const advancedMessageStyle: React.CSSProperties = {
+  color: "#047857",
+  fontSize: 11,
+};
+
+const advancedErrorStyle: React.CSSProperties = {
+  color: "#b91c1c",
+  fontSize: 11,
+};
+
+const settingsTableStyle: React.CSSProperties = {
+  border: "1px solid #e5e7eb",
+  borderRadius: 4,
+  maxHeight: 150,
+  overflow: "auto",
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(92px, 1fr))",
+};
+
+const settingsRowStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 8,
+  padding: "4px 7px",
+  borderBottom: "1px solid #f3f4f6",
+  fontSize: 11,
+};
+
+const settingsKeyStyle: React.CSSProperties = {
+  color: "#374151",
+  fontFamily: "monospace",
+  fontWeight: 700,
+};
+
+const settingsValueStyle: React.CSSProperties = {
+  color: "#111827",
+  fontFamily: "monospace",
 };
 
 const homeBtnStyle: React.CSSProperties = {

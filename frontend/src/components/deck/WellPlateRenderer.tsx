@@ -23,7 +23,9 @@ export default function WellPlateRenderer({
   if (wellEntries.length === 0) return null;
 
   // Derive bounding box from actual well positions (handles any orientation).
-  const pitch = Math.max(Math.abs(config.x_offset_mm), Math.abs(config.y_offset_mm), 9);
+  const pitchX = finiteNumber(config.x_offset_mm, 9);
+  const pitchY = finiteNumber(config.y_offset_mm, 9);
+  const pitch = Math.max(Math.abs(pitchX), Math.abs(pitchY), 9);
   const pad = pitch * 0.5;
   const xs = wellEntries.map((w) => w.x);
   const ys = wellEntries.map((w) => w.y);
@@ -40,6 +42,7 @@ export default function WellPlateRenderer({
   const rectY = Math.min(topLeft.sy, bottomRight.sy);
   const rectW = Math.abs(bottomRight.sx - topLeft.sx);
   const rectH = Math.abs(bottomRight.sy - topLeft.sy);
+  const labelY = rectY > 16 ? rectY - 4 : rectY + 13;
 
   return (
     <g>
@@ -54,7 +57,7 @@ export default function WellPlateRenderer({
         strokeWidth={1.5}
         rx={3}
       />
-      <text x={rectX + 4} y={rectY - 4} fill="#2563eb" fontSize={10} fontWeight={500}>
+      <text x={rectX + 4} y={labelY} fill="#2563eb" fontSize={10} fontWeight={500}>
         {config.name || "Well Plate"}
       </text>
       {Object.entries(wells).map(([id, pos]) => {
@@ -76,4 +79,9 @@ export default function WellPlateRenderer({
       })}
     </g>
   );
+}
+
+function finiteNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }

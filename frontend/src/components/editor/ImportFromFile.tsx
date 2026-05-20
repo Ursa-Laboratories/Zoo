@@ -1,5 +1,3 @@
-import { useState } from "react";
-
 interface Props {
   configs: string[];
   onSelectFile: (f: string) => void;
@@ -7,66 +5,54 @@ interface Props {
 }
 
 export default function ImportFromFile({ configs, onSelectFile, label }: Props) {
-  const [open, setOpen] = useState(false);
-
-  if (!open) {
-    return (
-      <button onClick={() => setOpen(true)} style={importBtnStyle}>
-        {label}
-      </button>
-    );
-  }
+  const displayLabel = label.replace(/^Import\s+/i, "").replace(/\s+config$/i, "");
+  const placeholder = configs.length > 0 ? `Choose ${displayLabel.toLowerCase()}...` : "No configs found";
 
   return (
-    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+    <label style={wrapperStyle}>
+      <span style={labelStyle}>{displayLabel}</span>
       <select
         aria-label={label}
-        defaultValue=""
+        value=""
         onChange={(e) => {
           if (e.target.value) {
             onSelectFile(e.target.value);
-            setOpen(false);
           }
         }}
         style={selectStyle}
       >
-        <option value="" disabled>Select file...</option>
+        <option value="" disabled>{placeholder}</option>
         {configs.map((c) => (
           <option key={c} value={c}>{c}</option>
         ))}
       </select>
-      <button onClick={() => setOpen(false)} style={cancelBtnStyle}>Cancel</button>
-    </div>
+    </label>
   );
 }
 
-const importBtnStyle: React.CSSProperties = {
-  background: "transparent",
-  color: "#2563eb",
-  border: "1px dashed #2563eb",
-  padding: "5px 14px",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 12,
-  marginBottom: 8,
+const wrapperStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 4,
+  minWidth: 0,
+  width: "min(100%, 340px)",
+  flex: "0 1 340px",
+};
+
+const labelStyle: React.CSSProperties = {
+  color: "#4b5563",
+  fontSize: 11,
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: 0,
 };
 
 const selectStyle: React.CSSProperties = {
   background: "#fff",
   border: "1px solid #ccc",
   color: "#1a1a1a",
-  padding: "4px 6px",
+  height: 34,
+  padding: "0 10px",
   borderRadius: 4,
   fontSize: 13,
-  flex: 1,
-};
-
-const cancelBtnStyle: React.CSSProperties = {
-  background: "transparent",
-  color: "#888",
-  border: "1px solid #ddd",
-  padding: "4px 10px",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 12,
+  width: "100%",
 };

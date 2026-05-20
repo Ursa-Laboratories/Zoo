@@ -36,6 +36,7 @@ export default function InstrumentRenderer({
     const instX = gantryPosition.work_x + (instrument.offset_x ?? 0);
     const instY = gantryPosition.work_y + (instrument.offset_y ?? 0);
     const { sx, sy } = machineToSvg(instX, instY, svgWidth, svgHeight, machineXRange, machineYRange);
+    const labelY = Math.max(12, sy - 10);
 
     return (
       <g>
@@ -44,7 +45,7 @@ export default function InstrumentRenderer({
             {label} ({instrument.type}) at ({instX.toFixed(1)}, {instY.toFixed(1)})
           </title>
         </rect>
-        <text x={sx} y={sy - 10} fill={color} fontSize={9} textAnchor="middle" fontWeight={600}>
+        <text x={sx} y={labelY} fill={color} fontSize={9} textAnchor="middle" fontWeight={600}>
           {label}
         </text>
       </g>
@@ -61,6 +62,7 @@ export default function InstrumentRenderer({
     machineXRange,
     machineYRange
   );
+  const labelY = Math.max(12, offsetSvg.sy - 10);
 
   return (
     <g>
@@ -79,7 +81,7 @@ export default function InstrumentRenderer({
           {label} ({instrument.type}) offset: ({instrument.offset_x}, {instrument.offset_y})
         </title>
       </rect>
-      <text x={offsetSvg.sx} y={offsetSvg.sy - 10} fill={color} fontSize={9} textAnchor="middle" fontWeight={600} opacity={0.7}>
+      <text x={offsetSvg.sx} y={labelY} fill={color} fontSize={9} textAnchor="middle" fontWeight={600} opacity={0.7}>
         {label}
       </text>
     </g>

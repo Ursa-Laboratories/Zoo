@@ -95,7 +95,7 @@ def preview_wells(body: dict) -> Dict[str, WellPosition]:
     """Compute well positions from a well plate config using CubOS's
     calibration logic, without requiring the config to be saved first."""
     try:
-        entry = WellPlateYamlEntry.model_validate(body)
+        entry = WellPlateYamlEntry.model_validate(_coerce_frontend_well_plate_payload(body))
         resolved_z = entry.a1_point.z
         if resolved_z is None:
             raise ValueError("Calibration A1 must include z for preview.")
@@ -111,7 +111,7 @@ def preview_wells(body: dict) -> Dict[str, WellPosition]:
 @router.put("/{filename}")
 def put_deck(filename: str, body: dict) -> DeckResponse:
     path = resolve_config_path(get_settings().configs_dir, "deck", filename)
-    write_yaml(path, body)
+    write_yaml(path, _coerce_frontend_deck_payload(body))
     return get_deck(filename)
 
 
@@ -174,7 +174,69 @@ def _normalize_labware_config(raw_config: Any, labware: Any, deck_key: str) -> D
     if "name" not in config:
         config["name"] = deck_key
 
+    if inferred_type == "well_plate":
+        _normalize_well_plate_config(config, labware)
+
     return config
+
+
+def _normalize_well_plate_config(config: Dict[str, Any], labware: Any) -> None:
+    """Expose CubOS-resolved well-plate defaults in the frontend's edit shape."""
+    _set_default(config, "rows", getattr(labware, "rows", None))
+    _set_default(config, "columns", getattr(labware, "columns", None))
+    _set_default(config, "length_mm", getattr(labware, "length", None))
+    _set_default(config, "width_mm", getattr(labware, "width", None))
+    _set_default(config, "height_mm", getattr(labware, "height", None))
+    _set_default(config, "capacity_ul", getattr(labware, "capacity_ul", None))
+    _set_default(config, "working_volume_ul", getattr(labware, "working_volume_ul", None))
+    _set_default(config, "x_offset_mm", config.get("x_offset"))
+    _set_default(config, "y_offset_mm", config.get("y_offset"))
+
+
+def _set_default(config: Dict[str, Any], key: str, value: Any) -> None:
+    if config.get(key) is None and value is not None:
+        config[key] = value
+
+
+def _coerce_frontend_deck_payload(body: dict) -> dict:
+    """Convert frontend convenience keys back to CubOS deck YAML keys."""
+    payload = deepcopy(body)
+    labware = payload.get("labware")
+    if not isinstance(labware, dict):
+        return payload
+
+    for key, config in list(labware.items()):
+        if isinstance(config, dict):
+            labware[key] = _coerce_frontend_labware_payload(config)
+    return payload
+
+
+def _coerce_frontend_labware_payload(config: dict) -> dict:
+    coerced = deepcopy(config)
+    labware_type = coerced.get("type")
+    if labware_type == "well_plate":
+        coerced = _coerce_frontend_well_plate_payload(coerced)
+
+    nested_plate = coerced.get("well_plate")
+    if isinstance(nested_plate, dict):
+        coerced["well_plate"] = _coerce_frontend_well_plate_payload(nested_plate)
+    return coerced
+
+
+def _coerce_frontend_well_plate_payload(config: dict) -> dict:
+    coerced = deepcopy(config)
+    translations = {
+        "length_mm": "length",
+        "width_mm": "width",
+        "height_mm": "height",
+        "x_offset_mm": "x_offset",
+        "y_offset_mm": "y_offset",
+    }
+    for frontend_key, cubos_key in translations.items():
+        if frontend_key in coerced:
+            coerced.setdefault(cubos_key, coerced[frontend_key])
+            coerced.pop(frontend_key, None)
+    return coerced
 
 
 def _infer_labware_type(labware: Any, deck_key: str) -> Optional[str]:

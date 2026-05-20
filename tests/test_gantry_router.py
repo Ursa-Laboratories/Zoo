@@ -511,6 +511,83 @@ def test_unlock_returns_500_when_unlock_raises(monkeypatch):
     assert response.status_code == 500
 
 
+def test_reset_unlock_delegates_to_gantry(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.get_position_info.return_value = idle_position_info()
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(create_app(), "POST", "/api/gantry/reset-unlock")
+
+    assert response.status_code == 200
+    mock_gantry.reset_and_unlock.assert_called_once()
+
+
+def test_feed_hold_delegates_to_gantry_stop(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.get_position_info.return_value = idle_position_info()
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(create_app(), "POST", "/api/gantry/feed-hold")
+
+    assert response.status_code == 200
+    mock_gantry.stop.assert_called_once()
+
+
+def test_jog_cancel_delegates_to_gantry(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.get_position_info.return_value = idle_position_info()
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(create_app(), "POST", "/api/gantry/jog-cancel")
+
+    assert response.status_code == 200
+    mock_gantry.jog_cancel.assert_called_once()
+
+
+def test_read_grbl_settings_delegates_to_gantry(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.read_grbl_settings.return_value = {"$20": "1", "$130": "300.0"}
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(create_app(), "GET", "/api/gantry/grbl-settings")
+
+    assert response.status_code == 200
+    assert response.json() == {"settings": {"$20": "1", "$130": "300.0"}}
+    mock_gantry.read_grbl_settings.assert_called_once()
+
+
+def test_set_grbl_setting_delegates_and_refreshes(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.read_grbl_settings.return_value = {"$20": "0"}
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/grbl-settings",
+        json={"setting": "$20", "value": "0"},
+    )
+
+    assert response.status_code == 200
+    mock_gantry.set_grbl_setting.assert_called_once_with("$20", 0.0)
+    assert response.json() == {"settings": {"$20": "0"}}
+
+
+def test_set_grbl_setting_rejects_non_numeric_codes(monkeypatch):
+    mock_gantry = MagicMock()
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/grbl-settings",
+        json={"setting": "$X", "value": "1"},
+    )
+
+    assert response.status_code == 400
+    mock_gantry.set_grbl_setting.assert_not_called()
+
+
 def test_gantry_exposes_instrument_registry_endpoints():
     response = api_request(create_app(), "GET", "/api/gantry/instrument-types")
 

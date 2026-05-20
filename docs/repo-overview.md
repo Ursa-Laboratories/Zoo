@@ -11,10 +11,20 @@ The gantry control surface also exposes a calibration wizard that turns CubOS'
 `setup/calibrate_gantry.py` flow into a guided UI. Operators still use CubOS
 movement semantics through Zoo jog/home/connect endpoints; the wizard saves the
 calibrated YAML through the same schema-validated gantry config path.
+The gantry control surface includes an Advanced mode for live-controller
+recovery and inspection through CubOS `Gantry` methods: read GRBL settings,
+send one numeric GRBL setting, clear alarms, reset + unlock, feed hold, and
+jog cancel.
 The wizard is intentionally serial: after the operator selects the reference
 and lowest instrument, Zoo runs the blocking controller-prep/home steps, locks
 controls during automatic home/center/retract moves, and only exposes the next
 operator action when the current step completes.
+
+The protocol editor derives operator choices from the loaded deck and gantry:
+plate fields use available well plates, instrument fields use mounted
+instruments, position fields use deck targets, and measurement method fields
+use instrument-aware options. ASMI indentation method options expose force
+limit, step size, baseline samples, and measure-with-return controls.
 
 ## Key Directories
 
@@ -85,6 +95,7 @@ npm run build
 - Requires Node.js for frontend development and build
 - Talks directly to local gantry hardware through CubOS when operators use motion endpoints
 - Gantry calibration delegates work-coordinate and soft-limit operations to CubOS `Gantry` methods; Zoo only sequences the operator UI and YAML save. During XY origining, Zoo may temporarily disable stale soft limits and restores them on cancel, single-instrument XY completion, disconnect, or successful soft-limit programming. Zoo preserves the seeded `cnc.total_z_range` from the input gantry YAML and uses that calculated range for calibrated Z bounds and `max_travel_z`. If an interactive calibration jog trips a GRBL alarm, Zoo stops repeated jogs and prompts the operator to unlock before moving away from the limit.
+- Advanced gantry recovery endpoints still route through CubOS `Gantry`; Zoo does not expose arbitrary raw serial command entry.
 
 ## Known Pitfalls
 

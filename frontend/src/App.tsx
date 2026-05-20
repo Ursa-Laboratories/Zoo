@@ -324,6 +324,8 @@ export default function App() {
           selectedFile={protocolFile}
           onSelectFile={setProtocolFile}
           commands={protocolCommands.data ?? []}
+          deck={(displayDeck ?? deckQuery.data)!}
+          gantry={(displayGantry ?? gantryQuery.data)!}
           steps={localProtocolSteps ?? protocolQuery.data?.steps ?? null}
           positions={protocolQuery.data?.positions ?? null}
           onSave={(filename, body) => saveProtocol.mutate({ filename, body })}
@@ -359,13 +361,13 @@ export default function App() {
   const topRight = (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
       <h3 style={{ margin: "0 0 8px", fontSize: 14, color: "#666", flex: "0 0 auto" }}>Deck Visualization</h3>
-      <div style={{ flex: "1 1 auto", minHeight: 0 }}>
+      <div style={deckVisualizationFrameStyle}>
         <DeckVisualization
-        deck={displayDeck}
-        instruments={displayGantry?.config.instruments ?? null}
-        gantryPosition={gantryPosition.data ?? null}
-        machineXRange={machineXRange}
-        machineYRange={machineYRange}
+          deck={displayDeck}
+          instruments={displayGantry?.config.instruments ?? null}
+          gantryPosition={gantryPosition.data ?? null}
+          machineXRange={machineXRange}
+          machineYRange={machineYRange}
           yAxisMotion={yAxisMotion}
         />
       </div>
@@ -417,4 +419,12 @@ const browseButtonStyle: React.CSSProperties = {
   cursor: "pointer",
   fontSize: 12,
   whiteSpace: "nowrap",
+};
+
+const deckVisualizationFrameStyle: React.CSSProperties = {
+  flex: "0 1 auto",
+  minHeight: 240,
+  maxHeight: "100%",
+  aspectRatio: "600 / 420",
+  width: "100%",
 };

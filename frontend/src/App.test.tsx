@@ -88,7 +88,7 @@ function createState(): ApiState {
         steps: [
           {
             command: "move",
-            args: { x: 1, y: 2, z: 3 },
+            args: { instrument: "pipette_1", position: "plate_1.A1", travel_z: 3 },
           },
         ],
       },
@@ -184,11 +184,24 @@ function installFetchMock(state: ApiState) {
         {
           name: "move",
           args: [
-            { name: "x", type: "float", required: true, default: 0 },
-            { name: "y", type: "float", required: true, default: 0 },
-            { name: "z", type: "float", required: true, default: 0 },
+            { name: "instrument", type: "str", required: true, default: null },
+            { name: "position", type: "Any", required: true, default: null },
+            { name: "travel_z", type: "float | None", required: false, default: null },
           ],
           description: "Move gantry",
+        },
+        {
+          name: "scan",
+          args: [
+            { name: "plate", type: "str", required: true, default: null },
+            { name: "instrument", type: "str", required: true, default: null },
+            { name: "method", type: "str", required: true, default: null },
+            { name: "measurement_height", type: "float", required: true, default: null },
+            { name: "interwell_scan_height", type: "float", required: true, default: null },
+            { name: "indentation_limit_height", type: "float | None", required: false, default: null },
+            { name: "method_kwargs", type: "Dict[str, Any] | None", required: false, default: null },
+          ],
+          description: "Scan plate",
         },
       ]);
     }
@@ -288,7 +301,6 @@ function renderApp() {
 }
 
 async function importConfig(user: ReturnType<typeof userEvent.setup>, label: string, filename: string) {
-  await user.click(screen.getByRole("button", { name: label }));
   await user.selectOptions(screen.getByRole("combobox", { name: label }), filename);
 }
 
@@ -434,11 +446,11 @@ describe("Zoo editor interactions", () => {
 
     await user.click(screen.getByRole("button", { name: "Protocol" }));
     await importConfig(user, "Import protocol config", "move.yaml");
-    const xField = await screen.findByDisplayValue("1");
-    expect(xField).toHaveValue("1");
+    const travelZField = await screen.findByLabelText("Travel Z");
+    expect(travelZField).toHaveValue("3");
 
-    await user.clear(xField);
-    await user.type(xField, "42");
+    await user.clear(travelZField);
+    await user.type(travelZField, "42");
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(state.protocols["move.yaml"]?.positions).toEqual({ park: [10, 20, 30] }));
     await user.click(screen.getByRole("button", { name: "Gantry" }));
@@ -450,6 +462,7 @@ describe("Zoo editor interactions", () => {
   it("validates the selected setup through the full CubOS setup endpoint", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.mocked(fetch);
+
     renderApp();
     await waitForSettingsLoad();
     await loadRequiredProtocolDependencies(user);
@@ -470,5 +483,36 @@ describe("Zoo editor interactions", () => {
         }),
       }),
     );
+  });
+
+  it("adds protocol steps with deck, instrument, method, and ASMI force-limit choices", async () => {
+    const user = userEvent.setup();
+    const state = createState();
+    state.gantries["cubos.yaml"].config.instruments = {
+      asmi: {
+        type: "asmi",
+        vendor: "vernier",
+        offset_x: 1,
+        offset_y: 2,
+        depth: 0,
+        measurement_height: 0,
+        safe_approach_height: 0,
+      },
+    };
+    installFetchMock(state);
+
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    expect(screen.getByText("Load a protocol or add steps.")).toBeInTheDocument();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Add step" }), "scan");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(await screen.findByLabelText(/Plate/)).toHaveValue("plate_1");
+    expect(screen.getByLabelText(/Instrument/)).toHaveValue("asmi");
+    expect(screen.getByLabelText(/^Measurement \*$/)).toHaveValue("indentation");
+    expect(screen.getByLabelText("Force limit (N)")).toHaveValue("10");
   });
 });

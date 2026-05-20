@@ -27,12 +27,18 @@ See also:
 ## Gantry Calibration
 
 - The Gantry Control panel includes a `Calibrate` wizard after a gantry YAML is loaded.
+- Gantry Control also has an `Advanced` mode for connected-controller recovery and inspection: read live GRBL settings, send one numeric GRBL setting through CubOS, clear alarms, reset + unlock, feed hold, and jog cancel.
 - The wizard is a serial, one-way workflow. Single-instrument: prepare/home with soft limits disabled, jog to set XY origin (soft limits restored on confirm), jog to the calibration block to capture Z from live WPos, then re-home to measure X/Y bounds and save. Multi-instrument: prepare/home, jog XY origin, re-home to capture XY bounds and move to deck center, jog the lowest instrument to the block to set Z, record each remaining instrument at the same point, then save.
 - Calibration preserves the input gantry YAML's seeded `cnc.total_z_range`; Zoo uses that calculated Z range for `working_volume.z_max` and GRBL `max_travel_z` instead of rewriting the range from homed readback.
 - Multi-instrument gantries add a tool-recording step that writes instrument `offset_x`, `offset_y`, and `depth` values from a shared block point.
 - The multi-instrument path automatically re-homes after XY origining, captures XY travel bounds, moves to deck center, and retracts Z after each tool record while controls are locked.
 - If a calibration jog triggers a GRBL alarm, the wizard stops jog repeats, disables jog controls, and prompts the operator to unlock before jogging away from the limit.
 - Calibration routes stay thin over CubOS `Gantry` methods for work-coordinate assignment and GRBL soft-limit programming; Zoo does not send raw serial commands directly.
+
+## Protocol Editing
+
+- The protocol editor builds step fields from CubOS command schemas and uses the loaded deck and gantry config to offer dropdowns for plates, instruments, deck positions, and measurement methods.
+- ASMI indentation steps expose first-class method options, including `force_limit`, `step_size`, `baseline_samples`, and `measure_with_return`, which are saved into `method_kwargs`.
 
 ## Run
 
