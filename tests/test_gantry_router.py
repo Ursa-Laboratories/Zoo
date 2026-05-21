@@ -4,6 +4,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from gantry.errors import StatusReturnError
+from gantry.limit_recovery import LimitRecoveryResult
 from tests.api_client import api_request
 from zoo.app import create_app
 from zoo.routers import gantry as gantry_router
@@ -190,6 +192,47 @@ def test_connect_uses_selected_gantry_config(monkeypatch, tmp_path):
 
     assert response.status_code == 200
     assert observed_configs[0]["serial_port"] == "/dev/right"
+
+
+def test_position_surfaces_alarm_readback_errors_with_cached_coordinates(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.get_position_info.side_effect = RuntimeError("Error in status: ALARM:1")
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(
+        gantry_router,
+        "_last_position",
+        gantry_router.GantryPosition(
+            x=10.0,
+            y=20.0,
+            z=30.0,
+            work_x=10.0,
+            work_y=20.0,
+            work_z=30.0,
+            status="Idle",
+            connected=True,
+        ),
+    )
+
+    response = api_request(create_app(), "GET", "/api/gantry/position")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["connected"] is True
+    assert body["status"] == "ALARM:1"
+    assert body["work_z"] == 30.0
+
+
+def test_position_surfaces_alarm_readback_errors_without_cached_coordinates(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.get_position_info.side_effect = RuntimeError("Error in status: ALARM:1")
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(create_app(), "GET", "/api/gantry/position")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["connected"] is True
+    assert body["status"] == "ALARM:1"
 
 
 def test_connect_warns_but_does_not_fail_on_grbl_setting_mismatch(monkeypatch, tmp_path):
@@ -586,6 +629,26 @@ def test_blocking_jog_surfaces_alarm_jog_errors_as_recoverable(monkeypatch):
     mock_gantry.get_status.assert_not_called()
 
 
+def test_jog_success_does_not_probe_status_or_run_recovery(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.get_status.side_effect = AssertionError("normal jog must stay fast")
+    recover = MagicMock()
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(gantry_router, "recover_from_limit_alarm", recover)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/jog",
+        json={"x": 1, "y": 0, "z": 0},
+    )
+
+    assert response.status_code == 200
+    mock_gantry.jog.assert_called_once_with(x=1.0, y=0.0, z=0.0)
+    mock_gantry.get_status.assert_not_called()
+    recover.assert_not_called()
+
+
 def test_jog_surfaces_alarm_errors(monkeypatch):
     mock_gantry = MagicMock()
     mock_gantry.jog.side_effect = RuntimeError("ALARM:1 hard limit")
@@ -619,6 +682,22 @@ def test_jog_surfaces_reset_to_continue_as_alarm_error(monkeypatch):
     assert "alarm" in response.text.lower()
 
 
+def test_jog_surfaces_active_limit_pin_as_alarm_error(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.jog.side_effect = RuntimeError("<Idle|WPos:0,0,0|Pn:X>")
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/jog",
+        json={"x": 1, "y": 0, "z": 0},
+    )
+
+    assert response.status_code == 409
+    assert "alarm" in response.text.lower()
+
+
 def test_jog_returns_500_for_non_alarm_hardware_errors(monkeypatch):
     mock_gantry = MagicMock()
     mock_gantry.jog.side_effect = RuntimeError("serial port timed out")
@@ -632,6 +711,89 @@ def test_jog_returns_500_for_non_alarm_hardware_errors(monkeypatch):
     )
 
     assert response.status_code == 500
+
+
+def test_calibration_limit_recovery_delegates_to_cubos_under_serial_lock(monkeypatch):
+    mock_gantry = MagicMock()
+    observations = []
+
+    def fake_recover(gantry, delta, *, pull_off_mm, feed_rate, output):
+        observations.append(("gantry", gantry))
+        observations.append(("delta", delta))
+        observations.append(("pull_off_mm", pull_off_mm))
+        observations.append(("feed_rate", feed_rate))
+        observations.append(("lock_held", gantry_router._serial_lock.locked()))
+        output("recovered by CubOS")
+        return LimitRecoveryResult(
+            failed_delta={"x": 0.0, "y": 0.0, "z": -1.0},
+            pull_off_delta={"x": 0.0, "y": 0.0, "z": 5.0},
+            attempts=2,
+            final_status="Idle",
+        )
+
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(gantry_router, "recover_from_limit_alarm", fake_recover)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/calibration/recover-limit",
+        json={"x": 0, "y": 0, "z": -1, "pull_off_mm": 3, "feed_rate": 900},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "recovered",
+        "attempts": 2,
+        "pull_off": {"x": 0.0, "y": 0.0, "z": 5.0},
+        "messages": ["recovered by CubOS"],
+    }
+    assert ("gantry", mock_gantry) in observations
+    assert ("delta", {"x": 0.0, "y": 0.0, "z": -1.0}) in observations
+    assert ("pull_off_mm", 3.0) in observations
+    assert ("feed_rate", 900.0) in observations
+    assert ("lock_held", True) in observations
+
+
+def test_calibration_limit_recovery_requires_failed_delta(monkeypatch):
+    mock_gantry = MagicMock()
+    recover = MagicMock()
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(gantry_router, "recover_from_limit_alarm", recover)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/calibration/recover-limit",
+        json={"x": 0, "y": 0, "z": 0},
+    )
+
+    assert response.status_code == 400
+    recover.assert_not_called()
+
+
+def test_calibration_limit_recovery_returns_409_when_cubos_cannot_verify_status(monkeypatch):
+    mock_gantry = MagicMock()
+
+    def fake_recover(*args, **kwargs):
+        raise StatusReturnError(
+            "Limit recovery could not verify the controller cleared the alarm "
+            "after repeated status read failures."
+        )
+
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(gantry_router, "recover_from_limit_alarm", fake_recover)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/calibration/recover-limit",
+        json={"x": 1, "y": 0, "z": 0},
+    )
+
+    assert response.status_code == 409
+    assert "did not clear the gantry alarm" in response.text
+    assert "could not verify" in response.text
 
 
 def test_unlock_delegates_to_gantry(monkeypatch):

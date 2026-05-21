@@ -11,6 +11,10 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from gantry import Gantry
 from gantry.grbl_settings import normalize_expected_grbl_settings
+from gantry.limit_recovery import (
+    looks_like_limit_alarm,
+    recover_from_limit_alarm,
+)
 from gantry.yaml_schema import GantryYamlSchema
 from instruments.base_instrument import BaseInstrument
 from instruments.pipette.models import PIPETTE_MODELS
@@ -54,8 +58,7 @@ _BASE_PARAMS = {
 
 
 def _looks_like_alarm_text(text: str) -> bool:
-    text = text.lower()
-    return "alarm" in text or "hard limit" in text or "reset to continue" in text
+    return looks_like_limit_alarm(text)
 
 
 def _looks_like_alarm_error(exc: Exception) -> bool:
@@ -66,7 +69,36 @@ def _alarm_http_exception(action: str) -> HTTPException:
     return HTTPException(
         409,
         f"Gantry entered an alarm state {action}. "
-        "Unlock the controller, then jog away from the limit before continuing.",
+        "Run limit recovery before continuing.",
+    )
+
+
+def _alarm_status_from_error(exc: Exception) -> str:
+    message = str(exc).strip()
+    lower = message.lower()
+    if "alarm" in lower:
+        alarm_text = message[lower.index("alarm") :]
+        return alarm_text.split()[0].strip(",.;")
+    return message or "Alarm"
+
+
+def _position_from_cache_with_status(status: str) -> GantryPosition:
+    if _last_position is not None:
+        return GantryPosition(
+            x=_last_position.x,
+            y=_last_position.y,
+            z=_last_position.z,
+            work_x=_last_position.work_x,
+            work_y=_last_position.work_y,
+            work_z=_last_position.work_z,
+            status=status,
+            connected=True,
+            calibration_warning=_calibration_warning,
+        )
+    return GantryPosition(
+        connected=True,
+        status=status,
+        calibration_warning=_calibration_warning,
     )
 
 
@@ -411,7 +443,9 @@ def get_position() -> GantryPosition:
             calibration_warning=_calibration_warning,
         )
         return _last_position
-    except Exception:
+    except Exception as exc:
+        if _looks_like_alarm_error(exc):
+            return _position_from_cache_with_status(_alarm_status_from_error(exc))
         if _last_position is not None:
             return _last_position
         return GantryPosition(connected=True, status="Query failed")
@@ -491,6 +525,21 @@ class JogBlockingRequest(BaseModel):
     y: float = 0.0
     z: float = 0.0
     timeout_s: float = 10.0
+
+
+class LimitRecoveryRequest(BaseModel):
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
+    pull_off_mm: float = 5.0
+    feed_rate: float = 2500.0
+
+
+class LimitRecoveryResponse(BaseModel):
+    status: str
+    attempts: int
+    pull_off: Dict[str, float]
+    messages: List[str]
 
 
 class CalibrationCenterResponse(BaseModel):
@@ -689,6 +738,40 @@ def restore_calibration_soft_limits() -> GantryPosition:
         except Exception as e:
             raise HTTPException(500, f"Soft-limit restore failed: {e}")
     return get_position()
+
+
+@router.post("/calibration/recover-limit")
+def recover_calibration_limit(req: LimitRecoveryRequest) -> LimitRecoveryResponse:
+    """Recover from a calibration jog that tripped a limit switch."""
+    if _gantry is None:
+        raise HTTPException(400, "Gantry not connected")
+    if req.x == 0 and req.y == 0 and req.z == 0:
+        raise HTTPException(400, "Limit recovery requires the failed jog delta.")
+    messages: List[str] = []
+    with _serial_lock:
+        try:
+            result = recover_from_limit_alarm(
+                _gantry,
+                {"x": req.x, "y": req.y, "z": req.z},
+                pull_off_mm=req.pull_off_mm,
+                feed_rate=req.feed_rate,
+                output=messages.append,
+            )
+        except Exception as e:
+            logging.warning("Limit recovery failed: %s", e)
+            if _looks_like_alarm_error(e):
+                raise HTTPException(
+                    409,
+                    "Limit recovery did not clear the gantry alarm. "
+                    f"Use E-stop/controller reset before continuing: {e}",
+                )
+            raise HTTPException(500, f"Limit recovery failed: {e}")
+    return LimitRecoveryResponse(
+        status="recovered",
+        attempts=result.attempts,
+        pull_off=result.pull_off_delta,
+        messages=messages,
+    )
 
 
 @router.post("/unlock")
