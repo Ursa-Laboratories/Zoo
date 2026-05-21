@@ -18,6 +18,12 @@ type CapturedPosition = {
   z: number;
 };
 
+type JogDelta = {
+  x: number;
+  y: number;
+  z: number;
+};
+
 const JOG_INTERVAL_MS = 150;
 const MIN_STEP = 0.001;
 
@@ -48,7 +54,11 @@ export default function CalibrationWizard({
   const [referenceInstrument, setReferenceInstrument] = useState("");
   const [lowestInstrument, setLowestInstrument] = useState("");
   const [saved, setSaved] = useState(false);
+  const [resolvedAlarmStatus, setResolvedAlarmStatus] = useState<string | null>(null);
   const jogTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recoveryInProgress = useRef(false);
+  const lastJogDelta = useRef<JogDelta | null>(null);
+  const recoveryAttemptKey = useRef<string | null>(null);
 
   const filename = gantry?.filename ?? "";
   const config = gantry?.config ?? null;
@@ -56,10 +66,11 @@ export default function CalibrationWizard({
   const isMulti = instruments.length > 1;
   const connected = position?.connected ?? false;
   const status = position?.status ?? "";
-  const isAlarm = status.toLowerCase().includes("alarm");
+  const rawIsAlarm = looksLikeAlarm(status);
+  const isAlarm = rawIsAlarm && status !== resolvedAlarmStatus;
   const alarmRecoveryMessage = alarmPrompt ?? (
     isAlarm
-      ? `${status} — unlock the controller, then jog Z+ away from the limit before lowering again.`
+      ? `${status} - controls are locked until limit recovery or manual reset clears the controller.`
       : null
   );
   const current = currentWpos(position);
@@ -72,6 +83,7 @@ export default function CalibrationWizard({
   );
   const nextInstrumentToRecord = instrumentSequence.find((name) => !instrumentPositions[name]) ?? null;
   const readyForSave = !!zReference && (!isMulti || allInstrumentPositionsReady(instruments, instrumentPositions, selectedReference, selectedLowest));
+  const controlsLocked = busy || !!alarmRecoveryMessage;
 
   useEffect(() => {
     if (!open) return;
@@ -91,6 +103,9 @@ export default function CalibrationWizard({
     setReferenceInstrument(instruments[0] ?? "");
     setLowestInstrument(instruments[0] ?? "");
     setSaved(false);
+    setResolvedAlarmStatus(null);
+    lastJogDelta.current = null;
+    recoveryAttemptKey.current = null;
   }, [filename, instruments, open]);
 
   const stopJog = useCallback(() => {
@@ -100,12 +115,76 @@ export default function CalibrationWizard({
     }
   }, []);
 
+  const rememberJogDelta = useCallback((delta: JogDelta) => {
+    if (!isZeroDelta(delta)) {
+      lastJogDelta.current = delta;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!rawIsAlarm && resolvedAlarmStatus !== null) {
+      setResolvedAlarmStatus(null);
+      recoveryAttemptKey.current = null;
+    }
+  }, [rawIsAlarm, resolvedAlarmStatus]);
+
+  const recoverFromLimitAlarm = useCallback(async (delta: JogDelta, err: unknown, resolvedStatus?: string) => {
+    if (recoveryInProgress.current) return;
+    recoveryInProgress.current = true;
+    stopJog();
+    const message = err instanceof Error ? err.message : String(err);
+    setBusy(true);
+    setOperation("Recovering from limit switch");
+    setError(null);
+    setAlarmPrompt(
+      "Gantry hit a limit switch. Controls are locked while CubOS clears the alarm and backs off.",
+    );
+    setStatusNote(null);
+    try {
+      const result = await gantryApi.recoverCalibrationLimit(delta);
+      setAlarmPrompt(null);
+      if (resolvedStatus) {
+        setResolvedAlarmStatus(resolvedStatus);
+      }
+      setStatusNote(
+        `Recovered from limit switch after ${result.attempts} ${pluralize(result.attempts, "attempt")}. Controls are unlocked; continue calibration.`,
+      );
+    } catch (recoveryErr) {
+      const recoveryMessage = recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr);
+      setResolvedAlarmStatus(null);
+      setAlarmPrompt(
+        "Limit recovery did not clear the switch. Controls stay locked; use E-stop/controller reset before continuing.",
+      );
+      setError(`Limit recovery failed after jog error (${message}): ${recoveryMessage}`);
+    } finally {
+      setOperation(null);
+      setBusy(false);
+      recoveryInProgress.current = false;
+    }
+  }, [stopJog]);
+
+  useEffect(() => {
+    if (!open || !connected || !isAlarm || alarmPrompt || recoveryInProgress.current) return;
+    stopJog();
+    const delta = lastJogDelta.current;
+    if (!delta || isZeroDelta(delta)) {
+      setAlarmPrompt(
+        "Gantry hit a limit switch. Controls are locked, but Zoo has no recent jog direction for automatic recovery. Use E-stop/controller reset before continuing.",
+      );
+      return;
+    }
+    const key = `${status}|${delta.x}|${delta.y}|${delta.z}`;
+    if (recoveryAttemptKey.current === key) return;
+    recoveryAttemptKey.current = key;
+    void recoverFromLimitAlarm(delta, new Error(status), status);
+  }, [alarmPrompt, connected, isAlarm, open, recoverFromLimitAlarm, status, stopJog]);
+
   const reportError = useCallback((err: unknown) => {
     stopJog();
     const message = err instanceof Error ? err.message : String(err);
     if (looksLikeAlarm(message)) {
       setAlarmPrompt(
-        "Gantry entered an alarm state. Unlock the controller, then jog Z+ away from the limit before lowering again.",
+        "Gantry entered an alarm state. Controls are locked until recovery or manual reset clears it.",
       );
     }
     setError(message);
@@ -166,6 +245,20 @@ export default function CalibrationWizard({
     setAlarmPrompt(null);
     setStatusNote("Unlock command sent. Jog Z+ away from the limit before lowering again.");
   });
+
+  const jogBlockingWithRecovery = async (delta: JogDelta, timeout_s: number): Promise<boolean> => {
+    rememberJogDelta(delta);
+    try {
+      await gantryApi.jogBlocking(delta.x, delta.y, delta.z, timeout_s);
+      return false;
+    } catch (err) {
+      if (looksLikeAlarm(errorMessage(err))) {
+        await recoverFromLimitAlarm(delta, err);
+        return true;
+      }
+      throw err;
+    }
+  };
 
   // Step 0 → 1: just navigate, no hardware action yet.
   const goToHome = () => {
@@ -229,8 +322,12 @@ export default function CalibrationWizard({
     setZReference(captured);
     if (isMulti && selectedLowest) {
       setInstrumentPositions((prev) => ({ ...prev, [selectedLowest]: captured }));
-      await gantryApi.jogBlocking(0, 0, 15, 15);
-      setStatusNote(formatCaptured(`Recorded ${selectedLowest} and retracted Z`, captured));
+      const recovered = await jogBlockingWithRecovery({ x: 0, y: 0, z: 15 }, 15);
+      setStatusNote(
+        recovered
+          ? `${formatCaptured(`Recorded ${selectedLowest}`, captured)}; recovered from a limit during Z retract.`
+          : formatCaptured(`Recorded ${selectedLowest} and retracted Z`, captured),
+      );
     } else {
       const inferredLowerReach = roundMm(height - captured.z);
       setStatusNote(`${formatCaptured("Z reference set", captured)}; inferred lowest reachable height above deck=${inferredLowerReach.toFixed(3)} mm.`);
@@ -243,8 +340,12 @@ export default function CalibrationWizard({
     const captured = requirePosition(await gantryApi.getPosition());
     const nextPositions = { ...instrumentPositions, [name]: captured };
     setInstrumentPositions(nextPositions);
-    await gantryApi.jogBlocking(0, 0, 15, 15);
-    setStatusNote(formatCaptured(`Recorded ${name} and retracted Z`, captured));
+    const recovered = await jogBlockingWithRecovery({ x: 0, y: 0, z: 15 }, 15);
+    setStatusNote(
+      recovered
+        ? `${formatCaptured(`Recorded ${name}`, captured)}; recovered from a limit during Z retract.`
+        : formatCaptured(`Recorded ${name} and retracted Z`, captured),
+    );
     if (allInstrumentPositionsReady(instruments, nextPositions, selectedReference, selectedLowest)) {
       setStep(5);
     }
@@ -294,12 +395,19 @@ export default function CalibrationWizard({
   });
 
   const jog = useCallback((x: number, y: number, z: number) => {
-    if (!connected || busy || alarmRecoveryMessage) return;
-    gantryApi.jog(x, y, z).catch(reportError);
-  }, [alarmRecoveryMessage, busy, connected, reportError]);
+    if (!connected || busy || alarmRecoveryMessage || recoveryInProgress.current) return;
+    rememberJogDelta({ x, y, z });
+    gantryApi.jog(x, y, z).catch((err) => {
+      if (looksLikeAlarm(errorMessage(err))) {
+        void recoverFromLimitAlarm({ x, y, z }, err);
+      } else {
+        reportError(err);
+      }
+    });
+  }, [alarmRecoveryMessage, busy, connected, recoverFromLimitAlarm, rememberJogDelta, reportError]);
 
   const startJog = (x: number, y: number, z: number) => {
-    if (busy || alarmRecoveryMessage) return;
+    if (busy || alarmRecoveryMessage || recoveryInProgress.current) return;
     stopJog();
     jog(x, y, z);
     jogTimer.current = setInterval(() => jog(x, y, z), JOG_INTERVAL_MS);
@@ -377,8 +485,8 @@ export default function CalibrationWizard({
                     <input
                       value={normalizedOutput}
                       onChange={(event) => setOutputFile(event.target.value)}
-                      disabled={busy}
-                      style={buttonStateStyle(inputStyle, busy)}
+                      disabled={controlsLocked}
+                      style={buttonStateStyle(inputStyle, controlsLocked)}
                     />
                   </label>
                   {isMulti && (
@@ -388,8 +496,8 @@ export default function CalibrationWizard({
                         <select
                           value={selectedReference}
                           onChange={(event) => setReferenceInstrument(event.target.value)}
-                          disabled={busy}
-                          style={buttonStateStyle(inputStyle, busy)}
+                          disabled={controlsLocked}
+                          style={buttonStateStyle(inputStyle, controlsLocked)}
                         >
                           {instruments.map((name) => <option key={name} value={name}>{name}</option>)}
                         </select>
@@ -399,8 +507,8 @@ export default function CalibrationWizard({
                         <select
                           value={selectedLowest}
                           onChange={(event) => setLowestInstrument(event.target.value)}
-                          disabled={busy}
-                          style={buttonStateStyle(inputStyle, busy)}
+                          disabled={controlsLocked}
+                          style={buttonStateStyle(inputStyle, controlsLocked)}
                         >
                           {instruments.map((name) => <option key={name} value={name}>{name}</option>)}
                         </select>
@@ -409,7 +517,7 @@ export default function CalibrationWizard({
                   )}
                 </div>
                 <div style={actionRowStyle}>
-                  <button onClick={goToHome} disabled={busy || !filename || instruments.length === 0} style={buttonStateStyle(primaryButtonStyle, busy || !filename || instruments.length === 0)}>Continue</button>
+                  <button onClick={goToHome} disabled={controlsLocked || !filename || instruments.length === 0} style={buttonStateStyle(primaryButtonStyle, controlsLocked || !filename || instruments.length === 0)}>Continue</button>
                   <button onClick={resetFlow} disabled={busy} style={buttonStateStyle(buttonStyle, busy)}>Reset wizard</button>
                 </div>
               </div>
@@ -422,7 +530,7 @@ export default function CalibrationWizard({
                   Homing drives each axis to its hardware end-stops to establish a known machine position. The gantry will move to its limits — clear the deck and make sure nothing is in the travel path before proceeding.
                 </p>
                 <div style={actionRowStyle}>
-                  <button onClick={homeForCalibration} disabled={busy} style={buttonStateStyle(primaryButtonStyle, busy)}>Home gantry</button>
+                  <button onClick={homeForCalibration} disabled={controlsLocked} style={buttonStateStyle(primaryButtonStyle, controlsLocked)}>Home gantry</button>
                 </div>
               </div>
             )}
@@ -438,7 +546,7 @@ export default function CalibrationWizard({
                   zStep={zStep}
                   setXyStep={setXyStep}
                   setZStep={setZStep}
-                  disabled={!connected || busy}
+                  disabled={!connected || controlsLocked}
                   alarmed={!!alarmRecoveryMessage}
                   onStartJog={startJog}
                   onStopJog={stopJog}
@@ -446,7 +554,7 @@ export default function CalibrationWizard({
                   z={z}
                 />
                 <div style={actionRowStyle}>
-                  <button onClick={setXY} disabled={busy || !connected || !!xyOrigin} style={buttonStateStyle(primaryButtonStyle, busy || !connected || !!xyOrigin)}>Set XY origin</button>
+                  <button onClick={setXY} disabled={controlsLocked || !connected || !!xyOrigin} style={buttonStateStyle(primaryButtonStyle, controlsLocked || !connected || !!xyOrigin)}>Set XY origin</button>
                   {xyOrigin && <Readout label="XY origin" value={`${xyOrigin.x.toFixed(3)}, ${xyOrigin.y.toFixed(3)}, ${xyOrigin.z.toFixed(3)}`} />}
                 </div>
                 {xyOrigin && (
@@ -457,14 +565,14 @@ export default function CalibrationWizard({
                         <input
                           value={blockHeight}
                           onChange={(event) => setBlockHeight(event.target.value)}
-                          disabled={busy}
-                          style={buttonStateStyle(inputStyle, busy)}
+                          disabled={controlsLocked}
+                          style={buttonStateStyle(inputStyle, controlsLocked)}
                           inputMode="decimal"
                         />
                       </label>
                     </div>
                     <div style={actionRowStyle}>
-                      <button onClick={setZ} disabled={busy || !connected} style={buttonStateStyle(primaryButtonStyle, busy || !connected)}>Set Z reference and continue</button>
+                      <button onClick={setZ} disabled={controlsLocked || !connected} style={buttonStateStyle(primaryButtonStyle, controlsLocked || !connected)}>Set Z reference and continue</button>
                       {zReference && <Readout label="Z reference" value={`${zReference.x.toFixed(3)}, ${zReference.y.toFixed(3)}, ${zReference.z.toFixed(3)}`} />}
                     </div>
                   </>
@@ -483,7 +591,7 @@ export default function CalibrationWizard({
                   zStep={zStep}
                   setXyStep={setXyStep}
                   setZStep={setZStep}
-                  disabled={!connected || busy}
+                  disabled={!connected || controlsLocked}
                   alarmed={!!alarmRecoveryMessage}
                   onStartJog={startJog}
                   onStopJog={stopJog}
@@ -491,7 +599,7 @@ export default function CalibrationWizard({
                   z={z}
                 />
                 <div style={actionRowStyle}>
-                  <button onClick={setXY} disabled={busy || !connected} style={buttonStateStyle(primaryButtonStyle, busy || !connected)}>Set XY origin and continue</button>
+                  <button onClick={setXY} disabled={controlsLocked || !connected} style={buttonStateStyle(primaryButtonStyle, controlsLocked || !connected)}>Set XY origin and continue</button>
                   {xyOrigin && <Readout label="XY origin" value={`${xyOrigin.x.toFixed(3)}, ${xyOrigin.y.toFixed(3)}, ${xyOrigin.z.toFixed(3)}`} />}
                 </div>
               </div>
@@ -509,8 +617,8 @@ export default function CalibrationWizard({
                     <input
                       value={blockHeight}
                       onChange={(event) => setBlockHeight(event.target.value)}
-                      disabled={busy}
-                      style={buttonStateStyle(inputStyle, busy)}
+                      disabled={controlsLocked}
+                      style={buttonStateStyle(inputStyle, controlsLocked)}
                       inputMode="decimal"
                     />
                   </label>
@@ -525,7 +633,7 @@ export default function CalibrationWizard({
                   zStep={zStep}
                   setXyStep={setXyStep}
                   setZStep={setZStep}
-                  disabled={!connected || busy}
+                  disabled={!connected || controlsLocked}
                   alarmed={!!alarmRecoveryMessage}
                   onStartJog={startJog}
                   onStopJog={stopJog}
@@ -533,7 +641,7 @@ export default function CalibrationWizard({
                   z={z}
                 />
                 <div style={actionRowStyle}>
-                  <button onClick={setZ} disabled={busy || !connected || !xyOrigin} style={buttonStateStyle(primaryButtonStyle, busy || !connected || !xyOrigin)}>
+                  <button onClick={setZ} disabled={controlsLocked || !connected || !xyOrigin} style={buttonStateStyle(primaryButtonStyle, controlsLocked || !connected || !xyOrigin)}>
                     {`Set Z reference with ${selectedLowest} and retract`}
                   </button>
                   {zReference && <Readout label="Z reference" value={`${zReference.x.toFixed(3)}, ${zReference.y.toFixed(3)}, ${zReference.z.toFixed(3)}`} />}
@@ -570,7 +678,7 @@ export default function CalibrationWizard({
                       zStep={zStep}
                       setXyStep={setXyStep}
                       setZStep={setZStep}
-                      disabled={!connected || busy}
+                      disabled={!connected || controlsLocked}
                       alarmed={!!alarmRecoveryMessage}
                       onStartJog={startJog}
                       onStopJog={stopJog}
@@ -580,8 +688,8 @@ export default function CalibrationWizard({
                     <div style={actionRowStyle}>
                       <button
                         onClick={() => recordCurrentInstrument(nextInstrumentToRecord)}
-                        disabled={busy || !connected}
-                        style={buttonStateStyle(primaryButtonStyle, busy || !connected)}
+                        disabled={controlsLocked || !connected}
+                        style={buttonStateStyle(primaryButtonStyle, controlsLocked || !connected)}
                       >
                         Record {nextInstrumentToRecord} and retract
                       </button>
@@ -612,11 +720,11 @@ export default function CalibrationWizard({
                   </div>
                 )}
                 <label style={checkboxStyle}>
-                  <input type="checkbox" checked={programSoftLimits} disabled={busy || saved} onChange={(event) => setProgramSoftLimits(event.target.checked)} />
+                  <input type="checkbox" checked={programSoftLimits} disabled={controlsLocked || saved} onChange={(event) => setProgramSoftLimits(event.target.checked)} />
                   Program GRBL soft-limit travel spans before saving
                 </label>
                 <div style={actionRowStyle}>
-                  <button onClick={save} disabled={busy || !readyForSave || saved} style={buttonStateStyle(primaryButtonStyle, busy || !readyForSave || saved)}>
+                  <button onClick={save} disabled={controlsLocked || !readyForSave || saved} style={buttonStateStyle(primaryButtonStyle, controlsLocked || !readyForSave || saved)}>
                     {saved ? "Saved" : "Save"}
                   </button>
                   <button onClick={close} disabled={busy} style={buttonStateStyle(buttonStyle, busy)}>Done</button>
@@ -777,7 +885,19 @@ function safeZRange(config: GantryConfig | null): string {
 
 function looksLikeAlarm(message: string): boolean {
   const lower = message.toLowerCase();
-  return lower.includes("alarm") || lower.includes("hard limit") || lower.includes("reset to continue");
+  return lower.includes("alarm") || lower.includes("hard limit") || lower.includes("reset to continue") || lower.includes("pn:") || lower.includes("error:9");
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function isZeroDelta(delta: JogDelta): boolean {
+  return delta.x === 0 && delta.y === 0 && delta.z === 0;
+}
+
+function pluralize(count: number, noun: string): string {
+  return count === 1 ? noun : `${noun}s`;
 }
 
 function buttonStateStyle(base: React.CSSProperties, disabled: boolean): React.CSSProperties {

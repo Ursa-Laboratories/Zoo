@@ -232,6 +232,7 @@ export interface GantryPosition {
   status: string;
   connected: boolean;
   calibration_warning?: string | null;
+  move_error?: string | null;
 }
 
 export interface GrblSettingsResponse {

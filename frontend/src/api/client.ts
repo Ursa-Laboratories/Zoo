@@ -104,6 +104,22 @@ export const gantryApi = {
     request<import("../types").GantryPosition>("/gantry/calibration/restore-soft-limits", {
       method: "POST",
     }),
+  recoverCalibrationLimit: (body: {
+    x: number;
+    y: number;
+    z: number;
+    pull_off_mm?: number;
+    feed_rate?: number;
+  }) =>
+    request<{
+      status: string;
+      attempts: number;
+      pull_off: { x: number; y: number; z: number };
+      messages: string[];
+    }>("/gantry/calibration/recover-limit", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   configureSoftLimits: (body: {
     max_travel_x: number;
     max_travel_y: number;
