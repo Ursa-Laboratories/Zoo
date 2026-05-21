@@ -294,6 +294,107 @@ describe("CalibrationWizard alarm recovery", () => {
     expect(zDown).toBeDisabled();
   });
 
+  it("recovers when position polling reports a Pn: active limit pin status", async () => {
+    const user = userEvent.setup();
+    const recovery = deferredResponse();
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      if (url.pathname === "/api/gantry/calibration/prepare-origin" && init?.method === "POST") {
+        return jsonResponse(position());
+      }
+      if (url.pathname === "/api/gantry/jog" && init?.method === "POST") {
+        return jsonResponse({ status: "ok" });
+      }
+      if (url.pathname === "/api/gantry/calibration/recover-limit" && init?.method === "POST") {
+        return recovery.promise;
+      }
+      return jsonResponse(position());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const props = {
+      open: true,
+      onClose: () => undefined,
+      gantry: { filename: "cubos.yaml", config: gantryConfig() },
+      onSaveCalibrated: async () => undefined,
+    };
+    const { rerender } = render(<CalibrationWizard {...props} position={position()} />);
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByRole("button", { name: "Home gantry" }));
+    await user.click(await screen.findByRole("button", { name: "Z-" }));
+
+    rerender(<CalibrationWizard {...props} position={position("<Idle|WPos:0.0,0.0,20.0|Pn:Z>")} />);
+
+    expect(await screen.findByText("GANTRY ALARM")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Z-" })).toBeDisabled();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/calibration/recover-limit",
+      expect.objectContaining({ method: "POST" }),
+    ));
+
+    recovery.resolve(jsonResponse({
+      status: "recovered",
+      attempts: 1,
+      pull_off: { x: 0, y: 0, z: 5 },
+      messages: ["recovered"],
+    }));
+
+    await waitFor(() => expect(screen.queryByText("GANTRY ALARM")).not.toBeInTheDocument());
+  });
+
+  it("does not re-trigger recovery when re-rendered with the same alarm status and delta", async () => {
+    const user = userEvent.setup();
+    let recoverCallCount = 0;
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      if (url.pathname === "/api/gantry/calibration/prepare-origin" && init?.method === "POST") {
+        return jsonResponse(position());
+      }
+      if (url.pathname === "/api/gantry/jog" && init?.method === "POST") {
+        return jsonResponse({ status: "ok" });
+      }
+      if (url.pathname === "/api/gantry/calibration/recover-limit" && init?.method === "POST") {
+        recoverCallCount++;
+        return jsonResponse({
+          status: "recovered",
+          attempts: 1,
+          pull_off: { x: 0, y: 0, z: 5 },
+          messages: ["recovered"],
+        });
+      }
+      return jsonResponse(position());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const props = {
+      open: true,
+      onClose: () => undefined,
+      gantry: { filename: "cubos.yaml", config: gantryConfig() },
+      onSaveCalibrated: async () => undefined,
+    };
+    const { rerender } = render(<CalibrationWizard {...props} position={position()} />);
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByRole("button", { name: "Home gantry" }));
+    await user.click(await screen.findByRole("button", { name: "Z-" }));
+
+    // First alarm appearance triggers recovery.
+    rerender(<CalibrationWizard {...props} position={position("ALARM:1")} />);
+    await waitFor(() => expect(recoverCallCount).toBe(1));
+
+    // Re-rendering with the same status and delta must not fire a second call.
+    rerender(<CalibrationWizard {...props} position={position("ALARM:1")} />);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(recoverCallCount).toBe(1);
+  });
+
   it("stops jog repeats and shows error when a non-alarm jog error fires", async () => {
     const user = userEvent.setup({ delay: null });
     let jogCallCount = 0;

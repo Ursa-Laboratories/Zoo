@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from gantry.errors import StatusReturnError
+from gantry.gantry_driver.exceptions import StatusReturnError
 from gantry.limit_recovery import LimitRecoveryResult
 from tests.api_client import api_request
 from zoo.app import create_app
@@ -394,6 +394,32 @@ def test_move_to_rejects_targets_outside_working_volume(monkeypatch):
         create_app(),
         "POST",
         "/api/gantry/move-to",
+        json={"x": 301, "y": 100, "z": 40},
+    )
+
+    assert response.status_code == 400
+    assert "outside configured gantry working volume" in response.text
+    mock_gantry.move_to.assert_not_called()
+
+
+def test_move_to_blocking_rejects_targets_outside_working_volume(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.config = {
+        "working_volume": {
+            "x_min": 0.0,
+            "x_max": 300.0,
+            "y_min": 0.0,
+            "y_max": 200.0,
+            "z_min": 0.0,
+            "z_max": 80.0,
+        }
+    }
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/move-to-blocking",
         json={"x": 301, "y": 100, "z": 40},
     )
 
@@ -873,5 +899,22 @@ def test_disconnect_reports_soft_limit_restore_failure(monkeypatch):
     assert response.status_code == 500
     assert "Soft-limit restore failed" in response.text
     mock_gantry.disconnect.assert_called_once()
+    assert gantry_router._gantry is None
+    assert gantry_router._calibration_restore_soft_limits is False
+
+
+def test_disconnect_reports_both_failures_when_restore_and_disconnect_fail(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.set_soft_limits_enabled.side_effect = RuntimeError("restore error")
+    mock_gantry.disconnect.side_effect = RuntimeError("port closed")
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(gantry_router, "_calibration_restore_soft_limits", True)
+
+    response = api_request(create_app(), "POST", "/api/gantry/disconnect")
+
+    assert response.status_code == 500
+    assert "both failed" in response.text
+    assert "restore error" in response.text
+    assert "port closed" in response.text
     assert gantry_router._gantry is None
     assert gantry_router._calibration_restore_soft_limits is False

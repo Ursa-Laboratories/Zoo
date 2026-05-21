@@ -421,11 +421,13 @@ def get_position() -> GantryPosition:
                 status=status,
                 connected=True,
                 calibration_warning=_calibration_warning,
+                move_error=_move_error,
             )
         return GantryPosition(
             connected=True,
             status=status,
             calibration_warning=_calibration_warning,
+            move_error=_move_error,
         )
     try:
         info = _gantry.get_position_info()
@@ -442,10 +444,13 @@ def get_position() -> GantryPosition:
             connected=True,
             calibration_warning=_calibration_warning,
         )
+        if _move_error:
+            return _last_position.model_copy(update={"move_error": _move_error})
         return _last_position
     except Exception as exc:
         if _looks_like_alarm_error(exc):
             return _position_from_cache_with_status(_alarm_status_from_error(exc))
+        logging.error("Position query failed: %s", exc)
         if _last_position is not None:
             return _last_position
         return GantryPosition(connected=True, status="Query failed")

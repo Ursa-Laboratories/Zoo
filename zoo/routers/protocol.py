@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from protocol_engine.registry import CommandRegistry
 from protocol_engine.setup import run_protocol
 from protocol_engine.setup_validation import run_setup_validation
+from validation.errors import SetupValidationError
 
 # Side-effect import: triggers @protocol_command registration.
 import protocol_engine.commands  # noqa: F401

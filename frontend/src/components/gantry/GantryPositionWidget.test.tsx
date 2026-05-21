@@ -31,6 +31,34 @@ describe("GantryPositionWidget manual move safety", () => {
     vi.unstubAllGlobals();
   });
 
+  it("sends the move when workingVolume is absent (backend is the guard)", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ x: 0, y: 0, z: 0, status: "Idle", connected: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <GantryPositionWidget
+        position={position()}
+        workingVolume={null}
+        gantryFile="cubos.yaml"
+        gantry={null}
+        onSaveCalibrated={async () => undefined}
+      />,
+    );
+
+    await user.type(screen.getByLabelText("X"), "999");
+    await user.type(screen.getByLabelText("Y"), "999");
+    await user.type(screen.getByLabelText("Z"), "999");
+    await user.click(screen.getByRole("button", { name: "Go" }));
+
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
   it("does not send a manual move outside the working volume", async () => {
     const user = userEvent.setup();
     const alertMock = vi.fn();
