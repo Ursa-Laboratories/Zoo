@@ -33,6 +33,7 @@ labware:
     columns: 2
     pickup_z: 30.0
     drop_z: 24.0
+    tip_length: 59.3
     calibration:
       a1: { x: 10.0, y: 20.0 }
       a2: { x: 19.0, y: 20.0 }
