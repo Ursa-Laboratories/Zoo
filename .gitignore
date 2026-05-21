@@ -9,3 +9,6 @@ installer/windows/build/
 .omx/
 .pi/
 .env
+.DS_Store
+.codegraph/
+.cursor/

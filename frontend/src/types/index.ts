@@ -225,6 +225,7 @@ export interface GantryPosition {
   status: string;
   connected: boolean;
   calibration_warning?: string | null;
+  move_error?: string | null;
 }
 
 // Gantry-mounted instrument introspection (from CubOS)

@@ -3,6 +3,7 @@
 import copy
 import inspect
 import logging
+import math
 import threading
 import time
 from typing import Any, Dict, List, Optional
@@ -10,6 +11,10 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from gantry import Gantry
 from gantry.grbl_settings import normalize_expected_grbl_settings
+from gantry.limit_recovery import (
+    looks_like_limit_alarm,
+    recover_from_limit_alarm,
+)
 from gantry.yaml_schema import GantryYamlSchema
 from instruments.base_instrument import BaseInstrument
 from instruments.pipette.models import PIPETTE_MODELS
@@ -35,6 +40,9 @@ _last_position: Optional[GantryPosition] = None
 # Non-blocking warning surfaced after connect when the controller settings do
 # not match the selected gantry YAML. The connection stays open for calibration.
 _calibration_warning: Optional[str] = None
+# Full selected gantry config loaded at connect time. The runtime Gantry gets a
+# copy without grbl_settings so initial connection can still reach calibration.
+_connected_gantry_config: Optional[Dict[str, Any]] = None
 # During calibration, stale soft-limit travel can prevent the operator from
 # jogging to the true origin. Track whether Zoo disabled $20 so a cancel/skip
 # path can restore it.
@@ -49,9 +57,49 @@ _BASE_PARAMS = {
 }
 
 
+def _looks_like_alarm_text(text: str) -> bool:
+    return looks_like_limit_alarm(text)
+
+
 def _looks_like_alarm_error(exc: Exception) -> bool:
-    text = str(exc).lower()
-    return "alarm" in text or "hard limit" in text or "reset to continue" in text
+    return _looks_like_alarm_text(str(exc))
+
+
+def _alarm_http_exception(action: str) -> HTTPException:
+    return HTTPException(
+        409,
+        f"Gantry entered an alarm state {action}. "
+        "Run limit recovery before continuing.",
+    )
+
+
+def _alarm_status_from_error(exc: Exception) -> str:
+    message = str(exc).strip()
+    lower = message.lower()
+    if "alarm" in lower:
+        alarm_text = message[lower.index("alarm") :]
+        return alarm_text.split()[0].strip(",.;")
+    return message or "Alarm"
+
+
+def _position_from_cache_with_status(status: str) -> GantryPosition:
+    if _last_position is not None:
+        return GantryPosition(
+            x=_last_position.x,
+            y=_last_position.y,
+            z=_last_position.z,
+            work_x=_last_position.work_x,
+            work_y=_last_position.work_y,
+            work_z=_last_position.work_z,
+            status=status,
+            connected=True,
+            calibration_warning=_calibration_warning,
+        )
+    return GantryPosition(
+        connected=True,
+        status=status,
+        calibration_warning=_calibration_warning,
+    )
 
 
 class PipetteModelInfo(BaseModel):
@@ -250,6 +298,67 @@ def _calibration_mismatch_warning(
     )
 
 
+def _connected_working_volume() -> Optional[Dict[str, float]]:
+    """Return the connected gantry's configured working volume, if available."""
+    if _gantry is None:
+        return None
+    config = getattr(_gantry, "config", None)
+    volume: Any = None
+    if isinstance(config, dict):
+        volume = config.get("working_volume")
+        if not isinstance(volume, dict):
+            return None
+        try:
+            return {
+                key: float(volume[key])
+                for key in ("x_min", "x_max", "y_min", "y_max", "z_min", "z_max")
+            }
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    volume = getattr(config, "working_volume", None)
+    if volume is None:
+        return None
+    try:
+        return {
+            key: float(getattr(volume, key))
+            for key in ("x_min", "x_max", "y_min", "y_max", "z_min", "z_max")
+        }
+    except (TypeError, ValueError):
+        return None
+
+
+def _validate_manual_move_target(req: "MoveToRequest") -> None:
+    """Reject manual absolute moves outside the loaded gantry working volume."""
+    for axis, value in (("X", req.x), ("Y", req.y), ("Z", req.z)):
+        if not math.isfinite(value):
+            raise HTTPException(400, f"Manual move {axis} target must be finite.")
+
+    volume = _connected_working_volume()
+    if volume is None:
+        raise HTTPException(
+            409,
+            "Manual absolute moves require a loaded gantry working_volume. "
+            "Reconnect with a valid gantry YAML before using Move To.",
+        )
+
+    violations = []
+    for axis, value in (("x", req.x), ("y", req.y), ("z", req.z)):
+        lower = volume[f"{axis}_min"]
+        upper = volume[f"{axis}_max"]
+        if value < lower or value > upper:
+            violations.append(
+                f"{axis.upper()}={value:g} outside [{lower:g}, {upper:g}]"
+            )
+
+    if violations:
+        raise HTTPException(
+            400,
+            "Manual move target outside configured gantry working volume: "
+            + "; ".join(violations),
+        )
+
+
 @router.get("/configs")
 def list_gantry_configs() -> list[str]:
     return list_configs(get_settings().configs_dir, "gantry")
@@ -312,11 +421,13 @@ def get_position() -> GantryPosition:
                 status=status,
                 connected=True,
                 calibration_warning=_calibration_warning,
+                move_error=_move_error,
             )
         return GantryPosition(
             connected=True,
             status=status,
             calibration_warning=_calibration_warning,
+            move_error=_move_error,
         )
     try:
         info = _gantry.get_position_info()
@@ -333,8 +444,13 @@ def get_position() -> GantryPosition:
             connected=True,
             calibration_warning=_calibration_warning,
         )
+        if _move_error:
+            return _last_position.model_copy(update={"move_error": _move_error})
         return _last_position
-    except Exception:
+    except Exception as exc:
+        if _looks_like_alarm_error(exc):
+            return _position_from_cache_with_status(_alarm_status_from_error(exc))
+        logging.error("Position query failed: %s", exc)
         if _last_position is not None:
             return _last_position
         return GantryPosition(connected=True, status="Query failed")
@@ -379,11 +495,7 @@ def jog(req: JogRequest) -> dict:
         except Exception as e:
             logging.warning("Jog error: %s", e)
             if _looks_like_alarm_error(e):
-                raise HTTPException(
-                    409,
-                    "Gantry entered an alarm state during jog. "
-                    "Unlock the controller, then jog away from the limit before continuing.",
-                )
+                raise _alarm_http_exception("during jog")
             raise HTTPException(500, f"Jog failed: {e}")
     return {"status": "ok"}
 
@@ -420,6 +532,21 @@ class JogBlockingRequest(BaseModel):
     timeout_s: float = 10.0
 
 
+class LimitRecoveryRequest(BaseModel):
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
+    pull_off_mm: float = 5.0
+    feed_rate: float = 2500.0
+
+
+class LimitRecoveryResponse(BaseModel):
+    status: str
+    attempts: int
+    pull_off: Dict[str, float]
+    messages: List[str]
+
+
 class CalibrationCenterResponse(BaseModel):
     xy_bounds: Dict[str, float]
     position: Dict[str, float]
@@ -435,11 +562,15 @@ def _wait_until_idle(*, timeout_s: float = 10.0, poll_interval_s: float = 0.1) -
         try:
             last_status = str(_gantry.get_status())
         except Exception as exc:
+            if _looks_like_alarm_error(exc):
+                raise _alarm_http_exception("while waiting for motion to finish")
             raise HTTPException(500, f"Status wait failed: {exc}")
         lowered = last_status.lower()
         if "idle" in lowered:
             return
-        if "alarm" in lowered or "error" in lowered:
+        if _looks_like_alarm_text(lowered):
+            raise _alarm_http_exception("while waiting for motion to finish")
+        if "error" in lowered:
             raise HTTPException(500, f"Gantry entered {last_status} while waiting for motion to finish")
         time.sleep(poll_interval_s)
     raise HTTPException(500, f"Timed out waiting for gantry to become idle; last status: {last_status}")
@@ -473,6 +604,7 @@ def move_to(req: MoveToRequest) -> dict:
     """Move the gantry to absolute coordinates using safe_move."""
     if _gantry is None:
         raise HTTPException(400, "Gantry not connected")
+    _validate_manual_move_target(req)
     thread = threading.Thread(target=_move_worker, args=(req.x, req.y, req.z), daemon=True)
     thread.start()
     return {"status": "ok"}
@@ -483,6 +615,7 @@ def move_to_blocking(req: MoveToRequest) -> GantryPosition:
     """Move to absolute coordinates and return only after CubOS finishes."""
     if _gantry is None:
         raise HTTPException(400, "Gantry not connected")
+    _validate_manual_move_target(req)
     with _serial_lock:
         try:
             _gantry.move_to(x=req.x, y=req.y, z=req.z)
@@ -505,6 +638,8 @@ def jog_blocking(req: JogBlockingRequest) -> GantryPosition:
         except HTTPException:
             raise
         except Exception as e:
+            if _looks_like_alarm_error(e):
+                raise _alarm_http_exception("during blocking jog")
             raise HTTPException(500, f"Jog failed: {e}")
     return get_position()
 
@@ -525,7 +660,7 @@ def set_work_coordinates(req: SetWorkCoordinatesRequest) -> GantryPosition:
 @router.post("/soft-limits")
 def configure_soft_limits(req: ConfigureSoftLimitsRequest) -> dict:
     """Program GRBL soft-limit travel spans through CubOS Gantry semantics."""
-    global _calibration_restore_soft_limits
+    global _calibration_warning, _calibration_restore_soft_limits
     if _gantry is None:
         raise HTTPException(400, "Gantry not connected")
     with _serial_lock:
@@ -537,6 +672,22 @@ def configure_soft_limits(req: ConfigureSoftLimitsRequest) -> dict:
                 tolerance_mm=req.tolerance_mm,
             )
             _calibration_restore_soft_limits = False
+            if _connected_gantry_config is not None:
+                grbl_settings = dict(
+                    _connected_gantry_config.get("grbl_settings") or {}
+                )
+                grbl_settings.update({
+                    "soft_limits": True,
+                    "homing_enable": True,
+                    "max_travel_x": req.max_travel_x,
+                    "max_travel_y": req.max_travel_y,
+                    "max_travel_z": req.max_travel_z,
+                })
+                _connected_gantry_config["grbl_settings"] = grbl_settings
+                _calibration_warning = _calibration_mismatch_warning(
+                    _gantry,
+                    _connected_gantry_config,
+                )
         except Exception as e:
             raise HTTPException(500, f"Soft-limit configuration failed: {e}")
     return {"status": "ok"}
@@ -594,6 +745,40 @@ def restore_calibration_soft_limits() -> GantryPosition:
     return get_position()
 
 
+@router.post("/calibration/recover-limit")
+def recover_calibration_limit(req: LimitRecoveryRequest) -> LimitRecoveryResponse:
+    """Recover from a calibration jog that tripped a limit switch."""
+    if _gantry is None:
+        raise HTTPException(400, "Gantry not connected")
+    if req.x == 0 and req.y == 0 and req.z == 0:
+        raise HTTPException(400, "Limit recovery requires the failed jog delta.")
+    messages: List[str] = []
+    with _serial_lock:
+        try:
+            result = recover_from_limit_alarm(
+                _gantry,
+                {"x": req.x, "y": req.y, "z": req.z},
+                pull_off_mm=req.pull_off_mm,
+                feed_rate=req.feed_rate,
+                output=messages.append,
+            )
+        except Exception as e:
+            logging.warning("Limit recovery failed: %s", e)
+            if _looks_like_alarm_error(e):
+                raise HTTPException(
+                    409,
+                    "Limit recovery did not clear the gantry alarm. "
+                    f"Use E-stop/controller reset before continuing: {e}",
+                )
+            raise HTTPException(500, f"Limit recovery failed: {e}")
+    return LimitRecoveryResponse(
+        status="recovered",
+        attempts=result.attempts,
+        pull_off=result.pull_off_delta,
+        messages=messages,
+    )
+
+
 @router.post("/unlock")
 def unlock() -> GantryPosition:
     """Send GRBL $X unlock command to clear alarm state."""
@@ -631,7 +816,7 @@ def connect(body: Optional[ConnectRequest] = None) -> GantryPosition:
     "Not connected") during the connect window instead of trying to touch
     a half-initialized mill.
     """
-    global _gantry, _calibration_warning
+    global _connected_gantry_config, _gantry, _calibration_warning
     with _serial_lock:
         try:
             settings = get_settings()
@@ -669,6 +854,7 @@ def connect(body: Optional[ConnectRequest] = None) -> GantryPosition:
             raise HTTPException(500, f"Failed to connect: {e}")
         _gantry = staged
         _calibration_warning = calibration_warning
+        _connected_gantry_config = copy.deepcopy(config)
     # get_position() acquires _serial_lock itself; call it outside the
     # `with` block so we don't try to re-acquire a non-reentrant lock,
     # which would fall through to the cached path and return a degraded
@@ -678,22 +864,45 @@ def connect(body: Optional[ConnectRequest] = None) -> GantryPosition:
 
 @router.post("/disconnect")
 def disconnect() -> GantryPosition:
+    global _connected_gantry_config
     global _gantry, _calibration_warning, _calibration_restore_soft_limits
     if _gantry is None:
         return GantryPosition(connected=False, status="Disconnected")
+    restore_error: Optional[Exception] = None
+    disconnect_error: Optional[Exception] = None
     # Clear the module global inside the lock so concurrent /position
     # polls don't see _gantry set to a mill object that's mid-disconnect.
     with _serial_lock:
         try:
             _restore_calibration_soft_limits_if_needed()
         except Exception as e:
+            restore_error = e
             logging.error("Failed to restore soft limits during disconnect: %s", e)
         try:
             _gantry.disconnect()
+        except Exception as e:
+            disconnect_error = e
+            logging.error("Failed to disconnect gantry: %s", e)
         finally:
             _gantry = None
             _calibration_warning = None
+            _connected_gantry_config = None
             _calibration_restore_soft_limits = False
+    if restore_error is not None:
+        detail = (
+            "Soft-limit restore failed before disconnect: "
+            f"{restore_error}. Gantry was disconnected; verify GRBL soft limits "
+            "and travel settings before moving again."
+        )
+        if disconnect_error is not None:
+            detail = (
+                "Soft-limit restore and disconnect both failed: "
+                f"restore error: {restore_error}; disconnect error: {disconnect_error}. "
+                "Verify controller state before moving again."
+            )
+        raise HTTPException(500, detail)
+    if disconnect_error is not None:
+        raise HTTPException(500, f"Disconnect failed: {disconnect_error}")
     return GantryPosition(connected=False, status="Disconnected")
 
 

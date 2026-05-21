@@ -205,14 +205,14 @@ def run_protocol_endpoint(body: RunProtocolRequest) -> dict:
     the UI freezes on its last known coords during a run (acceptable)
     rather than crashing the run.
     """
-    from zoo.routers.gantry import _gantry, _serial_lock
+    from zoo.routers import gantry as gantry_router
 
     settings = get_settings()
     gantry_path = resolve_config_path(settings.configs_dir, "gantry", body.gantry_file)
     deck_path = resolve_config_path(settings.configs_dir, "deck", body.deck_file)
     protocol_path = resolve_config_path(settings.configs_dir, "protocol", body.protocol_file)
 
-    if _gantry is None:
+    if gantry_router._gantry is None:
         raise HTTPException(400, "Gantry is not connected")
 
     # is_healthy() writes `?` to the serial port; it has to run inside
@@ -220,12 +220,20 @@ def run_protocol_endpoint(body: RunProtocolRequest) -> dict:
     # it the same way it races run_protocol — the whole point of the
     # lock on this endpoint.
     try:
-        with _serial_lock:
-            if not _gantry.is_healthy():
+        with gantry_router._serial_lock:
+            if gantry_router._calibration_warning:
+                raise HTTPException(
+                    400,
+                    "Gantry calibration warning is active. Calibration and jog "
+                    "recovery remain available, but protocol runs are blocked "
+                    "until the selected gantry YAML matches the controller. "
+                    f"{gantry_router._calibration_warning}",
+                )
+            if not gantry_router._gantry.is_healthy():
                 raise HTTPException(400, "Gantry is not connected")
             results = run_protocol(
                 str(gantry_path), str(deck_path), str(protocol_path),
-                gantry=_gantry,
+                gantry=gantry_router._gantry,
             )
     except HTTPException:
         raise
