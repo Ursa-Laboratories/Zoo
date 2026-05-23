@@ -28,6 +28,8 @@ export function DirtyMarker() {
 }
 
 interface NumberFieldProps {
+  id?: string;
+  name?: string;
   label: string;
   value: number;
   onChange: (v: number) => void;
@@ -37,7 +39,7 @@ interface NumberFieldProps {
   dirty?: boolean;
 }
 
-export function NumberField({ label, value, onChange, required, dirty }: NumberFieldProps) {
+export function NumberField({ id, name, label, value, onChange, required, dirty }: NumberFieldProps) {
   const normalizedValue = Number.isFinite(value) ? value : NaN;
   const [state, setState] = useState({ raw: formatNumberInput(normalizedValue), value: normalizedValue });
   if (!Object.is(normalizedValue, state.value)) {
@@ -54,6 +56,8 @@ export function NumberField({ label, value, onChange, required, dirty }: NumberF
         {dirty && <DirtyMarker />}
       </span>
       <input
+        id={id}
+        name={name}
         type="text"
         inputMode="decimal"
         value={raw}
@@ -70,6 +74,8 @@ export function NumberField({ label, value, onChange, required, dirty }: NumberF
 }
 
 interface TextFieldProps {
+  id?: string;
+  name?: string;
   label: string;
   value: string;
   onChange: (v: string) => void;
@@ -78,7 +84,7 @@ interface TextFieldProps {
   dirty?: boolean;
 }
 
-export function TextField({ label, value, onChange, required, dirty }: TextFieldProps) {
+export function TextField({ id, name, label, value, onChange, required, dirty }: TextFieldProps) {
   const hasError = required && !value.trim();
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
@@ -88,6 +94,8 @@ export function TextField({ label, value, onChange, required, dirty }: TextField
         {dirty && <DirtyMarker />}
       </span>
       <input
+        id={id}
+        name={name}
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -98,13 +106,15 @@ export function TextField({ label, value, onChange, required, dirty }: TextField
 }
 
 interface CoordinateFieldProps {
+  id?: string;
+  name?: string;
   label: string;
   value: { x: number; y: number; z: number };
   onChange: (v: { x: number; y: number; z: number }) => void;
   required?: boolean;
 }
 
-export function CoordinateField({ label, value, onChange, required }: CoordinateFieldProps) {
+export function CoordinateField({ id, name, label, value, onChange, required }: CoordinateFieldProps) {
   const [state, setState] = useState({
     rx: String(value.x),
     ry: String(value.y),
@@ -135,6 +145,8 @@ export function CoordinateField({ label, value, onChange, required }: Coordinate
         <label style={axisFieldStyle}>
           <span style={axisLabelStyle}>X</span>
           <input
+            id={id ? `${id}-x` : undefined}
+            name={name ? `${name}_x` : undefined}
             aria-label={`${label} X`}
             type="text"
             inputMode="decimal"
@@ -147,6 +159,8 @@ export function CoordinateField({ label, value, onChange, required }: Coordinate
         <label style={axisFieldStyle}>
           <span style={axisLabelStyle}>Y</span>
           <input
+            id={id ? `${id}-y` : undefined}
+            name={name ? `${name}_y` : undefined}
             aria-label={`${label} Y`}
             type="text"
             inputMode="decimal"
@@ -159,6 +173,8 @@ export function CoordinateField({ label, value, onChange, required }: Coordinate
         <label style={axisFieldStyle}>
           <span style={axisLabelStyle}>Z</span>
           <input
+            id={id ? `${id}-z` : undefined}
+            name={name ? `${name}_z` : undefined}
             aria-label={`${label} Z`}
             type="text"
             inputMode="decimal"
@@ -205,11 +221,15 @@ const axisLabelStyle: React.CSSProperties = {
 };
 
 export function SelectField({
+  id,
+  name,
   label,
   value,
   options,
   onChange,
 }: {
+  id?: string;
+  name?: string;
   label: string;
   value: string;
   options: string[];
@@ -218,7 +238,7 @@ export function SelectField({
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
       <span style={{ color: "#666" }}>{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} style={inputStyle}>
+      <select id={id} name={name} value={value} onChange={(e) => onChange(e.target.value)} style={inputStyle}>
         {options.length === 0 && <option value="">No configs found</option>}
         {options.map((o) => (
           <option key={o} value={o}>

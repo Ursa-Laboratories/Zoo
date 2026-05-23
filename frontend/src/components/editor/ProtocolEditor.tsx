@@ -278,6 +278,8 @@ export default function ProtocolEditor({
                 <label style={positionNameFieldStyle}>
                   <span style={{ color: "#666" }}>Name</span>
                   <input
+                    id={`pos-${i}-name`}
+                    name={`pos_${i}_name`}
                     aria-label={`Position ${i + 1} name`}
                     type="text"
                     value={position.name}
@@ -286,6 +288,8 @@ export default function ProtocolEditor({
                   />
                 </label>
                 <CoordinateField
+                  id={`pos-${i}-coord`}
+                  name={`pos_${i}_coord`}
                   label={`${position.name.trim() || `Position ${i + 1}`} coordinates`}
                   value={{ x: position.x, y: position.y, z: position.z }}
                   onChange={(value) => updatePosition(position.id, value)}
@@ -348,6 +352,8 @@ export default function ProtocolEditor({
                     return (
                       <SmartSelectField
                         key={arg.name}
+                        id={`step-${i}-${arg.name}`}
+                        name={`step_${i}_${arg.name}`}
                         label={argLabel(arg.name)}
                         value={String(val ?? "")}
                         options={argOptions}
@@ -360,6 +366,8 @@ export default function ProtocolEditor({
                     return (
                       <MethodOptionsField
                         key={arg.name}
+                        idPrefix={`step-${i}-method`}
+                        namePrefix={`step_${i}_method`}
                         value={val}
                         asmiIndentation={isAsmiIndentationStep(step.args, choices)}
                         onChange={(v) => updateStepArg(i, arg.name, v)}
@@ -370,6 +378,8 @@ export default function ProtocolEditor({
                     return (
                       <NumberField
                         key={arg.name}
+                        id={`step-${i}-${arg.name}`}
+                        name={`step_${i}_${arg.name}`}
                         label={argLabel(arg.name)}
                         value={Number(val ?? 0)}
                         onChange={(v) => updateStepArg(i, arg.name, v)}
@@ -380,6 +390,8 @@ export default function ProtocolEditor({
                   return (
                     <TextField
                       key={arg.name}
+                      id={`step-${i}-${arg.name}`}
+                      name={`step_${i}_${arg.name}`}
                       label={argLabel(arg.name)}
                       value={String(val ?? "")}
                       onChange={(v) => updateStepArg(i, arg.name, v)}
@@ -655,38 +667,70 @@ function commandLabel(name: string): string {
 }
 
 function SmartSelectField({
+  id,
+  name,
   label,
   value,
   options,
   onChange,
   required,
 }: {
+  id?: string;
+  name?: string;
   label: string;
   value: string;
   options: string[];
   onChange: (value: string) => void;
   required?: boolean;
 }) {
+  const isLarge = options.length > 20;
+  const listId = id ? `${id}-list` : `list-${label.replace(/\s+/g, '-')}`;
+
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
       <span style={{ color: "#666" }}>
         {label}
         {required && <span style={{ color: "#dc2626" }}> *</span>}
       </span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} style={selectStyle}>
-        {options.map((option) => (
-          <option key={option} value={option}>{option}</option>
-        ))}
-      </select>
+      {isLarge ? (
+        <>
+          <input
+            id={id}
+            name={name}
+            list={listId}
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            style={selectStyle}
+            required={required}
+            autoComplete="off"
+            placeholder="Search or select..."
+          />
+          <datalist id={listId}>
+            {options.map((option) => (
+              <option key={option} value={option} />
+            ))}
+          </datalist>
+        </>
+      ) : (
+        <select id={id} name={name} value={value} onChange={(event) => onChange(event.target.value)} style={selectStyle} required={required}>
+          {options.map((option) => (
+            <option key={option} value={option}>{option}</option>
+          ))}
+        </select>
+      )}
     </label>
   );
 }
 
 function MethodOptionsField({
+  idPrefix = "method",
+  namePrefix = "method",
   value,
   asmiIndentation,
   onChange,
 }: {
+  idPrefix?: string;
+  namePrefix?: string;
   value: unknown;
   asmiIndentation: boolean;
   onChange: (value: Record<string, unknown>) => void;
@@ -699,21 +743,29 @@ function MethodOptionsField({
       <div style={methodOptionsTitleStyle}>ASMI indentation options</div>
       <div style={methodOptionsGridStyle}>
         <NumberField
+          id={`${idPrefix}-force-limit`}
+          name={`${namePrefix}_force_limit`}
           label="Force limit (N)"
           value={Number(options.force_limit ?? 10)}
           onChange={(v) => update("force_limit", v)}
         />
         <NumberField
+          id={`${idPrefix}-step-size`}
+          name={`${namePrefix}_step_size`}
           label="Step size (mm)"
           value={Number(options.step_size ?? 0.1)}
           onChange={(v) => update("step_size", v)}
         />
         <NumberField
+          id={`${idPrefix}-baseline-samples`}
+          name={`${namePrefix}_baseline_samples`}
           label="Baseline samples"
           value={Number(options.baseline_samples ?? 10)}
           onChange={(v) => update("baseline_samples", Math.max(1, Math.round(v)))}
         />
         <SmartSelectField
+          id={`${idPrefix}-measure-with-return`}
+          name={`${namePrefix}_measure_with_return`}
           label="Measure with return"
           value={String(Boolean(options.measure_with_return ?? false))}
           options={["false", "true"]}

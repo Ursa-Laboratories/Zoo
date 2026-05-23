@@ -217,6 +217,8 @@ export default function GantryEditor({
           <div style={cardStyle}>
             <h4 style={{ margin: "0 0 8px", color: "#16a34a", fontSize: 13 }}>Connection</h4>
             <TextField
+              id="gantry-serial-port"
+              name="serial_port"
               label="Serial port"
               value={config.serial_port}
               onChange={(v) => commit({ ...config, serial_port: v })}
@@ -224,6 +226,8 @@ export default function GantryEditor({
             />
             <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <SelectField
+                id="gantry-type"
+                name="gantry_type"
                 label="Gantry type"
                 value={config.gantry_type}
                 options={[
@@ -235,6 +239,8 @@ export default function GantryEditor({
                 required
               />
               <SelectField
+                id="gantry-homing-strategy"
+                name="homing_strategy"
                 label="Homing strategy"
                 value={config.cnc.homing_strategy}
                 options={HOMING_STRATEGIES.map((s) => ({ value: s, label: s }))}
@@ -242,6 +248,8 @@ export default function GantryEditor({
                 dirty={d.homing_strategy}
               />
               <SelectField
+                id="gantry-y-axis-motion"
+                name="y_axis_motion"
                 label="Y-axis motion"
                 value={config.cnc.y_axis_motion ?? "head"}
                 options={Y_AXIS_MOTION_OPTIONS.map((s) => ({ value: s, label: s === "head" ? "Head moves" : "Bed moves" }))}
@@ -249,6 +257,8 @@ export default function GantryEditor({
                 dirty={d.y_axis_motion}
               />
               <NumberField
+                id="gantry-total-z-range"
+                name="total_z_range"
                 label="Total Z range"
                 value={config.cnc.total_z_range}
                 onChange={(v) => commit({ ...config, cnc: { ...config.cnc, total_z_range: v } })}
@@ -256,6 +266,8 @@ export default function GantryEditor({
                 required
               />
               <NumberField
+                id="gantry-safe-z"
+                name="safe_z"
                 label="Safe Z"
                 value={Number(config.cnc.safe_z ?? config.working_volume.z_max)}
                 onChange={(v) => commit({ ...config, cnc: { ...config.cnc, safe_z: v } })}
@@ -267,12 +279,12 @@ export default function GantryEditor({
           <div style={cardStyle}>
             <h4 style={{ margin: "0 0 8px", color: "#16a34a", fontSize: 13 }}>Working Volume</h4>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <NumberField label="X min" value={config.working_volume.x_min} onChange={(v) => commit({ ...config, working_volume: { ...config.working_volume, x_min: v } })} dirty={d.x_min} />
-              <NumberField label="X max" value={config.working_volume.x_max} onChange={(v) => commit({ ...config, working_volume: { ...config.working_volume, x_max: v } })} dirty={d.x_max} />
-              <NumberField label="Y min" value={config.working_volume.y_min} onChange={(v) => commit({ ...config, working_volume: { ...config.working_volume, y_min: v } })} dirty={d.y_min} />
-              <NumberField label="Y max" value={config.working_volume.y_max} onChange={(v) => commit({ ...config, working_volume: { ...config.working_volume, y_max: v } })} dirty={d.y_max} />
-              <NumberField label="Z min" value={config.working_volume.z_min} onChange={(v) => commit({ ...config, working_volume: { ...config.working_volume, z_min: v } })} dirty={d.z_min} />
-              <NumberField label="Z max" value={config.working_volume.z_max} onChange={(v) => commit({ ...config, working_volume: { ...config.working_volume, z_max: v } })} dirty={d.z_max} />
+              <NumberField id="wv-xmin" name="x_min" label="X min" value={config.working_volume.x_min} onChange={(v) => commit({ ...config, working_volume: { ...config.working_volume, x_min: v } })} dirty={d.x_min} />
+              <NumberField id="wv-xmax" name="x_max" label="X max" value={config.working_volume.x_max} onChange={(v) => commit({ ...config, working_volume: { ...config.working_volume, x_max: v } })} dirty={d.x_max} />
+              <NumberField id="wv-ymin" name="y_min" label="Y min" value={config.working_volume.y_min} onChange={(v) => commit({ ...config, working_volume: { ...config.working_volume, y_min: v } })} dirty={d.y_min} />
+              <NumberField id="wv-ymax" name="y_max" label="Y max" value={config.working_volume.y_max} onChange={(v) => commit({ ...config, working_volume: { ...config.working_volume, y_max: v } })} dirty={d.y_max} />
+              <NumberField id="wv-zmin" name="z_min" label="Z min" value={config.working_volume.z_min} onChange={(v) => commit({ ...config, working_volume: { ...config.working_volume, z_min: v } })} dirty={d.z_min} />
+              <NumberField id="wv-zmax" name="z_max" label="Z max" value={config.working_volume.z_max} onChange={(v) => commit({ ...config, working_volume: { ...config.working_volume, z_max: v } })} dirty={d.z_max} />
             </div>
           </div>
 
@@ -282,6 +294,8 @@ export default function GantryEditor({
               {GRBL_BOOLEAN_FIELDS.map(({ key, label }) => (
                 <OptionalBooleanField
                   key={key}
+                  id={`grbl-${key}`}
+                  name={key}
                   label={label}
                   value={config.grbl_settings?.[key] as boolean | null | undefined}
                   onChange={(v) => updateGrblSetting(key, v)}
@@ -291,6 +305,8 @@ export default function GantryEditor({
               {GRBL_NUMBER_FIELDS.map(({ key, label }) => (
                 <OptionalNumberField
                   key={key}
+                  id={`grbl-${key}`}
+                  name={key}
                   label={label}
                   value={config.grbl_settings?.[key] as number | null | undefined}
                   onChange={(v) => updateGrblSetting(key, v)}
@@ -328,6 +344,8 @@ export default function GantryEditor({
 
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                     <TextField
+                      id={`${key}-type`}
+                      name={`${key}_type`}
                       label="Type"
                       value={inst.type}
                       onChange={(v) => updateInstrument(key, { ...inst, type: v })}
@@ -336,6 +354,8 @@ export default function GantryEditor({
                     />
                     {vendors.length > 0 ? (
                       <SelectField
+                        id={`${key}-vendor`}
+                        name={`${key}_vendor`}
                         label="Vendor"
                         value={inst.vendor}
                         options={vendors.map((v) => ({ value: v, label: v }))}
@@ -345,6 +365,8 @@ export default function GantryEditor({
                       />
                     ) : (
                       <TextField
+                        id={`${key}-vendor`}
+                        name={`${key}_vendor`}
                         label="Vendor"
                         value={inst.vendor}
                         onChange={(v) => updateInstrument(key, { ...inst, vendor: v })}
@@ -352,11 +374,11 @@ export default function GantryEditor({
                         required
                       />
                     )}
-                    <NumberField label="Offset X" value={inst.offset_x} onChange={(v) => updateInstrument(key, { ...inst, offset_x: v })} dirty={isInstrumentFieldDirty(baseline, key, "offset_x", inst.offset_x)} />
-                    <NumberField label="Offset Y" value={inst.offset_y} onChange={(v) => updateInstrument(key, { ...inst, offset_y: v })} dirty={isInstrumentFieldDirty(baseline, key, "offset_y", inst.offset_y)} />
-                    <NumberField label="Depth" value={Number(inst.depth ?? 0)} onChange={(v) => updateInstrument(key, { ...inst, depth: v })} dirty={isInstrumentFieldDirty(baseline, key, "depth", inst.depth)} />
-                    <NumberField label="Measurement height" value={Number(inst.measurement_height ?? 0)} onChange={(v) => updateInstrument(key, { ...inst, measurement_height: v })} dirty={isInstrumentFieldDirty(baseline, key, "measurement_height", inst.measurement_height)} />
-                    <NumberField label="Safe approach" value={Number(inst.safe_approach_height ?? inst.measurement_height ?? 0)} onChange={(v) => updateInstrument(key, { ...inst, safe_approach_height: v })} dirty={isInstrumentFieldDirty(baseline, key, "safe_approach_height", inst.safe_approach_height)} />
+                    <NumberField id={`${key}-offset-x`} name={`${key}_offset_x`} label="Offset X" value={inst.offset_x} onChange={(v) => updateInstrument(key, { ...inst, offset_x: v })} dirty={isInstrumentFieldDirty(baseline, key, "offset_x", inst.offset_x)} />
+                    <NumberField id={`${key}-offset-y`} name={`${key}_offset_y`} label="Offset Y" value={inst.offset_y} onChange={(v) => updateInstrument(key, { ...inst, offset_y: v })} dirty={isInstrumentFieldDirty(baseline, key, "offset_y", inst.offset_y)} />
+                    <NumberField id={`${key}-depth`} name={`${key}_depth`} label="Depth" value={Number(inst.depth ?? 0)} onChange={(v) => updateInstrument(key, { ...inst, depth: v })} dirty={isInstrumentFieldDirty(baseline, key, "depth", inst.depth)} />
+                    <NumberField id={`${key}-measurement-height`} name={`${key}_measurement_height`} label="Measurement height" value={Number(inst.measurement_height ?? 0)} onChange={(v) => updateInstrument(key, { ...inst, measurement_height: v })} dirty={isInstrumentFieldDirty(baseline, key, "measurement_height", inst.measurement_height)} />
+                    <NumberField id={`${key}-safe-approach`} name={`${key}_safe_approach`} label="Safe approach" value={Number(inst.safe_approach_height ?? inst.measurement_height ?? 0)} onChange={(v) => updateInstrument(key, { ...inst, safe_approach_height: v })} dirty={isInstrumentFieldDirty(baseline, key, "safe_approach_height", inst.safe_approach_height)} />
                   </div>
 
                   {fields.length > 0 && (
@@ -368,6 +390,8 @@ export default function GantryEditor({
                           return (
                             <SelectField
                               key={field.name}
+                              id={`${key}-${field.name}`}
+                              name={`${key}_${field.name}`}
                               label={fieldLabel(field.name) + (field.required ? " *" : "")}
                               value={String(value ?? field.default ?? "")}
                               options={field.choices.map((c) => ({ value: c, label: c }))}
@@ -380,6 +404,8 @@ export default function GantryEditor({
                           return (
                             <SelectField
                               key={field.name}
+                              id={`${key}-${field.name}`}
+                              name={`${key}_${field.name}`}
                               label={fieldLabel(field.name) + (field.required ? " *" : "")}
                               value={String(value ?? field.default ?? false)}
                               options={[{ value: "true", label: "true" }, { value: "false", label: "false" }]}
@@ -392,6 +418,8 @@ export default function GantryEditor({
                           return (
                             <NumberField
                               key={field.name}
+                              id={`${key}-${field.name}`}
+                              name={`${key}_${field.name}`}
                               label={fieldLabel(field.name) + (field.required ? " *" : "")}
                               value={Number(value ?? field.default ?? 0)}
                               onChange={(v) => updateInstrument(key, { ...inst, [field.name]: v })}
@@ -402,6 +430,8 @@ export default function GantryEditor({
                         return (
                           <TextField
                             key={field.name}
+                            id={`${key}-${field.name}`}
+                            name={`${key}_${field.name}`}
                             label={fieldLabel(field.name) + (field.required ? " *" : "")}
                             value={String(value ?? field.default ?? "")}
                             onChange={(v) => updateInstrument(key, { ...inst, [field.name]: v })}
@@ -469,6 +499,8 @@ function fieldLabel(name: string): string {
 }
 
 function SelectField({
+  id,
+  name,
   label,
   value,
   options,
@@ -476,6 +508,8 @@ function SelectField({
   dirty,
   required,
 }: {
+  id?: string;
+  name?: string;
   label: string;
   value: string;
   options: Array<{ value: string; label: string }>;
@@ -490,7 +524,7 @@ function SelectField({
         {required && <span style={{ color: "#dc2626" }}> *</span>}
         {dirty && <DirtyMarker />}
       </span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} style={selectStyle}>
+      <select id={id} name={name} value={value} onChange={(e) => onChange(e.target.value)} style={selectStyle}>
         {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
     </label>
@@ -498,11 +532,15 @@ function SelectField({
 }
 
 function OptionalNumberField({
+  id,
+  name,
   label,
   value,
   onChange,
   dirty,
 }: {
+  id?: string;
+  name?: string;
   label: string;
   value: number | null | undefined;
   onChange: (value: number | null) => void;
@@ -512,6 +550,8 @@ function OptionalNumberField({
     <div style={{ display: "flex", alignItems: "end", gap: 4 }}>
       <div style={{ flex: 1 }}>
         <NumberField
+          id={id}
+          name={name}
           label={label}
           value={Number(value ?? 0)}
           onChange={(v) => onChange(v)}
@@ -524,11 +564,15 @@ function OptionalNumberField({
 }
 
 function OptionalBooleanField({
+  id,
+  name,
   label,
   value,
   onChange,
   dirty,
 }: {
+  id?: string;
+  name?: string;
   label: string;
   value: boolean | null | undefined;
   onChange: (value: boolean | null) => void;
@@ -541,6 +585,8 @@ function OptionalBooleanField({
         {dirty && <DirtyMarker />}
       </span>
       <select
+        id={id}
+        name={name}
         value={value == null ? "" : value ? "true" : "false"}
         onChange={(e) => {
           if (e.target.value === "") onChange(null);

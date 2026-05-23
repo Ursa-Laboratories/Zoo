@@ -21,6 +21,7 @@ export default function GantryPositionWidget({
   onSaveCalibrated,
 }: Props) {
   const [loading, setLoading] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [jogBusy, setJogBusy] = useState(false);
   const [calibrationOpen, setCalibrationOpen] = useState(false);
   const [stepXY, setStepXY] = useState("0.5");
@@ -116,20 +117,22 @@ export default function GantryPositionWidget({
   const handleConnect = async () => {
     if (!gantryFile) return;
     setLoading(true);
+    setConnectionError(null);
     try {
       await gantryApi.connect(gantryFile);
     } catch (e) {
-      alert(`Connection failed: ${e}`);
+      setConnectionError(`Connection failed: ${e}`);
     }
     setLoading(false);
   };
 
   const handleDisconnect = async () => {
     setLoading(true);
+    setConnectionError(null);
     try {
       await gantryApi.disconnect();
     } catch (e) {
-      alert(`Disconnect failed: ${e}`);
+      setConnectionError(`Disconnect failed: ${e}`);
     }
     setLoading(false);
   };
@@ -504,13 +507,16 @@ export default function GantryPositionWidget({
           {connected ? (isAlarm ? "Alarm" : "Connected") : "Not connected"}
         </span>
         {!connected ? (
-          <button onClick={handleConnect} disabled={loading || !configSelected} style={btnStyle}>
-            {!configSelected ? "Select config first" : loading ? "Scanning..." : "Connect"}
+          <button onClick={handleConnect} disabled={loading || !configSelected} style={buttonStateStyle(btnStyle, loading || !configSelected)}>
+            {!configSelected ? "Select config first" : loading ? "Connecting..." : "Connect"}
           </button>
         ) : (
-          <button onClick={handleDisconnect} disabled={loading} style={btnStyle}>
-            {loading ? "..." : "Disconnect"}
+          <button onClick={handleDisconnect} disabled={loading} style={buttonStateStyle(btnStyle, loading)}>
+            {loading ? "Disconnecting..." : "Disconnect"}
           </button>
+        )}
+        {connectionError && (
+          <span style={{ color: "#dc2626", fontSize: 11, marginLeft: 8 }}>{connectionError}</span>
         )}
       </div>
 
