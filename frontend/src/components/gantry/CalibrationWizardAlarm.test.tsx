@@ -25,7 +25,8 @@ function gantryConfig(): GantryConfig {
     gantry_type: "cub_xl",
     cnc: {
       homing_strategy: "standard",
-      total_z_range: 110,
+      factory_z_travel_mm: 110,
+      calibration_block_height_mm: 35,
       y_axis_motion: "head",
       safe_z: 110,
     },

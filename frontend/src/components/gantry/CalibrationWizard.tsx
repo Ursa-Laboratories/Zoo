@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TouchEvent } from "react";
 import { gantryApi } from "../../api/client";
 import type { GantryConfig, GantryPosition, GantryResponse } from "../../types";
-import { buildCalibratedConfig, getCalculatedZRange } from "./calibrationMath";
+import {
+  buildCalibratedConfig,
+  calculateSingleInstrumentZCalibration,
+  getCalibrationBlockHeight,
+  getFactoryZTravel,
+  type ZCalibrationResult,
+} from "./calibrationMath";
 
 interface Props {
   open: boolean;
@@ -46,6 +52,8 @@ export default function CalibrationWizard({
   const [statusNote, setStatusNote] = useState<string | null>(null);
   const [xyOrigin, setXyOrigin] = useState<CapturedPosition | null>(null);
   const [zReference, setZReference] = useState<CapturedPosition | null>(null);
+  const [calibrationHome, setCalibrationHome] = useState<CapturedPosition | null>(null);
+  const [zCalibration, setZCalibration] = useState<ZCalibrationResult | null>(null);
   const [xyBounds, setXyBounds] = useState<CapturedPosition | null>(null);
   const [centerPosition, setCenterPosition] = useState<CapturedPosition | null>(null);
   const [measuredVolume, setMeasuredVolume] = useState<CapturedPosition | null>(null);
@@ -82,7 +90,7 @@ export default function CalibrationWizard({
     [instruments, selectedLowest, selectedReference],
   );
   const nextInstrumentToRecord = instrumentSequence.find((name) => !instrumentPositions[name]) ?? null;
-  const readyForSave = !!zReference && (!isMulti || allInstrumentPositionsReady(instruments, instrumentPositions, selectedReference, selectedLowest));
+  const readyForSave = !!zReference && !!zCalibration && (!isMulti || allInstrumentPositionsReady(instruments, instrumentPositions, selectedReference, selectedLowest));
   const controlsLocked = busy || !!alarmRecoveryMessage;
 
   useEffect(() => {
@@ -95,6 +103,8 @@ export default function CalibrationWizard({
     setStatusNote(null);
     setXyOrigin(null);
     setZReference(null);
+    setCalibrationHome(null);
+    setZCalibration(null);
     setXyBounds(null);
     setCenterPosition(null);
     setMeasuredVolume(null);
@@ -102,11 +112,12 @@ export default function CalibrationWizard({
     setOutputFile(defaultOutputFilename(filename));
     setReferenceInstrument(instruments[0] ?? "");
     setLowestInstrument(instruments[0] ?? "");
+    setBlockHeight(formatOptionalNumber(config?.cnc.calibration_block_height_mm));
     setSaved(false);
     setResolvedAlarmStatus(null);
     lastJogDelta.current = null;
     recoveryAttemptKey.current = null;
-  }, [filename, instruments, open]);
+  }, [config?.cnc.calibration_block_height_mm, filename, instruments, open]);
 
   const stopJog = useCallback(() => {
     if (jogTimer.current) {
@@ -271,7 +282,9 @@ export default function CalibrationWizard({
       await gantryApi.connect(filename);
     }
     const result = await gantryApi.prepareCalibrationOrigin();
-    setStatusNote(formatCaptured("Homed and ready to set origin", requirePosition(result)));
+    const homed = requirePosition(result);
+    setCalibrationHome(homed);
+    setStatusNote(formatCaptured("Homed and ready to set origin", homed));
     setStep(2);
   });
 
@@ -306,16 +319,24 @@ export default function CalibrationWizard({
       ? `Setting Z reference with ${selectedLowest} and retracting Z`
       : "Setting Z reference",
     async () => {
-    const height = parsePositive(blockHeight, "Calibration block height");
-    const zReferenceValue = isMulti
-      ? height
-      : roundMm(requirePosition(await gantryApi.getPosition()).z);
-    if (!isMulti && zReferenceValue <= 0) {
-      throw new Error("Block-touch WPos Z must be positive to place the lower reachable Z at WPos 0.");
-    }
+    if (!config) throw new Error("No gantry config is loaded.");
+    const height = getCalibrationBlockHeight(config);
+    const factoryZTravel = getFactoryZTravel(config);
+    const blockTouch = requirePosition(await gantryApi.getPosition());
+    const homeZ = isMulti
+      ? requireCaptured(xyBounds, "Homed XY bounds")
+      : requireCaptured(calibrationHome, "Home position");
+    const calibration = calculateSingleInstrumentZCalibration({
+      homeZ,
+      blockTouchZ: blockTouch.z,
+      blockHeight: height,
+      factoryZTravel,
+    });
+    const zReferenceValue = height;
     const result = await gantryApi.setWorkCoordinates({ z: zReferenceValue });
     const captured = requirePosition(result);
     setZReference(captured);
+    setZCalibration(calibration);
     if (isMulti && selectedLowest) {
       setInstrumentPositions((prev) => ({ ...prev, [selectedLowest]: captured }));
       const recovered = await jogBlockingWithRecovery({ x: 0, y: 0, z: 15 }, 15);
@@ -325,8 +346,9 @@ export default function CalibrationWizard({
           : formatCaptured(`Recorded ${selectedLowest} and retracted Z`, captured),
       );
     } else {
-      const inferredLowerReach = roundMm(height - captured.z);
-      setStatusNote(`${formatCaptured("Z reference set", captured)}; inferred lowest reachable height above deck=${inferredLowerReach.toFixed(3)} mm.`);
+      setStatusNote(
+        `${formatCaptured("Z reference set", captured)}; home-to-block travel=${calibration.homeToBlockTravel.toFixed(3)} mm; z min=${calibration.zMin.toFixed(3)} mm; expected home Z=${calibration.zMax.toFixed(3)} mm.`,
+      );
     }
     setStep(isMulti ? 4 : 3);
   });
@@ -353,13 +375,20 @@ export default function CalibrationWizard({
     const result = await gantryApi.home();
     const captured = requirePosition(result);
     setMeasuredVolume(captured);
-    const calculatedZRange = getCalculatedZRange(config);
-    const zMin = 0;
-    const zMax = roundMm(zMin + calculatedZRange);
+    const initialZCalibration = requireZCalibration(zCalibration);
+    const finalZCalibration = calculateSingleInstrumentZCalibration({
+      homeZ: initialZCalibration.homeZ,
+      blockTouchZ: initialZCalibration.blockTouchZ,
+      blockHeight: initialZCalibration.blockHeight,
+      factoryZTravel: initialZCalibration.factoryZTravel,
+      homedZ: captured.z,
+    });
+    const zMin = finalZCalibration.zMin;
+    const zMax = finalZCalibration.zMax;
     const maxTravel = {
       x: roundMm(captured.x),
       y: roundMm(captured.y),
-      z: roundMm(calculatedZRange),
+      z: finalZCalibration.maxTravelZ,
     };
     if (maxTravel.x <= 0 || maxTravel.y <= 0 || maxTravel.z <= 0) {
       throw new Error("Measured travel spans must be positive.");
@@ -560,9 +589,9 @@ export default function CalibrationWizard({
                         <span style={labelStyle}>Calibration block height mm</span>
                         <input
                           value={blockHeight}
-                          onChange={(event) => setBlockHeight(event.target.value)}
-                          disabled={controlsLocked}
-                          style={buttonStateStyle(inputStyle, controlsLocked)}
+                          readOnly
+                          disabled
+                          style={buttonStateStyle(inputStyle, true)}
                           inputMode="decimal"
                         />
                       </label>
@@ -612,9 +641,9 @@ export default function CalibrationWizard({
                     <span style={labelStyle}>Calibration block height mm</span>
                     <input
                       value={blockHeight}
-                      onChange={(event) => setBlockHeight(event.target.value)}
-                      disabled={controlsLocked}
-                      style={buttonStateStyle(inputStyle, controlsLocked)}
+                      readOnly
+                      disabled
+                      style={buttonStateStyle(inputStyle, true)}
                       inputMode="decimal"
                     />
                   </label>
@@ -701,7 +730,7 @@ export default function CalibrationWizard({
               <div>
                 <h3 style={sectionTitleStyle}>Measure And Save</h3>
                 <p style={instructionStyle}>
-                  The next action re-homes, captures calibrated X/Y maxima, uses the calculated Z range, optionally programs GRBL soft-limit spans, and writes the calibrated YAML.
+                  The next action re-homes, captures calibrated X/Y/Z maxima, optionally programs GRBL soft-limit spans, and writes the calibrated YAML.
                 </p>
                 {measuredVolume && (
                   <div style={summaryGridStyle}>
@@ -846,6 +875,20 @@ function requirePosition(position: GantryPosition): CapturedPosition {
   };
 }
 
+function requireCaptured(value: CapturedPosition | null, label: string): number {
+  if (!value || !Number.isFinite(value.z)) {
+    throw new Error(`${label} is not available. Home the gantry before recording the block touch.`);
+  }
+  return value.z;
+}
+
+function requireZCalibration(value: ZCalibrationResult | null): ZCalibrationResult {
+  if (!value) {
+    throw new Error("Z calibration is not available. Set the Z reference before saving.");
+  }
+  return value;
+}
+
 function capturedFromPlain(position: { x: number; y: number; z: number }): CapturedPosition {
   return {
     x: Number(position.x),
@@ -854,12 +897,8 @@ function capturedFromPlain(position: { x: number; y: number; z: number }): Captu
   };
 }
 
-function parsePositive(raw: string, label: string): number {
-  const value = Number(raw);
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new Error(`${label} must be a positive number.`);
-  }
-  return value;
+function formatOptionalNumber(value: number | null | undefined): string {
+  return value == null ? "" : String(value);
 }
 
 function roundMm(value: number): number {
@@ -873,7 +912,7 @@ function formatCaptured(label: string, position: CapturedPosition): string {
 function safeZRange(config: GantryConfig | null): string {
   if (!config) return "Unavailable";
   try {
-    return getCalculatedZRange(config).toFixed(3);
+    return getFactoryZTravel(config).toFixed(3);
   } catch {
     return "Invalid config";
   }

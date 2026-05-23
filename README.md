@@ -30,7 +30,7 @@ See also:
 
 - The Gantry Control panel includes a `Calibrate` wizard after a gantry YAML is loaded.
 - The wizard is a serial, one-way workflow. Single-instrument: prepare/home with soft limits disabled, jog to set XY origin (soft limits restored on confirm), jog to the calibration block to capture Z from live WPos, then re-home to measure X/Y bounds and save. Multi-instrument: prepare/home, jog XY origin, re-home to capture XY bounds and move to deck center, jog the lowest instrument to the block to set Z, record each remaining instrument at the same point, then save.
-- Calibration preserves the input gantry YAML's seeded `cnc.total_z_range`; Zoo uses that calculated Z range for `working_volume.z_max` and GRBL `max_travel_z` instead of rewriting the range from homed readback.
+- Calibration preserves `cnc.factory_z_travel_mm` as the out-of-box Z travel safety bound. Zoo uses `cnc.calibration_block_height_mm`, the recorded home-to-block travel, and the final homed readback to write `working_volume.z_min`, `working_volume.z_max`, and GRBL `max_travel_z`.
 - Multi-instrument gantries add a tool-recording step that writes instrument `offset_x`, `offset_y`, and `depth` values from a shared block point.
 - The multi-instrument path automatically re-homes after XY origining, captures XY travel bounds, moves to deck center, and retracts Z after each tool record while controls are locked.
 - If a calibration jog or automatic blocking retract triggers a GRBL alarm, the wizard stops jog repeats, locks calibration controls, tells the operator a limit was hit, and calls CubOS limit recovery to soft-reset/unlock and pull off opposite the failed jog. Once recovery succeeds, Zoo clears the lock and reports that calibration can continue.

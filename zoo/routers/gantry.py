@@ -202,25 +202,27 @@ def _normalize_gantry_yaml(data: Dict[str, Any]) -> Dict[str, Any]:
     gantry_fields = _gantry_schema_fields()
     cnc_fields = _cnc_schema_fields()
     working_volume = dict(normalized.get("working_volume") or {})
+    z_min = _float_or(working_volume.get("z_min"), 0.0)
     z_max = _float_or(working_volume.get("z_max"), 80.0)
     if z_max <= 0:
         z_max = 80.0
+    z_span = max(z_max - z_min, 0.0)
 
     cnc = dict(normalized.get("cnc") or {})
     cnc["homing_strategy"] = "standard"
     if cnc.get("y_axis_motion") not in {"head", "bed"}:
         cnc["y_axis_motion"] = "head"
 
-    total_z = max(
-        _float_or(cnc.get("total_z_range", cnc.get("total_z_height")), z_max),
-        z_max,
+    factory_z_travel = max(
+        _float_or(cnc.get("factory_z_travel_mm", cnc.get("total_z_height")), z_span),
+        z_span,
     )
-    if "total_z_range" in cnc_fields:
-        cnc["total_z_range"] = total_z
+    if "factory_z_travel_mm" in cnc_fields:
+        cnc["factory_z_travel_mm"] = factory_z_travel
     if "total_z_height" in cnc_fields:
-        cnc["total_z_height"] = total_z
+        cnc["total_z_height"] = factory_z_travel
     if "structure_clearance_z" in cnc_fields and cnc.get("structure_clearance_z") is None:
-        cnc["structure_clearance_z"] = total_z
+        cnc["structure_clearance_z"] = factory_z_travel
     if cnc_fields:
         for key in list(cnc):
             if key not in cnc_fields:

@@ -343,9 +343,45 @@ def test_get_gantry_normalizes_legacy_config_for_editing(monkeypatch, tmp_path):
     assert response.status_code == 200
     config = response.json()["config"]
     assert config["cnc"]["homing_strategy"] == "standard"
-    assert config["cnc"]["total_z_range"] == 80.0
+    assert config["cnc"]["factory_z_travel_mm"] == 80.0
     assert config["gantry_type"] == "cub"
     assert config["instruments"] == {}
+
+def test_get_gantry_preserves_factory_z_travel_for_offset_z_bounds(monkeypatch, tmp_path):
+    from zoo.config import get_settings
+    from zoo.services.yaml_io import write_yaml
+
+    config_dir = tmp_path / "configs"
+    gantry_dir = config_dir / "gantry"
+    gantry_dir.mkdir(parents=True)
+    write_yaml(
+        gantry_dir / "scenario-b.yaml",
+        {
+            "serial_port": "",
+            "gantry_type": "cub_xl",
+            "cnc": {
+                "homing_strategy": "standard",
+                "factory_z_travel_mm": 110.0,
+                "calibration_block_height_mm": 35.0,
+            },
+            "working_volume": {
+                "x_min": 0.0,
+                "x_max": 300.0,
+                "y_min": 0.0,
+                "y_max": 200.0,
+                "z_min": 25.0,
+                "z_max": 135.0,
+            },
+        },
+    )
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+
+    response = api_request(create_app(), "GET", "/api/gantry/scenario-b.yaml")
+
+    assert response.status_code == 200
+    config = response.json()["config"]
+    assert config["cnc"]["factory_z_travel_mm"] == 110.0
+    assert config["working_volume"]["z_max"] == 135.0
 
 
 def test_move_to_blocking_allows_targets_inside_working_volume(monkeypatch):

@@ -58,7 +58,7 @@ function createState(): ApiState {
           gantry_type: "cub_xl",
           cnc: {
             homing_strategy: "standard",
-            total_z_range: 80,
+            factory_z_travel_mm: 80,
             y_axis_motion: "head",
             safe_z: 80,
           },
