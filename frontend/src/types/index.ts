@@ -231,20 +231,22 @@ export interface GantryPosition {
   move_error?: string | null;
 }
 
+export interface ZCalibrationSummary {
+  block_height: number;
+  total_z_range: number;
+  home_z: number;
+  block_touch_z: number;
+  home_to_block_travel: number;
+  remaining_below_block: number;
+  can_reach_deck_bottom: boolean;
+  z_min: number;
+  z_max: number;
+  max_travel_z: number;
+}
+
 export interface FinalizeOriginResponse {
   measured_volume: Coordinate3D;
-  z_calibration: {
-    block_height: number;
-    total_z_range: number;
-    home_z: number;
-    block_touch_z: number;
-    home_to_block_travel: number;
-    remaining_below_block: number;
-    can_reach_deck_bottom: boolean;
-    z_min: number;
-    z_max: number;
-    max_travel_z: number;
-  };
+  z_calibration: ZCalibrationSummary;
   max_travel: Coordinate3D;
   position: Coordinate3D;
   homing_pull_off_mm?: number | null;

@@ -272,6 +272,17 @@ export default function CalibrationWizard({
   // Step 0 → 1: just navigate, no hardware action yet.
   const goToHome = () => {
     if (!filename || instruments.length === 0) return;
+    if (isMulti && config) {
+      try {
+        getConfiguredHomingPullOff(config);
+      } catch (err) {
+        setError(
+          `Multi-instrument calibration requires grbl_settings.homing_pull_off in the gantry YAML. ` +
+          `Edit the config and save before calibrating. (${errorMessage(err)})`,
+        );
+        return;
+      }
+    }
     setStatusNote(null);
     setStep(1);
   };
@@ -331,8 +342,10 @@ export default function CalibrationWizard({
     if (!config) throw new Error("No gantry config is loaded.");
     const height = parseBlockHeight(blockHeight);
     const blockTouch = requirePosition(await gantryApi.getPosition());
-    await gantryApi.restoreCalibrationSoftLimits();
+    // Set WPos before restoring soft limits: if setWorkCoordinates fails, soft
+    // limits stay disabled so the operator can still jog freely and retry.
     const result = await gantryApi.setWorkCoordinates({ x: 0, y: 0, z: height });
+    await gantryApi.restoreCalibrationSoftLimits();
     const captured = requirePosition(result);
     setBlockTouch(blockTouch);
     setZReference(captured);
@@ -1001,7 +1014,8 @@ function safeZRange(config: GantryConfig | null): string {
   if (!config) return "Unavailable";
   try {
     return getFactoryZTravel(config).toFixed(3);
-  } catch {
+  } catch (e) {
+    console.error("safeZRange: factory_z_travel_mm is invalid — save will also fail:", e);
     return "Invalid config";
   }
 }

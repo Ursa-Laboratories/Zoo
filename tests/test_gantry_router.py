@@ -1038,6 +1038,112 @@ def test_calibration_limit_recovery_returns_409_when_cubos_cannot_verify_status(
     assert "could not verify" in response.text
 
 
+def test_calibration_limit_recovery_returns_500_for_non_alarm_errors(monkeypatch):
+    mock_gantry = MagicMock()
+
+    def fake_recover(*args, **kwargs):
+        raise RuntimeError("serial port timed out")
+
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(gantry_router, "recover_from_limit_alarm", fake_recover)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/calibration/recover-limit",
+        json={"x": 1, "y": 0, "z": 0},
+    )
+
+    assert response.status_code == 500
+    assert "serial port timed out" in response.text
+
+
+def test_prepare_calibration_origin_returns_400_for_non_numeric_homing_pull_off(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.soft_limits_enabled.return_value = False
+    mock_gantry.get_position_info.return_value = idle_position_info()
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(
+        gantry_router,
+        "_connected_gantry_config",
+        {"grbl_settings": {"homing_pull_off": "not_a_number"}},
+    )
+
+    response = api_request(create_app(), "POST", "/api/gantry/calibration/prepare-origin")
+
+    assert response.status_code == 400
+    assert "homing_pull_off" in response.text
+    mock_gantry.home.assert_not_called()
+
+
+def test_prepare_calibration_origin_returns_400_for_negative_homing_pull_off(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.soft_limits_enabled.return_value = False
+    mock_gantry.get_position_info.return_value = idle_position_info()
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(
+        gantry_router,
+        "_connected_gantry_config",
+        {"grbl_settings": {"homing_pull_off": -5.0}},
+    )
+
+    response = api_request(create_app(), "POST", "/api/gantry/calibration/prepare-origin")
+
+    assert response.status_code == 400
+    assert "non-negative" in response.text
+    mock_gantry.home.assert_not_called()
+
+
+def test_put_gantry_persists_calibration_block_height_mm(monkeypatch, tmp_path):
+    from zoo.config import get_settings
+    from zoo.services.yaml_io import write_yaml, read_yaml
+
+    config_dir = tmp_path / "configs"
+    gantry_dir = config_dir / "gantry"
+    gantry_dir.mkdir(parents=True)
+    write_yaml(
+        gantry_dir / "test.yaml",
+        {
+            "serial_port": "",
+            "gantry_type": "cub_xl",
+            "cnc": {"homing_strategy": "standard", "factory_z_travel_mm": 110.0},
+            "working_volume": {
+                "x_min": 0.0, "x_max": 300.0,
+                "y_min": 0.0, "y_max": 200.0,
+                "z_min": 0.0, "z_max": 80.0,
+            },
+            "instruments": {},
+        },
+    )
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+
+    response = api_request(
+        create_app(),
+        "PUT",
+        "/api/gantry/test.yaml",
+        json={
+            "serial_port": "",
+            "gantry_type": "cub_xl",
+            "cnc": {
+                "homing_strategy": "standard",
+                "factory_z_travel_mm": 110.0,
+                "calibration_block_height_mm": 36.25,
+            },
+            "working_volume": {
+                "x_min": 0.0, "x_max": 300.0,
+                "y_min": 0.0, "y_max": 200.0,
+                "z_min": 0.0, "z_max": 80.0,
+            },
+            "instruments": {},
+        },
+    )
+
+    assert response.status_code == 200
+    saved = read_yaml(gantry_dir / "test.yaml")
+    assert saved["cnc"]["calibration_block_height_mm"] == 36.25
+    assert response.json()["config"]["cnc"]["calibration_block_height_mm"] == 36.25
+
+
 def test_unlock_delegates_to_gantry(monkeypatch):
     mock_gantry = MagicMock()
     mock_gantry.get_position_info.return_value = idle_position_info()

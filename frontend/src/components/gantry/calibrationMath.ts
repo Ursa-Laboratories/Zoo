@@ -42,11 +42,15 @@ export function getCalculatedZRange(config: GantryConfig): number {
 export function getConfiguredHomingPullOff(config: GantryConfig): number {
   const raw = config.grbl_settings?.homing_pull_off;
   if (raw == null) {
-    throw new Error("Gantry config must define a non-negative grbl_settings.homing_pull_off before calibration.");
+    throw new Error(
+      "grbl_settings.homing_pull_off is not set. Add a non-negative value to the gantry YAML and save before calibrating.",
+    );
   }
   const value = Number(raw);
   if (!Number.isFinite(value) || value < 0) {
-    throw new Error("Gantry config must define a non-negative grbl_settings.homing_pull_off before calibration.");
+    throw new Error(
+      `grbl_settings.homing_pull_off must be a non-negative finite number (got ${raw}). Fix the gantry YAML and save.`,
+    );
   }
   return roundMm(value);
 }

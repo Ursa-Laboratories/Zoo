@@ -121,6 +121,88 @@ describe("calculateSingleInstrumentZCalibration", () => {
       maxTravelZ: 110,
     });
   });
+
+  it("estimates zMax from travel when homedZ is omitted", () => {
+    const result = calculateSingleInstrumentZCalibration({
+      homeZ: 110,
+      blockTouchZ: 60,
+      blockHeight: 35,
+      factoryZTravel: 110,
+    });
+    // homeToBlockTravel = 110 - 60 = 50; estimated zMax = 50 + 35 = 85
+    expect(result.homeToBlockTravel).toBe(50);
+    expect(result.zMax).toBe(85);
+    expect(result.zMin).toBe(0);
+    expect(result.maxTravelZ).toBe(85);
+  });
+
+  it("throws when blockTouchZ is at or above homeZ", () => {
+    expect(() => calculateSingleInstrumentZCalibration({
+      homeZ: 50,
+      blockTouchZ: 55,
+      blockHeight: 35,
+      factoryZTravel: 110,
+    })).toThrow("Block touch Z must be below");
+  });
+
+  it("throws when blockTouchZ equals homeZ", () => {
+    expect(() => calculateSingleInstrumentZCalibration({
+      homeZ: 110,
+      blockTouchZ: 110,
+      blockHeight: 35,
+      factoryZTravel: 110,
+    })).toThrow("Block touch Z must be below");
+  });
+
+  it("throws when home-to-block travel exceeds factory Z travel", () => {
+    expect(() => calculateSingleInstrumentZCalibration({
+      homeZ: 110,
+      blockTouchZ: 0,
+      blockHeight: 35,
+      factoryZTravel: 80,
+    })).toThrow("exceeds the configured factory Z travel");
+  });
+
+  it("throws when any input is non-finite", () => {
+    expect(() => calculateSingleInstrumentZCalibration({
+      homeZ: NaN,
+      blockTouchZ: 60,
+      blockHeight: 35,
+      factoryZTravel: 110,
+    })).toThrow("must be a finite number");
+
+    expect(() => calculateSingleInstrumentZCalibration({
+      homeZ: 110,
+      blockTouchZ: Infinity,
+      blockHeight: 35,
+      factoryZTravel: 110,
+    })).toThrow("must be a finite number");
+  });
+
+  it("throws when blockHeight is zero or negative", () => {
+    expect(() => calculateSingleInstrumentZCalibration({
+      homeZ: 110,
+      blockTouchZ: 60,
+      blockHeight: 0,
+      factoryZTravel: 110,
+    })).toThrow("Calibration block height must be positive");
+
+    expect(() => calculateSingleInstrumentZCalibration({
+      homeZ: 110,
+      blockTouchZ: 60,
+      blockHeight: -5,
+      factoryZTravel: 110,
+    })).toThrow("Calibration block height must be positive");
+  });
+
+  it("throws when factoryZTravel is zero or negative", () => {
+    expect(() => calculateSingleInstrumentZCalibration({
+      homeZ: 110,
+      blockTouchZ: 60,
+      blockHeight: 35,
+      factoryZTravel: 0,
+    })).toThrow("Factory Z travel must be positive");
+  });
 });
 
 describe("buildCalibratedConfig", () => {

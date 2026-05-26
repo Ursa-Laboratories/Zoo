@@ -493,6 +493,45 @@ describe("Zoo editor interactions", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Gantry calibration" })).not.toBeInTheDocument());
   });
 
+  it("shows an error when block height is empty and Continue is clicked", async () => {
+    const user = userEvent.setup();
+    installFetchMock(createState());
+    renderApp();
+    await waitForSettingsLoad();
+
+    await importConfig(user, "Import gantry config", "cubos.yaml");
+    await user.click(await screen.findByRole("button", { name: "Calibrate" }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: "Home gantry" }));
+
+    const blockHeight = await screen.findByLabelText("Block height (mm)");
+    await user.clear(blockHeight);
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByText("Enter a calibration block height before continuing.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Set origin and continue" })).not.toBeInTheDocument();
+  });
+
+  it("shows an error when block height is zero or negative and Continue is clicked", async () => {
+    const user = userEvent.setup();
+    installFetchMock(createState());
+    renderApp();
+    await waitForSettingsLoad();
+
+    await importConfig(user, "Import gantry config", "cubos.yaml");
+    await user.click(await screen.findByRole("button", { name: "Calibrate" }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: "Home gantry" }));
+
+    const blockHeight = await screen.findByLabelText("Block height (mm)");
+    await user.clear(blockHeight);
+    await user.type(blockHeight, "0");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByText("Calibration block height must be greater than 0.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Set origin and continue" })).not.toBeInTheDocument();
+  });
+
   it("loads and saves a protocol config across tab switches", async () => {
     const user = userEvent.setup();
     const state = createState();

@@ -40,8 +40,9 @@ _last_position: Optional[GantryPosition] = None
 # Non-blocking warning surfaced after connect when the controller settings do
 # not match the selected gantry YAML. The connection stays open for calibration.
 _calibration_warning: Optional[str] = None
-# Full selected gantry config loaded at connect time. The runtime Gantry gets a
-# copy without grbl_settings so initial connection can still reach calibration.
+# Full gantry config as loaded at connect time, including grbl_settings. Used to
+# read configured GRBL values (e.g. homing_pull_off) and refresh calibration
+# warnings after soft-limit changes.
 _connected_gantry_config: Optional[Dict[str, Any]] = None
 _connected_gantry_filename: Optional[str] = None
 # During calibration, stale soft-limit travel can prevent the operator from
@@ -53,7 +54,6 @@ _calibration_jog_bypass_working_volume = False
 # Primitive types that can be represented in YAML / JSON form fields.
 _PRIMITIVE_TYPES = {str, int, float, bool}
 
-# Base-class params rendered separately by the UI (offsets, depth, etc.).
 _BASE_PARAMS = {
     p for p in inspect.signature(BaseInstrument.__init__).parameters if p != "self"
 }
@@ -96,11 +96,13 @@ def _position_from_cache_with_status(status: str) -> GantryPosition:
             status=status,
             connected=True,
             calibration_warning=_calibration_warning,
+            move_error=_move_error,
         )
     return GantryPosition(
         connected=True,
         status=status,
         calibration_warning=_calibration_warning,
+        move_error=_move_error,
     )
 
 
@@ -343,7 +345,9 @@ def _connected_grbl_setting(field_name: str) -> Optional[float]:
 
 
 def _apply_calibration_grbl_baseline() -> tuple[float, Optional[float]]:
-    """Set controller reporting/pull-off settings before calibration homing."""
+    """Write $10=0 (WPos reporting) and $27 from configured homing_pull_off before
+    calibration homing, so homed positions are in the WPos frame and the pull-off
+    distance is consistent with the YAML."""
     if _gantry is None:
         raise HTTPException(400, "Gantry not connected")
     status_report = 0.0
@@ -605,6 +609,10 @@ def get_position() -> GantryPosition:
             return _position_from_cache_with_status(_alarm_status_from_error(exc))
         logging.error("Position query failed: %s", exc)
         if _last_position is not None:
+            # During calibration the frontend reads live position to compute Z math —
+            # returning stale coords silently would poison the calibration result.
+            if _calibration_jog_bypass_working_volume:
+                return _position_from_cache_with_status("Query failed")
             return _last_position
         return GantryPosition(connected=True, status="Query failed")
     finally:
@@ -894,6 +902,8 @@ def prepare_calibration_origin() -> GantryPosition:
                 _gantry.set_soft_limits_enabled(False)
                 _calibration_restore_soft_limits = True
             _calibration_jog_bypass_working_volume = True
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(500, f"Calibration preparation failed: {e}")
     return get_position()
@@ -997,7 +1007,15 @@ def finalize_calibration_origin(req: FinalizeOriginRequest) -> FinalizeOriginRes
                 connected=True,
                 calibration_warning=_calibration_warning,
             )
+        except HTTPException:
+            _calibration_restore_soft_limits = False
+            _calibration_jog_bypass_working_volume = False
+            raise
         except Exception as e:
+            _calibration_restore_soft_limits = False
+            _calibration_jog_bypass_working_volume = False
+            if _looks_like_alarm_error(e):
+                raise _alarm_http_exception("during calibration finalization")
             raise HTTPException(500, f"Calibration finalization failed: {e}")
     return FinalizeOriginResponse(
         measured_volume=measured_volume,
@@ -1026,7 +1044,7 @@ def recover_calibration_limit(req: LimitRecoveryRequest) -> LimitRecoveryRespons
                 output=messages.append,
             )
         except Exception as e:
-            logging.warning("Limit recovery failed: %s", e)
+            logging.error("Limit recovery failed: %s", e)
             if _looks_like_alarm_error(e):
                 raise HTTPException(
                     409,
@@ -1195,6 +1213,14 @@ def put_gantry(filename: str, body: dict) -> GantryResponse:
     path = resolve_config_path(get_settings().configs_dir, "gantry", filename)
     config = _validated_gantry_config(body)
     config_dict = config.model_dump(mode="json", exclude_none=True)
+    # calibration_block_height_mm is not in the CubOS CNC schema so it is stripped
+    # by _normalize_gantry_yaml. Preserve it from the incoming body so the editor
+    # field survives a save/reload cycle.
+    source_cnc = dict((body or {}).get("cnc") or {})
+    if "calibration_block_height_mm" in source_cnc:
+        config_dict.setdefault("cnc", {})["calibration_block_height_mm"] = source_cnc[
+            "calibration_block_height_mm"
+        ]
     write_yaml(path, config_dict)
     with _serial_lock:
         _refresh_connected_config(filename, config_dict)
