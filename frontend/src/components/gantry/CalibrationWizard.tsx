@@ -6,6 +6,7 @@ import {
   buildCalibratedConfig,
   calculateSingleInstrumentZCalibration,
   getCalibrationBlockHeight,
+  getConfiguredHomingPullOff,
   getFactoryZTravel,
   type ZCalibrationResult,
 } from "./calibrationMath";
@@ -419,6 +420,10 @@ export default function CalibrationWizard({
             ...config.cnc,
             calibration_block_height_mm: finalized.z_calibration.block_height,
           },
+          grbl_settings: {
+            ...(config.grbl_settings ?? {}),
+            homing_pull_off: finalized.homing_pull_off_mm ?? config.grbl_settings?.homing_pull_off,
+          },
         },
         measuredVolume,
         zMin: finalized.z_calibration.z_min,
@@ -453,10 +458,11 @@ export default function CalibrationWizard({
     });
     const zMin = finalZCalibration.zMin;
     const zMax = finalZCalibration.zMax;
+    const homingPullOff = getConfiguredHomingPullOff(config);
     const maxTravel = {
-      x: roundMm(captured.x),
-      y: roundMm(captured.y),
-      z: finalZCalibration.maxTravelZ,
+      x: roundMm(captured.x + homingPullOff),
+      y: roundMm(captured.y + homingPullOff),
+      z: roundMm(finalZCalibration.maxTravelZ + homingPullOff),
     };
     if (maxTravel.x <= 0 || maxTravel.y <= 0 || maxTravel.z <= 0) {
       throw new Error("Measured travel spans must be positive.");
@@ -465,9 +471,17 @@ export default function CalibrationWizard({
       max_travel_x: maxTravel.x,
       max_travel_y: maxTravel.y,
       max_travel_z: maxTravel.z,
+      status_report: 0,
+      homing_pull_off: homingPullOff,
     });
     await onSaveCalibrated(normalizedOutput, buildCalibratedConfig({
-      config: calibratedConfig,
+      config: {
+        ...calibratedConfig,
+        grbl_settings: {
+          ...(calibratedConfig.grbl_settings ?? {}),
+          homing_pull_off: homingPullOff,
+        },
+      },
       measuredVolume: captured,
       zMin,
       zMax,

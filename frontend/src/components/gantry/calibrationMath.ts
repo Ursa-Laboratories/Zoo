@@ -39,6 +39,18 @@ export function getCalculatedZRange(config: GantryConfig): number {
   return getFactoryZTravel(config);
 }
 
+export function getConfiguredHomingPullOff(config: GantryConfig): number {
+  const raw = config.grbl_settings?.homing_pull_off;
+  if (raw == null) {
+    throw new Error("Gantry config must define a non-negative grbl_settings.homing_pull_off before calibration.");
+  }
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error("Gantry config must define a non-negative grbl_settings.homing_pull_off before calibration.");
+  }
+  return roundMm(value);
+}
+
 export function calculateSingleInstrumentZCalibration({
   homeZ,
   blockTouchZ,

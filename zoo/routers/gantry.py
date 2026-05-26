@@ -312,6 +312,48 @@ def _refresh_connected_config(filename: str, config: Dict[str, Any]) -> None:
     _gantry.config = _runtime_connect_config(config)
 
 
+def _connected_grbl_setting(field_name: str) -> Optional[float]:
+    """Return a numeric GRBL setting from the connected gantry YAML."""
+    if _connected_gantry_config is None:
+        return None
+    settings = _connected_gantry_config.get("grbl_settings") or {}
+    if not isinstance(settings, dict):
+        return None
+    value = settings.get(field_name)
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            400,
+            f"Connected gantry grbl_settings.{field_name} must be numeric.",
+        ) from None
+    if not math.isfinite(numeric):
+        raise HTTPException(
+            400,
+            f"Connected gantry grbl_settings.{field_name} must be finite.",
+        )
+    if field_name == "homing_pull_off" and numeric < 0:
+        raise HTTPException(
+            400,
+            "Connected gantry grbl_settings.homing_pull_off must be non-negative.",
+        )
+    return numeric
+
+
+def _apply_calibration_grbl_baseline() -> tuple[float, Optional[float]]:
+    """Set controller reporting/pull-off settings before calibration homing."""
+    if _gantry is None:
+        raise HTTPException(400, "Gantry not connected")
+    status_report = 0.0
+    homing_pull_off = _connected_grbl_setting("homing_pull_off")
+    _gantry.set_grbl_setting("$10", status_report)
+    if homing_pull_off is not None:
+        _gantry.set_grbl_setting("$27", homing_pull_off)
+    return status_report, homing_pull_off
+
+
 def _calibration_mismatch_warning(
     gantry: Gantry,
     config: Dict[str, Any],
@@ -636,6 +678,8 @@ class ConfigureSoftLimitsRequest(BaseModel):
     max_travel_x: float
     max_travel_y: float
     max_travel_z: float
+    status_report: Optional[float] = None
+    homing_pull_off: Optional[float] = None
     tolerance_mm: float = 0.25
 
 
@@ -801,6 +845,8 @@ def configure_soft_limits(req: ConfigureSoftLimitsRequest) -> dict:
                 max_travel_x=req.max_travel_x,
                 max_travel_y=req.max_travel_y,
                 max_travel_z=req.max_travel_z,
+                status_report=req.status_report,
+                homing_pull_off=req.homing_pull_off,
                 tolerance_mm=req.tolerance_mm,
             )
             _calibration_restore_soft_limits = False
@@ -816,6 +862,10 @@ def configure_soft_limits(req: ConfigureSoftLimitsRequest) -> dict:
                     "max_travel_y": req.max_travel_y,
                     "max_travel_z": req.max_travel_z,
                 })
+                if req.status_report is not None:
+                    grbl_settings["status_report"] = req.status_report
+                if req.homing_pull_off is not None:
+                    grbl_settings["homing_pull_off"] = req.homing_pull_off
                 _connected_gantry_config["grbl_settings"] = grbl_settings
                 _calibration_warning = _calibration_mismatch_warning(
                     _gantry,
@@ -834,6 +884,7 @@ def prepare_calibration_origin() -> GantryPosition:
         raise HTTPException(400, "Gantry not connected")
     with _serial_lock:
         try:
+            _apply_calibration_grbl_baseline()
             _gantry.home()
             _gantry.enforce_work_position_reporting()
             _gantry.activate_work_coordinate_system("G54")
@@ -895,6 +946,8 @@ def finalize_calibration_origin(req: FinalizeOriginRequest) -> FinalizeOriginRes
                 block_touch_z=req.block_touch_z,
                 block_height=req.block_height,
                 total_z_range=req.factory_z_travel,
+                status_report=0,
+                homing_pull_off=_connected_grbl_setting("homing_pull_off"),
                 tolerance_mm=req.tolerance_mm,
             )
             max_travel = {
@@ -925,6 +978,9 @@ def finalize_calibration_origin(req: FinalizeOriginRequest) -> FinalizeOriginRes
                     "max_travel_y": max_travel["y"],
                     "max_travel_z": max_travel["z"],
                 })
+                grbl_settings["status_report"] = 0
+                if homing_pull_off_mm is not None:
+                    grbl_settings["homing_pull_off"] = homing_pull_off_mm
                 _connected_gantry_config["grbl_settings"] = grbl_settings
                 _calibration_warning = _calibration_mismatch_warning(
                     _gantry,

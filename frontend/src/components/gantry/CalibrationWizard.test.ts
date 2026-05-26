@@ -3,6 +3,7 @@ import {
   buildCalibratedConfig,
   calculateSingleInstrumentZCalibration,
   getCalibrationBlockHeight,
+  getConfiguredHomingPullOff,
   getFactoryZTravel,
 } from "./calibrationMath";
 import type { GantryConfig } from "../../types";
@@ -76,6 +77,13 @@ describe("factory Z calibration inputs", () => {
     const config = gantryConfig();
     delete (config.cnc as unknown as Record<string, unknown>).calibration_block_height_mm;
     expect(() => getCalibrationBlockHeight(config)).toThrow("cnc.calibration_block_height_mm");
+  });
+
+  it("requires an explicit homing pull-off for client-computed soft limits", () => {
+    const config = gantryConfig();
+    expect(() => getConfiguredHomingPullOff(config)).toThrow("grbl_settings.homing_pull_off");
+    config.grbl_settings = { ...config.grbl_settings, homing_pull_off: 10 };
+    expect(getConfiguredHomingPullOff(config)).toBe(10);
   });
 });
 
