@@ -306,3 +306,46 @@ def test_run_endpoint_holds_serial_lock_for_duration(monkeypatch, tmp_configs):
     assert ("run_lock_held", True) in observations
     # Lock released after the endpoint returns — no leak.
     assert gantry_router._serial_lock.locked() is False
+
+
+def test_run_endpoint_blocks_active_calibration_warning(monkeypatch, tmp_path):
+    from unittest.mock import MagicMock
+
+    from zoo.routers import gantry as gantry_router
+    from zoo.routers import protocol as protocol_router
+
+    for subdir in ("gantry", "deck", "protocol"):
+        (tmp_path / subdir).mkdir()
+
+    mock_gantry = MagicMock()
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(
+        gantry_router,
+        "_calibration_warning",
+        "Calibration needed: $20 expected 1, got 0",
+    )
+    monkeypatch.setattr(
+        protocol_router,
+        "get_settings",
+        lambda: type("S", (), {"configs_dir": tmp_path})(),
+    )
+    monkeypatch.setattr(
+        protocol_router,
+        "run_protocol",
+        lambda *_args, **_kwargs: pytest.fail("run_protocol should be blocked"),
+    )
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/protocol/run",
+        json={
+            "gantry_file": "gantry.yaml",
+            "deck_file": "deck.yaml",
+            "protocol_file": "protocol.yaml",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "calibration warning is active" in response.text
+    mock_gantry.is_healthy.assert_not_called()

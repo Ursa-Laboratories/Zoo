@@ -104,10 +104,39 @@ export const gantryApi = {
     request<import("../types").GantryPosition>("/gantry/calibration/restore-soft-limits", {
       method: "POST",
     }),
+  finalizeCalibrationOrigin: (body: {
+    home_z: number;
+    block_touch_z: number;
+    block_height: number;
+    factory_z_travel: number;
+    tolerance_mm?: number;
+  }) =>
+    request<import("../types").FinalizeOriginResponse>("/gantry/calibration/finalize-origin", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  recoverCalibrationLimit: (body: {
+    x: number;
+    y: number;
+    z: number;
+    pull_off_mm?: number;
+    feed_rate?: number;
+  }) =>
+    request<{
+      status: string;
+      attempts: number;
+      pull_off: { x: number; y: number; z: number };
+      messages: string[];
+    }>("/gantry/calibration/recover-limit", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   configureSoftLimits: (body: {
     max_travel_x: number;
     max_travel_y: number;
     max_travel_z: number;
+    status_report?: number;
+    homing_pull_off?: number;
     tolerance_mm?: number;
   }) =>
     request<{ status: string }>("/gantry/soft-limits", {

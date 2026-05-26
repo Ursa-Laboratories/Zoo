@@ -49,6 +49,18 @@ python -m zoo
 
 Zoo follows CubOS' deck-origin frame directly: front-left-bottom origin, +X right, +Y back, +Z up. Do not negate X/Y in the frontend. Jog controls send CubOS-relative deltas as-is: left=-X, right=+X, up=+Y, down=-Y, X=+Z, Z=-Z.
 
+## Gantry Calibration Semantics
+
+Zoo must preserve CubOS' split between usable deck coordinates and GRBL controller travel:
+
+- `working_volume` is the user-visible deck/WPos usable range after the machine has homed and pulled off the switches.
+- `grbl_settings.max_travel_x/y/z` mirrors GRBL `$130/$131/$132` and is the controller soft-limit span, so it includes the `$27` homing pull-off reserve.
+- Calibration sets `$10=0` so status reports are WPos, not MPos, before capturing homed positions.
+- Calibration writes the configured per-machine `grbl_settings.homing_pull_off` (`$27`) before calibration homing. Single-instrument finalization can also read the live `$27` and save it back.
+- Example: if homed WPos Z is `91` and `$27=10`, save `working_volume.z_max=91` but program/save `grbl_settings.max_travel_z=101`.
+
+Do not assign the pull-off reserve as usable WPos. Normal gantry jogs are guarded against `working_volume`; calibration jogs bypass that guard only while the wizard has intentionally disabled soft limits.
+
 ## Local State
 
 - Default config directory: `configs/`

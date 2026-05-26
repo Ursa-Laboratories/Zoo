@@ -13,6 +13,12 @@ interface Props {
 
 const JOG_INTERVAL_MS = 150;
 
+type AxisPosition = {
+  x: number;
+  y: number;
+  z: number;
+};
+
 export default function GantryPositionWidget({
   position,
   workingVolume,
@@ -29,6 +35,7 @@ export default function GantryPositionWidget({
   const [moveY, setMoveY] = useState("");
   const [moveZ, setMoveZ] = useState("");
   const jogTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const predictedJogPosition = useRef<AxisPosition | null>(null);
 
   const configSelected = !!gantryFile;
   const connected = configSelected && (position?.connected ?? false);
@@ -37,16 +44,25 @@ export default function GantryPositionWidget({
   const isMoving = status === "Run" || status === "Jog";
   const calibrationWarning = connected ? position?.calibration_warning : null;
 
-  const jog = useCallback((x: number, y: number, z: number) => {
-    if (!connected) return;
-    gantryApi.jog(x, y, z).catch((e) => console.error("Jog failed:", e));
-  }, [connected]);
+  useEffect(() => {
+    predictedJogPosition.current = currentWorkPosition(position);
+  }, [position]);
 
-  const startJog = useCallback((x: number, y: number, z: number) => {
-    jog(x, y, z);
-    if (jogTimer.current) clearInterval(jogTimer.current);
-    jogTimer.current = setInterval(() => jog(x, y, z), JOG_INTERVAL_MS);
-  }, [jog]);
+  const jog = useCallback((x: number, y: number, z: number): boolean => {
+    if (!connected) return false;
+    if (workingVolume) {
+      const base = predictedJogPosition.current ?? currentWorkPosition(position);
+      if (base) {
+        const target = { x: base.x + x, y: base.y + y, z: base.z + z };
+        if (!isInsideWorkingVolume(target, workingVolume)) {
+          return false;
+        }
+        predictedJogPosition.current = target;
+      }
+    }
+    gantryApi.jog(x, y, z).catch((e) => console.error("Jog failed:", e));
+    return true;
+  }, [connected, position, workingVolume]);
 
   const stopJog = useCallback(() => {
     if (jogTimer.current) {
@@ -54,6 +70,16 @@ export default function GantryPositionWidget({
       jogTimer.current = null;
     }
   }, []);
+
+  const startJog = useCallback((x: number, y: number, z: number) => {
+    if (!jog(x, y, z)) return;
+    if (jogTimer.current) clearInterval(jogTimer.current);
+    jogTimer.current = setInterval(() => {
+      if (!jog(x, y, z)) {
+        stopJog();
+      }
+    }, JOG_INTERVAL_MS);
+  }, [jog, stopJog]);
 
   // Clean up on unmount
   useEffect(() => () => stopJog(), [stopJog]);
@@ -154,6 +180,24 @@ export default function GantryPositionWidget({
     if (x < 0 || y < 0 || z < 0) {
       alert("Coordinates must be positive (user space)");
       return;
+    }
+    if (workingVolume) {
+      const axisChecks: Array<[string, number, number, number]> = [
+        ["X", x, workingVolume.x_min, workingVolume.x_max],
+        ["Y", y, workingVolume.y_min, workingVolume.y_max],
+        ["Z", z, workingVolume.z_min, workingVolume.z_max],
+      ];
+      const violations = axisChecks.filter(([, value, min, max]) => (
+        value < min || value > max
+      ));
+      if (violations.length > 0) {
+        alert(
+          `Move target outside working volume: ${violations
+            .map(([axis, value, min, max]) => `${axis}=${Number(value).toFixed(3)} outside [${Number(min).toFixed(3)}, ${Number(max).toFixed(3)}]`)
+            .join("; ")}`,
+        );
+        return;
+      }
     }
     gantryApi.moveTo(x, y, z).catch((e) => alert(`Move failed: ${e}`));
   };
@@ -434,6 +478,30 @@ export default function GantryPositionWidget({
         onSaveCalibrated={onSaveCalibrated}
       />
     </div>
+  );
+}
+
+function currentWorkPosition(position: GantryPosition | null): AxisPosition | null {
+  if (!position?.connected) return null;
+  const coords = {
+    x: position.work_x ?? position.x,
+    y: position.work_y ?? position.y,
+    z: position.work_z ?? position.z,
+  };
+  if (!Number.isFinite(coords.x) || !Number.isFinite(coords.y) || !Number.isFinite(coords.z)) {
+    return null;
+  }
+  return coords;
+}
+
+function isInsideWorkingVolume(position: AxisPosition, volume: WorkingVolume): boolean {
+  return (
+    position.x >= volume.x_min
+    && position.x <= volume.x_max
+    && position.y >= volume.y_min
+    && position.y <= volume.y_max
+    && position.z >= volume.z_min
+    && position.z <= volume.z_max
   );
 }
 

@@ -38,7 +38,8 @@ const EMPTY_GANTRY: GantryConfig = {
   gantry_type: "cub_xl",
   cnc: {
     homing_strategy: "standard",
-    total_z_range: 80,
+    factory_z_travel_mm: 80,
+    calibration_block_height_mm: 35,
     y_axis_motion: "head",
     safe_z: 80,
   },
@@ -175,7 +176,8 @@ export default function GantryEditor({
     serial_port: !!config && !notDirty(config.serial_port, base?.serial_port ?? ""),
     gantry_type: !!config && !notDirty(config.gantry_type, base?.gantry_type),
     homing_strategy: !!cnc && !notDirty(cnc.homing_strategy, bcnc?.homing_strategy),
-    total_z_range: !!cnc && !notDirty(cnc.total_z_range, bcnc?.total_z_range),
+    factory_z_travel_mm: !!cnc && !notDirty(cnc.factory_z_travel_mm, bcnc?.factory_z_travel_mm),
+    calibration_block_height_mm: !!cnc && !notDirty(cnc.calibration_block_height_mm, bcnc?.calibration_block_height_mm),
     safe_z: !!cnc && !notDirty(cnc.safe_z, bcnc?.safe_z),
     y_axis_motion: !!cnc && !notDirty(cnc.y_axis_motion, bcnc?.y_axis_motion),
     x_min: !!wv && !notDirty(wv.x_min, bwv?.x_min),
@@ -241,10 +243,17 @@ export default function GantryEditor({
                 dirty={d.y_axis_motion}
               />
               <NumberField
-                label="Total Z range"
-                value={config.cnc.total_z_range}
-                onChange={(v) => commit({ ...config, cnc: { ...config.cnc, total_z_range: v } })}
-                dirty={d.total_z_range}
+                label="Factory Z travel"
+                value={config.cnc.factory_z_travel_mm}
+                onChange={(v) => commit({ ...config, cnc: { ...config.cnc, factory_z_travel_mm: v } })}
+                dirty={d.factory_z_travel_mm}
+                required
+              />
+              <NumberField
+                label="Block height"
+                value={Number(config.cnc.calibration_block_height_mm ?? 0)}
+                onChange={(v) => commit({ ...config, cnc: { ...config.cnc, calibration_block_height_mm: v } })}
+                dirty={d.calibration_block_height_mm}
                 required
               />
               <NumberField
@@ -426,7 +435,8 @@ export default function GantryEditor({
 function isValidGantry(config: GantryConfig): boolean {
   const wv = config.working_volume;
   if (wv.x_min >= wv.x_max || wv.y_min >= wv.y_max || wv.z_min >= wv.z_max) return false;
-  if (config.cnc.total_z_range <= 0 || config.cnc.total_z_range < wv.z_max) return false;
+  if (config.cnc.factory_z_travel_mm <= 0 || config.cnc.factory_z_travel_mm < wv.z_max - wv.z_min) return false;
+  if (config.cnc.calibration_block_height_mm != null && config.cnc.calibration_block_height_mm <= 0) return false;
   if (config.cnc.safe_z != null && (config.cnc.safe_z < wv.z_min || config.cnc.safe_z > wv.z_max)) return false;
   for (const inst of Object.values(config.instruments)) {
     if (!inst.type.trim() || !inst.vendor.trim()) return false;
