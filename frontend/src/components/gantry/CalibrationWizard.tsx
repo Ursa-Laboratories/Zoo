@@ -2,7 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TouchEvent } from "react";
 import { gantryApi } from "../../api/client";
 import type { GantryConfig, GantryPosition, GantryResponse } from "../../types";
-import { buildCalibratedConfig, getCalculatedZRange } from "./calibrationMath";
+import {
+  buildCalibratedConfig,
+  calculateSingleInstrumentZCalibration,
+  getCalibrationBlockHeight,
+  getConfiguredHomingPullOff,
+  getFactoryZTravel,
+  type ZCalibrationResult,
+} from "./calibrationMath";
 
 interface Props {
   open: boolean;
@@ -38,7 +45,6 @@ export default function CalibrationWizard({
   const [xyStep, setXyStep] = useState("0.5");
   const [zStep, setZStep] = useState("0.5");
   const [blockHeight, setBlockHeight] = useState("10");
-  const [programSoftLimits, setProgramSoftLimits] = useState(true);
   const [busy, setBusy] = useState(false);
   const [operation, setOperation] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -46,6 +52,9 @@ export default function CalibrationWizard({
   const [statusNote, setStatusNote] = useState<string | null>(null);
   const [xyOrigin, setXyOrigin] = useState<CapturedPosition | null>(null);
   const [zReference, setZReference] = useState<CapturedPosition | null>(null);
+  const [blockTouch, setBlockTouch] = useState<CapturedPosition | null>(null);
+  const [calibrationHome, setCalibrationHome] = useState<CapturedPosition | null>(null);
+  const [zCalibration, setZCalibration] = useState<ZCalibrationResult | null>(null);
   const [xyBounds, setXyBounds] = useState<CapturedPosition | null>(null);
   const [centerPosition, setCenterPosition] = useState<CapturedPosition | null>(null);
   const [measuredVolume, setMeasuredVolume] = useState<CapturedPosition | null>(null);
@@ -53,7 +62,6 @@ export default function CalibrationWizard({
   const [outputFile, setOutputFile] = useState("");
   const [referenceInstrument, setReferenceInstrument] = useState("");
   const [lowestInstrument, setLowestInstrument] = useState("");
-  const [saved, setSaved] = useState(false);
   const [resolvedAlarmStatus, setResolvedAlarmStatus] = useState<string | null>(null);
   const jogTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const recoveryInProgress = useRef(false);
@@ -82,7 +90,9 @@ export default function CalibrationWizard({
     [instruments, selectedLowest, selectedReference],
   );
   const nextInstrumentToRecord = instrumentSequence.find((name) => !instrumentPositions[name]) ?? null;
-  const readyForSave = !!zReference && (!isMulti || allInstrumentPositionsReady(instruments, instrumentPositions, selectedReference, selectedLowest));
+  const readyForSave = isMulti
+    ? !!zReference && !!zCalibration && allInstrumentPositionsReady(instruments, instrumentPositions, selectedReference, selectedLowest)
+    : !!zReference && !!blockTouch && !!calibrationHome;
   const controlsLocked = busy || !!alarmRecoveryMessage;
 
   useEffect(() => {
@@ -95,6 +105,9 @@ export default function CalibrationWizard({
     setStatusNote(null);
     setXyOrigin(null);
     setZReference(null);
+    setBlockTouch(null);
+    setCalibrationHome(null);
+    setZCalibration(null);
     setXyBounds(null);
     setCenterPosition(null);
     setMeasuredVolume(null);
@@ -102,11 +115,11 @@ export default function CalibrationWizard({
     setOutputFile(defaultOutputFilename(filename));
     setReferenceInstrument(instruments[0] ?? "");
     setLowestInstrument(instruments[0] ?? "");
-    setSaved(false);
+    setBlockHeight(formatOptionalNumber(config?.cnc.calibration_block_height_mm));
     setResolvedAlarmStatus(null);
     lastJogDelta.current = null;
     recoveryAttemptKey.current = null;
-  }, [filename, instruments, open]);
+  }, [config?.cnc.calibration_block_height_mm, filename, instruments, open]);
 
   const stopJog = useCallback(() => {
     if (jogTimer.current) {
@@ -198,6 +211,7 @@ export default function CalibrationWizard({
     setStatusNote(null);
     setXyOrigin(null);
     setZReference(null);
+    setBlockTouch(null);
     setXyBounds(null);
     setCenterPosition(null);
     setMeasuredVolume(null);
@@ -205,7 +219,6 @@ export default function CalibrationWizard({
     setOutputFile(defaultOutputFilename(filename));
     setReferenceInstrument(instruments[0] ?? "");
     setLowestInstrument(instruments[0] ?? "");
-    setSaved(false);
   };
 
   const close = async () => {
@@ -259,8 +272,18 @@ export default function CalibrationWizard({
   // Step 0 → 1: just navigate, no hardware action yet.
   const goToHome = () => {
     if (!filename || instruments.length === 0) return;
+    if (isMulti && config) {
+      try {
+        getConfiguredHomingPullOff(config);
+      } catch (err) {
+        setError(
+          `Multi-instrument calibration requires grbl_settings.homing_pull_off in the gantry YAML. ` +
+          `Edit the config and save before calibrating. (${errorMessage(err)})`,
+        );
+        return;
+      }
+    }
     setStatusNote(null);
-    setSaved(false);
     setStep(1);
   };
 
@@ -271,7 +294,9 @@ export default function CalibrationWizard({
       await gantryApi.connect(filename);
     }
     const result = await gantryApi.prepareCalibrationOrigin();
-    setStatusNote(formatCaptured("Homed and ready to set origin", requirePosition(result)));
+    const homed = requirePosition(result);
+    setCalibrationHome(homed);
+    setStatusNote(isMulti ? formatCaptured("Homed and ready to set origin", homed) : "Homed. Enter the calibration block height.");
     setStep(2);
   });
 
@@ -301,21 +326,57 @@ export default function CalibrationWizard({
     }
   });
 
+  const continueToSingleInstrumentOrigin = () => {
+    setError(null);
+    try {
+      parseBlockHeight(blockHeight);
+    } catch (err) {
+      setError(errorMessage(err));
+      return;
+    }
+    setStatusNote("Move to the calibration block.");
+    setStep(3);
+  };
+
+  const setSingleInstrumentOrigin = () => runAction("Setting origin", async () => {
+    if (!config) throw new Error("No gantry config is loaded.");
+    const height = parseBlockHeight(blockHeight);
+    const blockTouch = requirePosition(await gantryApi.getPosition());
+    // Set WPos before restoring soft limits: if setWorkCoordinates fails, soft
+    // limits stay disabled so the operator can still jog freely and retry.
+    const result = await gantryApi.setWorkCoordinates({ x: 0, y: 0, z: height });
+    await gantryApi.restoreCalibrationSoftLimits();
+    const captured = requirePosition(result);
+    setBlockTouch(blockTouch);
+    setZReference(captured);
+    setZCalibration(null);
+    setStatusNote("Origin set. Ready to measure and save.");
+    setStep(4);
+  });
+
   const setZ = () => runAction(
     isMulti && selectedLowest
       ? `Setting Z reference with ${selectedLowest} and retracting Z`
       : "Setting Z reference",
     async () => {
-    const height = parsePositive(blockHeight, "Calibration block height");
-    const zReferenceValue = isMulti
-      ? height
-      : roundMm(requirePosition(await gantryApi.getPosition()).z);
-    if (!isMulti && zReferenceValue <= 0) {
-      throw new Error("Block-touch WPos Z must be positive to place the lower reachable Z at WPos 0.");
-    }
+    if (!config) throw new Error("No gantry config is loaded.");
+    const height = getCalibrationBlockHeight(config);
+    const factoryZTravel = getFactoryZTravel(config);
+    const blockTouch = requirePosition(await gantryApi.getPosition());
+    const homeZ = isMulti
+      ? requireCaptured(xyBounds, "Homed XY bounds")
+      : requireCaptured(calibrationHome, "Home position");
+    const calibration = calculateSingleInstrumentZCalibration({
+      homeZ,
+      blockTouchZ: blockTouch.z,
+      blockHeight: height,
+      factoryZTravel,
+    });
+    const zReferenceValue = height;
     const result = await gantryApi.setWorkCoordinates({ z: zReferenceValue });
     const captured = requirePosition(result);
     setZReference(captured);
+    setZCalibration(calibration);
     if (isMulti && selectedLowest) {
       setInstrumentPositions((prev) => ({ ...prev, [selectedLowest]: captured }));
       const recovered = await jogBlockingWithRecovery({ x: 0, y: 0, z: 15 }, 15);
@@ -325,8 +386,9 @@ export default function CalibrationWizard({
           : formatCaptured(`Recorded ${selectedLowest} and retracted Z`, captured),
       );
     } else {
-      const inferredLowerReach = roundMm(height - captured.z);
-      setStatusNote(`${formatCaptured("Z reference set", captured)}; inferred lowest reachable height above deck=${inferredLowerReach.toFixed(3)} mm.`);
+      setStatusNote(
+        `${formatCaptured("Z reference set", captured)}; home-to-block travel=${calibration.homeToBlockTravel.toFixed(3)} mm; z min=${calibration.zMin.toFixed(3)} mm; expected home Z=${calibration.zMax.toFixed(3)} mm.`,
+      );
     }
     setStep(isMulti ? 4 : 3);
   });
@@ -347,32 +409,92 @@ export default function CalibrationWizard({
     }
   });
 
-  const save = () => runAction("Re-homing, measuring working volume, programming limits, and saving YAML", async () => {
+  const save = () => runAction("Re-homing, measuring working volume, programming soft limits, saving YAML, and closing", async () => {
     if (!config) throw new Error("No gantry config is loaded.");
     if (!readyForSave) throw new Error("Complete the calibration positions before saving.");
+    if (!isMulti) {
+      const homeZ = requireCaptured(calibrationHome, "Home position");
+      const blockTouchZ = requireCaptured(blockTouch, "Block touch position");
+      const height = parseBlockHeight(blockHeight);
+      const factoryZTravel = getFactoryZTravel(config);
+      const finalized = await gantryApi.finalizeCalibrationOrigin({
+        home_z: homeZ,
+        block_touch_z: blockTouchZ,
+        block_height: height,
+        factory_z_travel: factoryZTravel,
+      });
+      const measuredVolume = capturedFromPlain(finalized.measured_volume);
+      const maxTravel = capturedFromPlain(finalized.max_travel);
+      setMeasuredVolume(measuredVolume);
+      await onSaveCalibrated(normalizedOutput, buildCalibratedConfig({
+        config: {
+          ...config,
+          cnc: {
+            ...config.cnc,
+            calibration_block_height_mm: finalized.z_calibration.block_height,
+          },
+          grbl_settings: {
+            ...(config.grbl_settings ?? {}),
+            homing_pull_off: finalized.homing_pull_off_mm ?? config.grbl_settings?.homing_pull_off,
+          },
+        },
+        measuredVolume,
+        zMin: finalized.z_calibration.z_min,
+        zMax: finalized.z_calibration.z_max,
+        maxTravel,
+        isMulti: false,
+        instruments,
+        instrumentPositions,
+        referenceInstrument: selectedReference,
+        lowestInstrument: selectedLowest,
+      }));
+      onClose();
+      return;
+    }
     const result = await gantryApi.home();
     const captured = requirePosition(result);
     setMeasuredVolume(captured);
-    const calculatedZRange = getCalculatedZRange(config);
-    const zMin = 0;
-    const zMax = roundMm(zMin + calculatedZRange);
+    const initialZCalibration = requireZCalibration(zCalibration);
+    const calibratedConfig = {
+      ...config,
+      cnc: {
+        ...config.cnc,
+        calibration_block_height_mm: initialZCalibration.blockHeight,
+      },
+    };
+    const finalZCalibration = calculateSingleInstrumentZCalibration({
+      homeZ: initialZCalibration.homeZ,
+      blockTouchZ: initialZCalibration.blockTouchZ,
+      blockHeight: initialZCalibration.blockHeight,
+      factoryZTravel: initialZCalibration.factoryZTravel,
+      homedZ: captured.z,
+    });
+    const zMin = finalZCalibration.zMin;
+    const zMax = finalZCalibration.zMax;
+    const homingPullOff = getConfiguredHomingPullOff(config);
     const maxTravel = {
-      x: roundMm(captured.x),
-      y: roundMm(captured.y),
-      z: roundMm(calculatedZRange),
+      x: roundMm(captured.x + homingPullOff),
+      y: roundMm(captured.y + homingPullOff),
+      z: roundMm(finalZCalibration.maxTravelZ + homingPullOff),
     };
     if (maxTravel.x <= 0 || maxTravel.y <= 0 || maxTravel.z <= 0) {
       throw new Error("Measured travel spans must be positive.");
     }
-    if (programSoftLimits) {
-      await gantryApi.configureSoftLimits({
-        max_travel_x: maxTravel.x,
-        max_travel_y: maxTravel.y,
-        max_travel_z: maxTravel.z,
-      });
-    }
+    await gantryApi.configureSoftLimits({
+      max_travel_x: maxTravel.x,
+      max_travel_y: maxTravel.y,
+      max_travel_z: maxTravel.z,
+      status_report: 0,
+      homing_pull_off: homingPullOff,
+    });
     await onSaveCalibrated(normalizedOutput, buildCalibratedConfig({
-      config,
+      config: {
+        ...calibratedConfig,
+        grbl_settings: {
+          ...(calibratedConfig.grbl_settings ?? {}),
+          homing_pull_off: homingPullOff,
+        },
+      },
       measuredVolume: captured,
       zMin,
       zMax,
@@ -383,11 +505,7 @@ export default function CalibrationWizard({
       referenceInstrument: selectedReference,
       lowestInstrument: selectedLowest,
     }));
-    if (!programSoftLimits) {
-      await gantryApi.restoreCalibrationSoftLimits();
-    }
-    setSaved(true);
-    setStatusNote(`Saved ${normalizedOutput}.`);
+    onClose();
   });
 
   const jog = useCallback((x: number, y: number, z: number) => {
@@ -533,9 +651,33 @@ export default function CalibrationWizard({
 
             {!isMulti && step === 2 && (
               <div>
-                <h3 style={sectionTitleStyle}>Set XYZ Origin</h3>
+                <h3 style={sectionTitleStyle}>Calibration Block Height</h3>
                 <p style={instructionStyle}>
-                  Place the calibration block at the front-left origin. Jog the tool over the mark and set X=0 Y=0, then lower the tool to the block surface, enter the block height, and set Z.
+                  Enter the height of the calibration block you are using.
+                </p>
+                <div style={fieldRowStyle}>
+                  <label style={fieldStyle}>
+                    <span style={labelStyle}>Block height (mm)</span>
+                    <input
+                      value={blockHeight}
+                      onChange={(event) => setBlockHeight(event.target.value)}
+                      style={inputStyle}
+                      inputMode="decimal"
+                      autoFocus
+                    />
+                  </label>
+                </div>
+                <div style={actionRowStyle}>
+                  <button onClick={continueToSingleInstrumentOrigin} disabled={controlsLocked} style={buttonStateStyle(primaryButtonStyle, controlsLocked)}>Continue</button>
+                </div>
+              </div>
+            )}
+
+            {!isMulti && step === 3 && (
+              <div>
+                <h3 style={sectionTitleStyle}>Set Origin</h3>
+                <p style={instructionStyle}>
+                  Place the calibration block at the front-left deck corner. Jog the tool until it just touches the top of the block, then continue.
                 </p>
                 <JogPanel
                   xyStep={xyStep}
@@ -549,30 +691,12 @@ export default function CalibrationWizard({
                   xy={xy}
                   z={z}
                 />
-                <div style={actionRowStyle}>
-                  <button onClick={setXY} disabled={controlsLocked || !connected || !!xyOrigin} style={buttonStateStyle(primaryButtonStyle, controlsLocked || !connected || !!xyOrigin)}>Set XY origin</button>
-                  {xyOrigin && <Readout label="XY origin" value={`${xyOrigin.x.toFixed(3)}, ${xyOrigin.y.toFixed(3)}, ${xyOrigin.z.toFixed(3)}`} />}
+                <div style={{ ...summaryGridStyle, marginTop: 14 }}>
+                  <Readout label="Block height" value={`${parseBlockHeight(blockHeight).toFixed(3)} mm`} />
                 </div>
-                {xyOrigin && (
-                  <>
-                    <div style={{ ...fieldRowStyle, marginTop: 14 }}>
-                      <label style={fieldStyle}>
-                        <span style={labelStyle}>Calibration block height mm</span>
-                        <input
-                          value={blockHeight}
-                          onChange={(event) => setBlockHeight(event.target.value)}
-                          disabled={controlsLocked}
-                          style={buttonStateStyle(inputStyle, controlsLocked)}
-                          inputMode="decimal"
-                        />
-                      </label>
-                    </div>
-                    <div style={actionRowStyle}>
-                      <button onClick={setZ} disabled={controlsLocked || !connected} style={buttonStateStyle(primaryButtonStyle, controlsLocked || !connected)}>Set Z reference and continue</button>
-                      {zReference && <Readout label="Z reference" value={`${zReference.x.toFixed(3)}, ${zReference.y.toFixed(3)}, ${zReference.z.toFixed(3)}`} />}
-                    </div>
-                  </>
-                )}
+                <div style={actionRowStyle}>
+                  <button onClick={setSingleInstrumentOrigin} disabled={controlsLocked || !connected} style={buttonStateStyle(primaryButtonStyle, controlsLocked || !connected)}>Set origin and continue</button>
+                </div>
               </div>
             )}
 
@@ -612,9 +736,9 @@ export default function CalibrationWizard({
                     <span style={labelStyle}>Calibration block height mm</span>
                     <input
                       value={blockHeight}
-                      onChange={(event) => setBlockHeight(event.target.value)}
-                      disabled={controlsLocked}
-                      style={buttonStateStyle(inputStyle, controlsLocked)}
+                      readOnly
+                      disabled
+                      style={buttonStateStyle(inputStyle, true)}
                       inputMode="decimal"
                     />
                   </label>
@@ -697,11 +821,11 @@ export default function CalibrationWizard({
               </div>
             )}
 
-            {((!isMulti && step === 3) || (isMulti && step === 5)) && (
+            {((!isMulti && step === 4) || (isMulti && step === 5)) && (
               <div>
                 <h3 style={sectionTitleStyle}>Measure And Save</h3>
                 <p style={instructionStyle}>
-                  The next action re-homes, captures calibrated X/Y maxima, uses the calculated Z range, optionally programs GRBL soft-limit spans, and writes the calibrated YAML.
+                  The next action re-homes, captures calibrated X/Y/Z maxima, programs GRBL soft-limit spans, writes the calibrated YAML, and closes this window.
                 </p>
                 {measuredVolume && (
                   <div style={summaryGridStyle}>
@@ -715,15 +839,10 @@ export default function CalibrationWizard({
                     <Readout label="Output" value={normalizedOutput} />
                   </div>
                 )}
-                <label style={checkboxStyle}>
-                  <input type="checkbox" checked={programSoftLimits} disabled={controlsLocked || saved} onChange={(event) => setProgramSoftLimits(event.target.checked)} />
-                  Program GRBL soft-limit travel spans before saving
-                </label>
                 <div style={actionRowStyle}>
-                  <button onClick={save} disabled={controlsLocked || !readyForSave || saved} style={buttonStateStyle(primaryButtonStyle, controlsLocked || !readyForSave || saved)}>
-                    {saved ? "Saved" : "Save"}
+                  <button onClick={save} disabled={controlsLocked || !readyForSave} style={buttonStateStyle(primaryButtonStyle, controlsLocked || !readyForSave)}>
+                    Save
                   </button>
-                  <button onClick={close} disabled={busy} style={buttonStateStyle(buttonStyle, busy)}>Done</button>
                 </div>
               </div>
             )}
@@ -846,6 +965,20 @@ function requirePosition(position: GantryPosition): CapturedPosition {
   };
 }
 
+function requireCaptured(value: CapturedPosition | null, label: string): number {
+  if (!value || !Number.isFinite(value.z)) {
+    throw new Error(`${label} is not available. Home the gantry before recording the block touch.`);
+  }
+  return value.z;
+}
+
+function requireZCalibration(value: ZCalibrationResult | null): ZCalibrationResult {
+  if (!value) {
+    throw new Error("Z calibration is not available. Set the Z reference before saving.");
+  }
+  return value;
+}
+
 function capturedFromPlain(position: { x: number; y: number; z: number }): CapturedPosition {
   return {
     x: Number(position.x),
@@ -854,12 +987,19 @@ function capturedFromPlain(position: { x: number; y: number; z: number }): Captu
   };
 }
 
-function parsePositive(raw: string, label: string): number {
-  const value = Number(raw);
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new Error(`${label} must be a positive number.`);
+function formatOptionalNumber(value: number | null | undefined): string {
+  return value == null ? "" : String(value);
+}
+
+function parseBlockHeight(value: string): number {
+  if (!value.trim()) {
+    throw new Error("Enter a calibration block height before continuing.");
   }
-  return value;
+  const height = Number(value);
+  if (!Number.isFinite(height) || height <= 0) {
+    throw new Error("Calibration block height must be greater than 0.");
+  }
+  return roundMm(height);
 }
 
 function roundMm(value: number): number {
@@ -873,8 +1013,9 @@ function formatCaptured(label: string, position: CapturedPosition): string {
 function safeZRange(config: GantryConfig | null): string {
   if (!config) return "Unavailable";
   try {
-    return getCalculatedZRange(config).toFixed(3);
-  } catch {
+    return getFactoryZTravel(config).toFixed(3);
+  } catch (e) {
+    console.error("safeZRange: factory_z_travel_mm is invalid — save will also fail:", e);
     return "Invalid config";
   }
 }
@@ -927,7 +1068,7 @@ function allInstrumentPositionsReady(
 function stepLabels(isMulti: boolean): string[] {
   return isMulti
     ? ["Prepare", "Home", "XY origin", "Z reference", "Instruments", "Save"]
-    : ["Prepare", "Home", "Set origin", "Save"];
+    : ["Prepare", "Home", "Block height", "Set origin", "Save"];
 }
 
 const overlayStyle: React.CSSProperties = {
@@ -1276,13 +1417,4 @@ const activeInstrumentStyle: React.CSSProperties = {
   borderRadius: 6,
   padding: 12,
   background: "#f8fafc",
-};
-
-const checkboxStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 6,
-  fontSize: 12,
-  color: "#333",
-  marginTop: 12,
 };

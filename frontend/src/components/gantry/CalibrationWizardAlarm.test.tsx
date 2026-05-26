@@ -25,7 +25,8 @@ function gantryConfig(): GantryConfig {
     gantry_type: "cub_xl",
     cnc: {
       homing_strategy: "standard",
-      total_z_range: 110,
+      factory_z_travel_mm: 110,
+      calibration_block_height_mm: 35,
       y_axis_motion: "head",
       safe_z: 110,
     },
@@ -61,6 +62,13 @@ function position(status = "Idle"): GantryPosition {
     status,
     connected: true,
   };
+}
+
+async function advanceToOriginJog(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: "Continue" }));
+  await user.click(await screen.findByRole("button", { name: "Home gantry" }));
+  await user.click(await screen.findByRole("button", { name: "Continue" }));
+  return screen.findByRole("button", { name: "Z-" });
 }
 
 describe("CalibrationWizard alarm recovery", () => {
@@ -99,9 +107,7 @@ describe("CalibrationWizard alarm recovery", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await user.click(await screen.findByRole("button", { name: "Home gantry" }));
-    const zDown = await screen.findByRole("button", { name: "Z-" });
+    const zDown = await advanceToOriginJog(user);
 
     await user.click(zDown);
 
@@ -162,9 +168,7 @@ describe("CalibrationWizard alarm recovery", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await user.click(await screen.findByRole("button", { name: "Home gantry" }));
-    await user.click(await screen.findByRole("button", { name: "Z-" }));
+    await user.click(await advanceToOriginJog(user));
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/gantry/jog",
@@ -238,9 +242,7 @@ describe("CalibrationWizard alarm recovery", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await user.click(await screen.findByRole("button", { name: "Home gantry" }));
-    const zDown = await screen.findByRole("button", { name: "Z-" });
+    const zDown = await advanceToOriginJog(user);
 
     await user.click(zDown);
 
@@ -282,9 +284,7 @@ describe("CalibrationWizard alarm recovery", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await user.click(await screen.findByRole("button", { name: "Home gantry" }));
-    const zDown = await screen.findByRole("button", { name: "Z-" });
+    const zDown = await advanceToOriginJog(user);
 
     await user.click(zDown);
 
@@ -323,9 +323,7 @@ describe("CalibrationWizard alarm recovery", () => {
     };
     const { rerender } = render(<CalibrationWizard {...props} position={position()} />);
 
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await user.click(await screen.findByRole("button", { name: "Home gantry" }));
-    await user.click(await screen.findByRole("button", { name: "Z-" }));
+    await user.click(await advanceToOriginJog(user));
 
     rerender(<CalibrationWizard {...props} position={position("<Idle|WPos:0.0,0.0,20.0|Pn:Z>")} />);
 
@@ -381,9 +379,7 @@ describe("CalibrationWizard alarm recovery", () => {
     };
     const { rerender } = render(<CalibrationWizard {...props} position={position()} />);
 
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await user.click(await screen.findByRole("button", { name: "Home gantry" }));
-    await user.click(await screen.findByRole("button", { name: "Z-" }));
+    await user.click(await advanceToOriginJog(user));
 
     // First alarm appearance triggers recovery.
     rerender(<CalibrationWizard {...props} position={position("ALARM:1")} />);
@@ -424,11 +420,7 @@ describe("CalibrationWizard alarm recovery", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await user.click(await screen.findByRole("button", { name: "Home gantry" }));
-    await screen.findByRole("button", { name: "Z-" });
-
-    const zDown = screen.getByRole("button", { name: "Z-" });
+    const zDown = await advanceToOriginJog(user);
     await user.click(zDown);
 
     await waitFor(() => expect(screen.queryByText(/serial port timed out/i)).toBeInTheDocument());

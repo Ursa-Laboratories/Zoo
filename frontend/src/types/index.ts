@@ -174,7 +174,10 @@ export interface WorkingVolume {
 
 export interface CncConfig {
   homing_strategy: "standard";
-  total_z_range: number;
+  factory_z_travel_mm: number;
+  total_z_range?: number;
+  total_z_height?: number;
+  calibration_block_height_mm?: number | null;
   y_axis_motion?: "head" | "bed";
   safe_z?: number | null;
 }
@@ -226,6 +229,27 @@ export interface GantryPosition {
   connected: boolean;
   calibration_warning?: string | null;
   move_error?: string | null;
+}
+
+export interface ZCalibrationSummary {
+  block_height: number;
+  total_z_range: number;
+  home_z: number;
+  block_touch_z: number;
+  home_to_block_travel: number;
+  remaining_below_block: number;
+  can_reach_deck_bottom: boolean;
+  z_min: number;
+  z_max: number;
+  max_travel_z: number;
+}
+
+export interface FinalizeOriginResponse {
+  measured_volume: Coordinate3D;
+  z_calibration: ZCalibrationSummary;
+  max_travel: Coordinate3D;
+  position: Coordinate3D;
+  homing_pull_off_mm?: number | null;
 }
 
 // Gantry-mounted instrument introspection (from CubOS)

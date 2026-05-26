@@ -1,10 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import GantryPositionWidget from "./GantryPositionWidget";
 import type { GantryPosition, WorkingVolume } from "../../types";
 
-function position(): GantryPosition {
+function position(overrides: Partial<GantryPosition> = {}): GantryPosition {
   return {
     x: 0,
     y: 0,
@@ -14,6 +14,7 @@ function position(): GantryPosition {
     work_z: 0,
     status: "Idle",
     connected: true,
+    ...overrides,
   };
 }
 
@@ -28,6 +29,7 @@ const workingVolume: WorkingVolume = {
 
 describe("GantryPositionWidget manual move safety", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -83,5 +85,34 @@ describe("GantryPositionWidget manual move safety", () => {
 
     expect(alertMock).toHaveBeenCalledWith(expect.stringContaining("outside working volume"));
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("stops held jog requests once the predicted target reaches the working volume edge", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ status: "ok" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <GantryPositionWidget
+        position={position({ z: 79.4, work_z: 79.4 })}
+        workingVolume={workingVolume}
+        gantryFile="cubos.yaml"
+        gantry={null}
+        onSaveCalibrated={async () => undefined}
+      />,
+    );
+
+    fireEvent.mouseDown(screen.getByTitle("Z+"));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(450);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fireEvent.mouseUp(screen.getByTitle("Z+"));
   });
 });
