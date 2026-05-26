@@ -43,10 +43,12 @@ _calibration_warning: Optional[str] = None
 # Full selected gantry config loaded at connect time. The runtime Gantry gets a
 # copy without grbl_settings so initial connection can still reach calibration.
 _connected_gantry_config: Optional[Dict[str, Any]] = None
+_connected_gantry_filename: Optional[str] = None
 # During calibration, stale soft-limit travel can prevent the operator from
 # jogging to the true origin. Track whether Zoo disabled $20 so a cancel/skip
 # path can restore it.
 _calibration_restore_soft_limits = False
+_calibration_jog_bypass_working_volume = False
 
 # Primitive types that can be represented in YAML / JSON form fields.
 _PRIMITIVE_TYPES = {str, int, float, bool}
@@ -214,11 +216,19 @@ def _normalize_gantry_yaml(data: Dict[str, Any]) -> Dict[str, Any]:
         cnc["y_axis_motion"] = "head"
 
     factory_z_travel = max(
-        _float_or(cnc.get("factory_z_travel_mm", cnc.get("total_z_height")), z_span),
+        _float_or(
+            cnc.get(
+                "factory_z_travel_mm",
+                cnc.get("total_z_range", cnc.get("total_z_height")),
+            ),
+            z_span,
+        ),
         z_span,
     )
     if "factory_z_travel_mm" in cnc_fields:
         cnc["factory_z_travel_mm"] = factory_z_travel
+    if "total_z_range" in cnc_fields:
+        cnc["total_z_range"] = max(factory_z_travel, z_max)
     if "total_z_height" in cnc_fields:
         cnc["total_z_height"] = factory_z_travel
     if "structure_clearance_z" in cnc_fields and cnc.get("structure_clearance_z") is None:
@@ -252,11 +262,54 @@ def _validated_gantry_config(data: Dict[str, Any]) -> GantryYamlSchema:
     return GantryYamlSchema.model_validate(_normalize_gantry_yaml(data))
 
 
+def _api_gantry_config(
+    config: GantryYamlSchema,
+    source_data: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Return a frontend-friendly payload after CubOS schema validation."""
+    payload = config.model_dump(mode="json", exclude_none=True)
+    cnc = dict(payload.get("cnc") or {})
+    source_cnc = dict((source_data or {}).get("cnc") or {})
+    working_volume = dict(payload.get("working_volume") or {})
+    z_span = max(
+        _float_or(working_volume.get("z_max"), 0.0)
+        - _float_or(working_volume.get("z_min"), 0.0),
+        0.0,
+    )
+    if "factory_z_travel_mm" not in cnc:
+        cnc["factory_z_travel_mm"] = max(
+            _float_or(
+                source_cnc.get(
+                    "factory_z_travel_mm",
+                    cnc.get("total_z_range", cnc.get("total_z_height")),
+                ),
+                z_span,
+            ),
+            z_span,
+        )
+    if (
+        "calibration_block_height_mm" in source_cnc
+        and "calibration_block_height_mm" not in cnc
+    ):
+        cnc["calibration_block_height_mm"] = source_cnc["calibration_block_height_mm"]
+    payload["cnc"] = cnc
+    return payload
+
+
 def _runtime_connect_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """Return a Gantry config that will not block connect on calibration drift."""
     runtime_config = copy.deepcopy(config)
     runtime_config.pop("grbl_settings", None)
     return runtime_config
+
+
+def _refresh_connected_config(filename: str, config: Dict[str, Any]) -> None:
+    """Refresh the in-memory Gantry config when the connected YAML is saved."""
+    global _connected_gantry_config
+    if _gantry is None or _connected_gantry_filename != filename:
+        return
+    _connected_gantry_config = copy.deepcopy(config)
+    _gantry.config = _runtime_connect_config(config)
 
 
 def _calibration_mismatch_warning(
@@ -357,6 +410,62 @@ def _validate_manual_move_target(req: "MoveToRequest") -> None:
         raise HTTPException(
             400,
             "Manual move target outside configured gantry working volume: "
+            + "; ".join(violations),
+        )
+
+
+def _current_work_position_locked() -> Dict[str, float]:
+    """Return current WPos-like coordinates while the serial lock is held."""
+    if _gantry is None:
+        raise HTTPException(400, "Gantry not connected")
+    info = _gantry.get_position_info()
+    raw = info.get("work_pos") or info.get("coords")
+    if not isinstance(raw, dict):
+        raise HTTPException(
+            409,
+            "Jog working-volume checks require current gantry position. "
+            "Reconnect before jogging.",
+        )
+    try:
+        return {axis: float(raw[axis]) for axis in ("x", "y", "z")}
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(
+            409,
+            "Jog working-volume checks require finite current gantry position. "
+            "Reconnect before jogging.",
+        ) from exc
+
+
+def _validate_jog_target_locked(req: "JogRequest | JogBlockingRequest") -> None:
+    """Reject normal relative jogs whose target would leave working_volume."""
+    for axis, value in (("X", req.x), ("Y", req.y), ("Z", req.z)):
+        if not math.isfinite(value):
+            raise HTTPException(400, f"Jog {axis} delta must be finite.")
+    if _calibration_jog_bypass_working_volume:
+        return
+
+    volume = _connected_working_volume()
+    if volume is None:
+        raise HTTPException(
+            409,
+            "Manual jogs require a loaded gantry working_volume. Reconnect with "
+            "a valid gantry YAML before jogging.",
+        )
+
+    current = _current_work_position_locked()
+    violations = []
+    for axis, delta in (("x", req.x), ("y", req.y), ("z", req.z)):
+        target = current[axis] + float(delta)
+        lower = volume[f"{axis}_min"]
+        upper = volume[f"{axis}_max"]
+        if target < lower or target > upper:
+            violations.append(
+                f"{axis.upper()} target {target:g} outside [{lower:g}, {upper:g}]"
+            )
+    if violations:
+        raise HTTPException(
+            400,
+            "Jog target outside configured gantry working volume: "
             + "; ".join(violations),
         )
 
@@ -493,7 +602,10 @@ def jog(req: JogRequest) -> dict:
         return {"status": "ok"}
     with _serial_lock:
         try:
+            _validate_jog_target_locked(req)
             _gantry.jog(x=req.x, y=req.y, z=req.z)
+        except HTTPException:
+            raise
         except Exception as e:
             logging.warning("Jog error: %s", e)
             if _looks_like_alarm_error(e):
@@ -552,6 +664,22 @@ class LimitRecoveryResponse(BaseModel):
 class CalibrationCenterResponse(BaseModel):
     xy_bounds: Dict[str, float]
     position: Dict[str, float]
+
+
+class FinalizeOriginRequest(BaseModel):
+    home_z: float
+    block_touch_z: float
+    block_height: float
+    factory_z_travel: float
+    tolerance_mm: float = 0.25
+
+
+class FinalizeOriginResponse(BaseModel):
+    measured_volume: Dict[str, float]
+    z_calibration: Dict[str, Any]
+    max_travel: Dict[str, float]
+    position: Dict[str, float]
+    homing_pull_off_mm: Optional[float] = None
 
 
 def _wait_until_idle(*, timeout_s: float = 10.0, poll_interval_s: float = 0.1) -> None:
@@ -635,6 +763,7 @@ def jog_blocking(req: JogBlockingRequest) -> GantryPosition:
         return get_position()
     with _serial_lock:
         try:
+            _validate_jog_target_locked(req)
             _gantry.jog(x=req.x, y=req.y, z=req.z)
             _wait_until_idle(timeout_s=req.timeout_s)
         except HTTPException:
@@ -662,7 +791,8 @@ def set_work_coordinates(req: SetWorkCoordinatesRequest) -> GantryPosition:
 @router.post("/soft-limits")
 def configure_soft_limits(req: ConfigureSoftLimitsRequest) -> dict:
     """Program GRBL soft-limit travel spans through CubOS Gantry semantics."""
-    global _calibration_warning, _calibration_restore_soft_limits
+    global _calibration_jog_bypass_working_volume, _calibration_restore_soft_limits
+    global _calibration_warning
     if _gantry is None:
         raise HTTPException(400, "Gantry not connected")
     with _serial_lock:
@@ -674,6 +804,7 @@ def configure_soft_limits(req: ConfigureSoftLimitsRequest) -> dict:
                 tolerance_mm=req.tolerance_mm,
             )
             _calibration_restore_soft_limits = False
+            _calibration_jog_bypass_working_volume = False
             if _connected_gantry_config is not None:
                 grbl_settings = dict(
                     _connected_gantry_config.get("grbl_settings") or {}
@@ -698,7 +829,7 @@ def configure_soft_limits(req: ConfigureSoftLimitsRequest) -> dict:
 @router.post("/calibration/prepare-origin")
 def prepare_calibration_origin() -> GantryPosition:
     """Run the blocking CubOS setup before the interactive XY-origin jog."""
-    global _calibration_restore_soft_limits
+    global _calibration_jog_bypass_working_volume, _calibration_restore_soft_limits
     if _gantry is None:
         raise HTTPException(400, "Gantry not connected")
     with _serial_lock:
@@ -711,6 +842,7 @@ def prepare_calibration_origin() -> GantryPosition:
             if enabled is True:
                 _gantry.set_soft_limits_enabled(False)
                 _calibration_restore_soft_limits = True
+            _calibration_jog_bypass_working_volume = True
         except Exception as e:
             raise HTTPException(500, f"Calibration preparation failed: {e}")
     return get_position()
@@ -737,14 +869,87 @@ def calibration_home_and_center() -> CalibrationCenterResponse:
 @router.post("/calibration/restore-soft-limits")
 def restore_calibration_soft_limits() -> GantryPosition:
     """Restore soft limits if Zoo disabled them for a calibration jog."""
+    global _calibration_jog_bypass_working_volume
     if _gantry is None:
         raise HTTPException(400, "Gantry not connected")
     with _serial_lock:
         try:
             _restore_calibration_soft_limits_if_needed()
+            _calibration_jog_bypass_working_volume = False
         except Exception as e:
             raise HTTPException(500, f"Soft-limit restore failed: {e}")
     return get_position()
+
+
+@router.post("/calibration/finalize-origin")
+def finalize_calibration_origin(req: FinalizeOriginRequest) -> FinalizeOriginResponse:
+    """Finalize single-instrument deck-origin calibration through CubOS."""
+    global _calibration_jog_bypass_working_volume, _calibration_restore_soft_limits
+    global _calibration_warning, _last_position
+    if _gantry is None:
+        raise HTTPException(400, "Gantry not connected")
+    with _serial_lock:
+        try:
+            result = _gantry.finalize_deck_origin_calibration(
+                home_z=req.home_z,
+                block_touch_z=req.block_touch_z,
+                block_height=req.block_height,
+                total_z_range=req.factory_z_travel,
+                tolerance_mm=req.tolerance_mm,
+            )
+            max_travel = {
+                axis: float(value)
+                for axis, value in dict(result["max_travel"]).items()
+            }
+            measured_volume = {
+                axis: float(value)
+                for axis, value in dict(result["measured_volume"]).items()
+            }
+            position = {
+                axis: float(value)
+                for axis, value in dict(result["position"]).items()
+            }
+            homing_pull_off_mm = result.get("homing_pull_off_mm")
+            if homing_pull_off_mm is not None:
+                homing_pull_off_mm = float(homing_pull_off_mm)
+            _calibration_restore_soft_limits = False
+            _calibration_jog_bypass_working_volume = False
+            if _connected_gantry_config is not None:
+                grbl_settings = dict(
+                    _connected_gantry_config.get("grbl_settings") or {}
+                )
+                grbl_settings.update({
+                    "soft_limits": True,
+                    "homing_enable": True,
+                    "max_travel_x": max_travel["x"],
+                    "max_travel_y": max_travel["y"],
+                    "max_travel_z": max_travel["z"],
+                })
+                _connected_gantry_config["grbl_settings"] = grbl_settings
+                _calibration_warning = _calibration_mismatch_warning(
+                    _gantry,
+                    _connected_gantry_config,
+                )
+            _last_position = GantryPosition(
+                x=position["x"],
+                y=position["y"],
+                z=position["z"],
+                work_x=position["x"],
+                work_y=position["y"],
+                work_z=position["z"],
+                status="Idle",
+                connected=True,
+                calibration_warning=_calibration_warning,
+            )
+        except Exception as e:
+            raise HTTPException(500, f"Calibration finalization failed: {e}")
+    return FinalizeOriginResponse(
+        measured_volume=measured_volume,
+        z_calibration=dict(result["z_calibration"]),
+        max_travel=max_travel,
+        position=position,
+        homing_pull_off_mm=homing_pull_off_mm,
+    )
 
 
 @router.post("/calibration/recover-limit")
@@ -818,15 +1023,19 @@ def connect(body: Optional[ConnectRequest] = None) -> GantryPosition:
     "Not connected") during the connect window instead of trying to touch
     a half-initialized mill.
     """
-    global _connected_gantry_config, _gantry, _calibration_warning
+    global _calibration_jog_bypass_working_volume, _calibration_restore_soft_limits
+    global _connected_gantry_config, _connected_gantry_filename, _gantry
+    global _calibration_warning
     with _serial_lock:
         try:
             settings = get_settings()
             config = {}
+            config_filename: Optional[str] = None
             if body and body.filename:
                 path = resolve_config_path(settings.configs_dir, "gantry", body.filename)
                 if not path.is_file():
                     raise HTTPException(404, f"Config not found: {body.filename}")
+                config_filename = body.filename
                 config = _validated_gantry_config(read_yaml(path)).model_dump(
                     mode="json",
                     exclude_none=True,
@@ -835,6 +1044,7 @@ def connect(body: Optional[ConnectRequest] = None) -> GantryPosition:
                 gantry_configs = list_configs(settings.configs_dir, "gantry")
                 if gantry_configs:
                     path = resolve_config_path(settings.configs_dir, "gantry", gantry_configs[0])
+                    config_filename = gantry_configs[0]
                     config = _validated_gantry_config(read_yaml(path)).model_dump(
                         mode="json",
                         exclude_none=True,
@@ -856,7 +1066,10 @@ def connect(body: Optional[ConnectRequest] = None) -> GantryPosition:
             raise HTTPException(500, f"Failed to connect: {e}")
         _gantry = staged
         _calibration_warning = calibration_warning
+        _calibration_restore_soft_limits = False
+        _calibration_jog_bypass_working_volume = False
         _connected_gantry_config = copy.deepcopy(config)
+        _connected_gantry_filename = config_filename
     # get_position() acquires _serial_lock itself; call it outside the
     # `with` block so we don't try to re-acquire a non-reentrant lock,
     # which would fall through to the cached path and return a degraded
@@ -867,7 +1080,8 @@ def connect(body: Optional[ConnectRequest] = None) -> GantryPosition:
 @router.post("/disconnect")
 def disconnect() -> GantryPosition:
     global _connected_gantry_config
-    global _gantry, _calibration_warning, _calibration_restore_soft_limits
+    global _connected_gantry_filename, _gantry, _calibration_warning
+    global _calibration_jog_bypass_working_volume, _calibration_restore_soft_limits
     if _gantry is None:
         return GantryPosition(connected=False, status="Disconnected")
     restore_error: Optional[Exception] = None
@@ -889,7 +1103,9 @@ def disconnect() -> GantryPosition:
             _gantry = None
             _calibration_warning = None
             _connected_gantry_config = None
+            _connected_gantry_filename = None
             _calibration_restore_soft_limits = False
+            _calibration_jog_bypass_working_volume = False
     if restore_error is not None:
         detail = (
             "Soft-limit restore failed before disconnect: "
@@ -915,12 +1131,15 @@ def get_gantry(filename: str) -> GantryResponse:
         raise HTTPException(404, f"Config not found: {filename}")
     data = read_yaml(path)
     config = _validated_gantry_config(data)
-    return GantryResponse(filename=filename, config=config)
+    return GantryResponse(filename=filename, config=_api_gantry_config(config, data))
 
 
 @router.put("/{filename}")
 def put_gantry(filename: str, body: dict) -> GantryResponse:
     path = resolve_config_path(get_settings().configs_dir, "gantry", filename)
     config = _validated_gantry_config(body)
-    write_yaml(path, config.model_dump(mode="json", exclude_none=True))
+    config_dict = config.model_dump(mode="json", exclude_none=True)
+    write_yaml(path, config_dict)
+    with _serial_lock:
+        _refresh_connected_config(filename, config_dict)
     return get_gantry(filename)

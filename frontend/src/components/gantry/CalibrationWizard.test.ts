@@ -47,6 +47,13 @@ describe("factory Z calibration inputs", () => {
     expect(getCalibrationBlockHeight(gantryConfig())).toBe(35);
   });
 
+  it("accepts total_z_range from older CubOS gantry payloads", () => {
+    const config = gantryConfig();
+    delete (config.cnc as unknown as Record<string, unknown>).factory_z_travel_mm;
+    config.cnc.total_z_range = 87;
+    expect(getFactoryZTravel(config)).toBe(87);
+  });
+
   it("throws when factory_z_travel_mm is missing", () => {
     const config = gantryConfig();
     delete (config.cnc as unknown as Record<string, unknown>).factory_z_travel_mm;
@@ -156,5 +163,32 @@ describe("buildCalibratedConfig", () => {
     expect(calibrated.cnc.factory_z_travel_mm).toBe(87);
     expect(calibrated.working_volume.z_max).toBe(91.5);
     expect(calibrated.grbl_settings?.max_travel_z).toBe(91.5);
+  });
+
+  it("saves controller max travel separately from usable working volume", () => {
+    const calibrated = buildCalibratedConfig({
+      config: gantryConfig(),
+      measuredVolume: { x: 386, y: 250.5, z: 91 },
+      zMin: 0,
+      zMax: 91,
+      maxTravel: { x: 396, y: 260.5, z: 101 },
+      isMulti: false,
+      instruments: ["asmi"],
+      instrumentPositions: {},
+      referenceInstrument: "asmi",
+      lowestInstrument: "asmi",
+    });
+
+    expect(calibrated.working_volume).toEqual({
+      x_min: 0,
+      x_max: 386,
+      y_min: 0,
+      y_max: 250.5,
+      z_min: 0,
+      z_max: 91,
+    });
+    expect(calibrated.grbl_settings?.max_travel_x).toBe(396);
+    expect(calibrated.grbl_settings?.max_travel_y).toBe(260.5);
+    expect(calibrated.grbl_settings?.max_travel_z).toBe(101);
   });
 });

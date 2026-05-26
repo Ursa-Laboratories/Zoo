@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -59,6 +59,7 @@ function createState(): ApiState {
           cnc: {
             homing_strategy: "standard",
             factory_z_travel_mm: 80,
+            calibration_block_height_mm: 35,
             y_axis_motion: "head",
             safe_z: 80,
           },
@@ -208,7 +209,7 @@ function installFetchMock(state: ApiState) {
     }
     if (path === "/api/gantry/calibration/prepare-origin" && method === "POST") {
       gantryConnected = true;
-      return jsonResponse(gantryPosition());
+      return jsonResponse(gantryPosition(0, 0, 80));
     }
     if (path === "/api/gantry/calibration/home-and-center" && method === "POST") {
       gantryConnected = true;
@@ -222,6 +223,26 @@ function installFetchMock(state: ApiState) {
     }
     if (path === "/api/gantry/work-coordinates" && method === "POST") {
       return jsonResponse(gantryPosition(body?.x ?? 0, body?.y ?? 0, body?.z ?? 0));
+    }
+    if (path === "/api/gantry/calibration/finalize-origin" && method === "POST") {
+      return jsonResponse({
+        measured_volume: { x: 300, y: 200, z: 80 },
+        z_calibration: {
+          block_height: body?.block_height ?? 35,
+          total_z_range: body?.factory_z_travel ?? 80,
+          home_z: body?.home_z ?? 80,
+          block_touch_z: body?.block_touch_z ?? 0,
+          home_to_block_travel: 45,
+          remaining_below_block: 35,
+          can_reach_deck_bottom: true,
+          z_min: 0,
+          z_max: 80,
+          max_travel_z: 80,
+        },
+        max_travel: { x: 310, y: 210, z: 90 },
+        homing_pull_off_mm: 10,
+        position: { x: 300, y: 200, z: 80 },
+      });
     }
     if (path === "/api/gantry/jog-blocking" && method === "POST") {
       return jsonResponse(gantryPosition(0, 0, body?.z ?? 0));
@@ -400,7 +421,8 @@ describe("Zoo editor interactions", () => {
 
   it("opens the gantry calibration wizard from the control panel", async () => {
     const user = userEvent.setup();
-    const fetchMock = vi.mocked(fetch);
+    const state = createState();
+    const fetchMock = installFetchMock(state);
     renderApp();
     await waitForSettingsLoad();
 
@@ -417,11 +439,58 @@ describe("Zoo editor interactions", () => {
 
     await user.click(screen.getByRole("button", { name: "Home gantry" }));
 
-    expect(await screen.findByRole("button", { name: "Set XY origin" })).toBeInTheDocument();
+    const blockHeight = await screen.findByLabelText("Block height (mm)");
+    expect(blockHeight).toHaveValue("35");
+    expect(blockHeight).toBeEnabled();
+    await user.clear(blockHeight);
+    await user.type(blockHeight, "36.25");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    const setOrigin = await screen.findByRole("button", { name: "Set origin and continue" });
+    expect(setOrigin).toBeInTheDocument();
+    await waitFor(() => expect(setOrigin).toBeEnabled());
+    expect(screen.queryByRole("button", { name: /Set XY origin/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("XY origin")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Set Z reference/ })).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/gantry/calibration/prepare-origin",
       expect.objectContaining({ method: "POST" }),
     );
+
+    await user.click(setOrigin);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/work-coordinates",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ x: 0, y: 0, z: 36.25 }),
+      }),
+    ));
+    expect(await screen.findByText("Origin set. Ready to measure and save.")).toBeInTheDocument();
+    expect(screen.queryByText(/Program GRBL soft-limit travel spans/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Done" })).not.toBeInTheDocument();
+
+    await user.click(within(screen.getByRole("dialog", { name: "Gantry calibration" })).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/calibration/finalize-origin",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          home_z: 80,
+          block_touch_z: 0,
+          block_height: 36.25,
+          factory_z_travel: 80,
+        }),
+      }),
+    ));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/cubos.yaml",
+      expect.objectContaining({ method: "PUT" }),
+    ));
+    expect(state.gantries["cubos.yaml"]?.config.working_volume.z_max).toBe(80);
+    expect(state.gantries["cubos.yaml"]?.config.grbl_settings?.max_travel_z).toBe(90);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Gantry calibration" })).not.toBeInTheDocument());
   });
 
   it("loads and saves a protocol config across tab switches", async () => {

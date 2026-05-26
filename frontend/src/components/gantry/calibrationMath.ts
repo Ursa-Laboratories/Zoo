@@ -20,7 +20,7 @@ export type ZCalibrationResult = {
 };
 
 export function getFactoryZTravel(config: GantryConfig): number {
-  const value = Number(config.cnc.factory_z_travel_mm);
+  const value = Number(config.cnc.factory_z_travel_mm ?? config.cnc.total_z_range ?? config.cnc.total_z_height);
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error("Gantry config must seed cnc.factory_z_travel_mm before calibration.");
   }
