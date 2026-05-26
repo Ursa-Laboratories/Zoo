@@ -23,7 +23,7 @@ export default function WellPlateRenderer({
   if (wellEntries.length === 0) return null;
 
   // Derive bounding box from actual well positions (handles any orientation).
-  const pitch = Math.max(Math.abs(config.x_offset_mm), Math.abs(config.y_offset_mm), 9);
+  const pitch = Math.max(Math.abs(config.x_offset), Math.abs(config.y_offset), 9);
   const pad = pitch * 0.5;
   const xs = wellEntries.map((w) => w.x);
   const ys = wellEntries.map((w) => w.y);

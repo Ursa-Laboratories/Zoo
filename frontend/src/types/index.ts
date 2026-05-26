@@ -22,23 +22,24 @@ export interface WellPlateConfig {
   model_name: string;
   rows: number;
   columns: number;
-  length_mm: number;
-  width_mm: number;
-  height_mm: number;
-  a1: Coordinate3D | null;
+  length?: number | null;
+  width?: number | null;
+  height?: number | null;
+  well_depth?: number | null;
+  a1?: Coordinate3D | null;
   calibration: CalibrationPoints;
-  x_offset_mm: number;
-  y_offset_mm: number;
-  capacity_ul: number;
-  working_volume_ul: number;
+  x_offset: number;
+  y_offset: number;
+  capacity_ul?: number | null;
+  working_volume_ul?: number | null;
 }
 
 export interface VialConfig {
   type: "vial";
   name: string;
   model_name: string;
-  height_mm: number;
-  diameter_mm: number;
+  height: number;
+  diameter: number;
   location: Coordinate3D;
   capacity_ul: number;
   working_volume_ul: number;
@@ -67,11 +68,12 @@ export interface NestedWellPlateConfig {
     a1: Coordinate2D | Coordinate3D | null;
     a2: Coordinate2D | Coordinate3D;
   };
-  x_offset_mm: number;
-  y_offset_mm: number;
-  length_mm?: number;
-  width_mm?: number;
-  height_mm?: number;
+  x_offset: number;
+  y_offset: number;
+  length?: number | null;
+  width?: number | null;
+  height?: number | null;
+  well_depth?: number | null;
   capacity_ul?: number;
   working_volume_ul?: number;
   [key: string]: unknown;
@@ -80,8 +82,8 @@ export interface NestedWellPlateConfig {
 export interface NestedVialConfig {
   name?: string;
   model_name: string;
-  height_mm: number;
-  diameter_mm: number;
+  height: number;
+  diameter: number;
   location: Coordinate2D | Coordinate3D;
   capacity_ul: number;
   working_volume_ul: number;
@@ -129,9 +131,9 @@ export interface WellPosition {
 }
 
 export interface GeometryResponse {
-  length_mm: number | null;
-  width_mm: number | null;
-  height_mm: number | null;
+  length: number | null;
+  width: number | null;
+  height: number | null;
 }
 
 export interface LabwareResponse {

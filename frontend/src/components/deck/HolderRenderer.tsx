@@ -37,8 +37,8 @@ export default function HolderRenderer({
     return null;
   }
 
-  const length = geometry.length_mm ?? 20;
-  const width = geometry.width_mm ?? 20;
+  const length = geometry.length ?? 20;
+  const width = geometry.width ?? 20;
   const rect = toSvgRect(
     center.x - length * 0.5,
     center.y - width * 0.5,

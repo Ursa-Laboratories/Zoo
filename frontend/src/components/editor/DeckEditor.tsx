@@ -20,16 +20,16 @@ const EMPTY_WELL_PLATE: WellPlateConfig = {
   model_name: "",
   rows: 8,
   columns: 12,
-  length_mm: 127.76,
-  width_mm: 85.47,
-  height_mm: 14.22,
+  length: 127.76,
+  width: 85.47,
+  height: 14.22,
   a1: null,
   calibration: {
     a1: { x: 100.0, y: 50.0, z: 20.0 },
     a2: { x: 91.0, y: 50.0, z: 20.0 },
   },
-  x_offset_mm: 9.0,
-  y_offset_mm: 9.0,
+  x_offset: 9.0,
+  y_offset: 9.0,
   capacity_ul: 200.0,
   working_volume_ul: 150.0,
 };
@@ -38,20 +38,26 @@ const EMPTY_VIAL: VialConfig = {
   type: "vial",
   name: "",
   model_name: "",
-  height_mm: 66.75,
-  diameter_mm: 28.0,
+  height: 66.75,
+  diameter: 28.0,
   location: { x: 30.0, y: 40.0, z: 20.0 },
   capacity_ul: 1500.0,
   working_volume_ul: 1200.0,
 };
 
-function buildDeckResponse(labware: Record<string, LabwareConfig>, filename: string): DeckResponse {
+function buildDeckResponse(
+  labware: Record<string, LabwareConfig>,
+  filename: string,
+  previousDeck: DeckResponse | null,
+): DeckResponse {
+  const previousByKey = new Map(previousDeck?.labware.map((item) => [item.key, item]));
   return {
     filename,
     labware: Object.entries(labware).map(([key, config]) => ({
+      ...previousByKey.get(key),
       key,
       config,
-      wells: null,
+      wells: previousByKey.get(key)?.wells ?? null,
     })),
   };
 }
@@ -86,7 +92,7 @@ export default function DeckEditor({ configs, selectedFile, onSelectFile, onImpo
   }, [deck]);
 
   const syncViz = (next: Record<string, LabwareConfig>) => {
-    onLocalChange(buildDeckResponse(next, selectedFile ?? "unsaved"));
+    onLocalChange(buildDeckResponse(next, selectedFile ?? "unsaved", deck));
   };
 
   const updateLabware = (key: string, updated: LabwareConfig) => {
@@ -185,15 +191,15 @@ function WellPlateFields({ entry, onChange }: { entry: WellPlateConfig; onChange
         <NumberField label="Columns" value={entry.columns} step={1} onChange={(v) => onChange({ ...entry, columns: v })} required />
       </div>
       <div style={{ display: "flex", gap: 8 }}>
-        <NumberField label="Length (mm)" value={entry.length_mm} onChange={(v) => onChange({ ...entry, length_mm: v })} />
-        <NumberField label="Width (mm)" value={entry.width_mm} onChange={(v) => onChange({ ...entry, width_mm: v })} />
-        <NumberField label="Height (mm)" value={entry.height_mm} onChange={(v) => onChange({ ...entry, height_mm: v })} />
+        <NumberField label="Length (mm)" value={entry.length} onChange={(v) => onChange({ ...entry, length: v })} />
+        <NumberField label="Width (mm)" value={entry.width} onChange={(v) => onChange({ ...entry, width: v })} />
+        <NumberField label="Height (mm)" value={entry.height} onChange={(v) => onChange({ ...entry, height: v })} />
       </div>
       <CoordinateField label="Calibration A1" value={a1} onChange={(v) => onChange({ ...entry, calibration: { ...entry.calibration, a1: v } })} required />
       <CoordinateField label="Calibration A2" value={entry.calibration.a2} onChange={(v) => onChange({ ...entry, calibration: { ...entry.calibration, a2: v } })} required />
       <div style={{ display: "flex", gap: 8 }}>
-        <NumberField label="Well pitch X (mm)" value={entry.x_offset_mm} onChange={(v) => onChange({ ...entry, x_offset_mm: v })} required />
-        <NumberField label="Well pitch Y (mm)" value={entry.y_offset_mm} onChange={(v) => onChange({ ...entry, y_offset_mm: v })} required />
+        <NumberField label="Well pitch X (mm)" value={entry.x_offset} onChange={(v) => onChange({ ...entry, x_offset: v })} required />
+        <NumberField label="Well pitch Y (mm)" value={entry.y_offset} onChange={(v) => onChange({ ...entry, y_offset: v })} required />
       </div>
       <div style={{ display: "flex", gap: 8 }}>
         <NumberField label="Capacity (uL)" value={entry.capacity_ul} onChange={(v) => onChange({ ...entry, capacity_ul: v })} />
@@ -207,8 +213,8 @@ function VialFields({ entry, onChange }: { entry: VialConfig; onChange: (v: Vial
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
       <div style={{ display: "flex", gap: 8 }}>
-        <NumberField label="Height (mm)" value={entry.height_mm} onChange={(v) => onChange({ ...entry, height_mm: v })} />
-        <NumberField label="Diameter (mm)" value={entry.diameter_mm} onChange={(v) => onChange({ ...entry, diameter_mm: v })} />
+        <NumberField label="Height (mm)" value={entry.height} onChange={(v) => onChange({ ...entry, height: v })} />
+        <NumberField label="Diameter (mm)" value={entry.diameter} onChange={(v) => onChange({ ...entry, diameter: v })} />
       </div>
       <CoordinateField label="Location" value={entry.location} onChange={(v) => onChange({ ...entry, location: v })} required />
       <div style={{ display: "flex", gap: 8 }}>
