@@ -186,16 +186,17 @@ export default function DeckVisualization({
                       model_name: nestedConfig.model_name,
                       rows: nestedConfig.rows,
                       columns: nestedConfig.columns,
-                      length_mm: nestedConfig.length_mm ?? 0,
-                      width_mm: nestedConfig.width_mm ?? 0,
-                      height_mm: nestedConfig.height_mm ?? 0,
+                      length: nestedConfig.length,
+                      width: nestedConfig.width,
+                      height: nestedConfig.height,
+                      well_depth: nestedConfig.well_depth,
                       a1: null,
                       calibration: {
                         a1: normalizeCoordinate3D(nestedConfig.calibration.a1),
                         a2: normalizeCoordinate3D(nestedConfig.calibration.a2) ?? { x: 0, y: 0, z: 0 },
                       },
-                      x_offset_mm: nestedConfig.x_offset_mm,
-                      y_offset_mm: nestedConfig.y_offset_mm,
+                      x_offset: nestedConfig.x_offset,
+                      y_offset: nestedConfig.y_offset,
                       capacity_ul: nestedConfig.capacity_ul ?? 0,
                       working_volume_ul: nestedConfig.working_volume_ul ?? 0,
                     }}
@@ -233,8 +234,8 @@ export default function DeckVisualization({
                         type: "vial",
                         name: vialConfig.name ?? vialId,
                         model_name: vialConfig.model_name,
-                        height_mm: vialConfig.height_mm,
-                        diameter_mm: vialConfig.diameter_mm,
+                        height: vialConfig.height,
+                        diameter: vialConfig.diameter,
                         location: position,
                         capacity_ul: vialConfig.capacity_ul,
                         working_volume_ul: vialConfig.working_volume_ul,
@@ -349,7 +350,7 @@ function expandForLabware(bounds: Bounds2D, item: LabwareResponse) {
     expandPositions(
       bounds,
       Object.values(item.wells ?? {}),
-      wellPlatePad(item.config.x_offset_mm, item.config.y_offset_mm),
+      wellPlatePad(item.config.x_offset, item.config.y_offset),
     );
     return;
   }
@@ -374,8 +375,8 @@ function expandForLabware(bounds: Bounds2D, item: LabwareResponse) {
       bounds,
       Object.values(filterChildPositions(item.positions, "plate")),
       wellPlatePad(
-        item.config.well_plate?.x_offset_mm ?? 9,
-        item.config.well_plate?.y_offset_mm ?? 9,
+        item.config.well_plate?.x_offset ?? 9,
+        item.config.well_plate?.y_offset ?? 9,
       ),
     );
     return;
@@ -391,7 +392,7 @@ function expandForLabware(bounds: Bounds2D, item: LabwareResponse) {
     for (const [vialId, vialConfig] of Object.entries(item.config.vials ?? {})) {
       const position = item.positions?.[vialId];
       if (position) {
-        expandPoint(bounds, position.x, position.y, Math.max(6, vialConfig.diameter_mm * 0.5));
+        expandPoint(bounds, position.x, position.y, Math.max(6, vialConfig.diameter * 0.5));
       }
     }
     return;
@@ -402,7 +403,7 @@ function expandForLabware(bounds: Bounds2D, item: LabwareResponse) {
       bounds,
       item.config.location.x,
       item.config.location.y,
-      Math.max(6, item.config.diameter_mm * 0.5),
+      Math.max(6, item.config.diameter * 0.5),
     );
   }
 }
@@ -422,8 +423,8 @@ function expandHolder(
   const center = getPositionCenter(childPositions, anchor);
 
   if (!center) return;
-  const length = geometry.length_mm ?? 20;
-  const width = geometry.width_mm ?? 20;
+  const length = geometry.length ?? 20;
+  const width = geometry.width ?? 20;
   expandRect(
     bounds,
     center.x - length * 0.5,

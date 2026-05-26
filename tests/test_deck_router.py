@@ -33,6 +33,7 @@ labware:
     columns: 2
     pickup_z: 30.0
     drop_z: 24.0
+    tip_length: 59.3
     calibration:
       a1: { x: 10.0, y: 20.0 }
       a2: { x: 19.0, y: 20.0 }
@@ -92,17 +93,17 @@ labware:
     items = {item["key"]: item for item in payload["labware"]}
 
     rack = items["rack_a"]
-    assert rack["geometry"] == {"length_mm": 9.0, "width_mm": 9.0, "height_mm": 6.0}
+    assert rack["geometry"] == {"length": 9.0, "width": 9.0, "height": 6.0}
     assert rack["positions"]["A1"] == {"x": 10.0, "y": 20.0, "z": 30.0}
     assert rack["positions"]["B2"] == {"x": 19.0, "y": 11.0, "z": 30.0}
 
     plate_holder = items["well_plate_holder"]
-    assert plate_holder["geometry"] == {"length_mm": 100.0, "width_mm": 155.0, "height_mm": 14.8}
+    assert plate_holder["geometry"] == {"length": 100.0, "width": 155.0, "height": 14.8}
     assert plate_holder["location"] == {"x": 100.0, "y": 120.0, "z": 40.0}
     assert plate_holder["positions"]["plate"] == {"x": 100.0, "y": 120.0, "z": 45.0}
     assert plate_holder["positions"]["plate.B2"] == {"x": 109.0, "y": 111.0, "z": 45.0}
 
     vial_holder = items["vial_holder"]
-    assert vial_holder["geometry"] == {"length_mm": 36.2, "width_mm": 300.2, "height_mm": 35.1}
+    assert vial_holder["geometry"] == {"length": 36.2, "width": 300.2, "height": 35.1}
     assert vial_holder["location"] == {"x": 30.0, "y": 60.0, "z": 8.0}
     assert vial_holder["positions"]["vial_1"] == {"x": 30.0, "y": 60.0, "z": 26.0}

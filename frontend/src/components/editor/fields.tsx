@@ -25,7 +25,7 @@ export function DirtyMarker() {
 
 interface NumberFieldProps {
   label: string;
-  value: number;
+  value: number | null | undefined;
   onChange: (v: number) => void;
   step?: number;
   required?: boolean;
@@ -34,9 +34,9 @@ interface NumberFieldProps {
 }
 
 export function NumberField({ label, value, onChange, required, dirty }: NumberFieldProps) {
-  const [state, setState] = useState({ raw: String(value), value });
+  const [state, setState] = useState({ raw: formatNumber(value), value });
   if (value !== state.value) {
-    setState({ raw: String(value), value });
+    setState({ raw: formatNumber(value), value });
   }
   const raw = state.raw;
   const setRaw = (next: string) => setState({ raw: next, value });
@@ -57,11 +57,15 @@ export function NumberField({ label, value, onChange, required, dirty }: NumberF
           const n = tryParse(e.target.value);
           if (n !== null) onChange(n);
         }}
-        onBlur={() => setRaw(String(value))}
+        onBlur={() => setRaw(formatNumber(value))}
         style={inputStyle}
       />
     </label>
   );
+}
+
+function formatNumber(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
 }
 
 interface TextFieldProps {

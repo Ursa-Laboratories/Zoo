@@ -20,6 +20,7 @@ See also:
 - Zoo reads and writes YAML configs from `configs/` by default.
 - The active directory is exposed through `/api/settings` as `config_dir`.
 - Operators can point Zoo at another config directory through the settings UI or API.
+- Deck YAML editing follows CubOS' current schema field names such as `length`, `width`, `height`, `x_offset`, `y_offset`, and `diameter`.
 - Gantry YAMLs are read back through CubOS validation before Zoo returns or saves them; missing current fields must be filled and saved in the gantry editor.
 - Protocol YAML `positions` mappings are preserved by the protocol editor save path.
 - The protocol Validate button runs full CubOS setup validation for the selected gantry, deck, and protocol files. The older `/api/protocol/validate` endpoint remains a command-schema check only.

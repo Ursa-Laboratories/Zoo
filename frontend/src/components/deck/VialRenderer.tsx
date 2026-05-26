@@ -26,7 +26,7 @@ export default function VialRenderer({
     machineXRange,
     machineYRange
   );
-  const r = Math.max(6, config.diameter_mm * 0.5);
+  const r = Math.max(6, config.diameter * 0.5);
 
   return (
     <g>
