@@ -116,9 +116,10 @@ export default function DeckVisualization({
     <svg
       width={SVG_W}
       height={SVG_H}
-      style={{ background: "#f8f9fa", borderRadius: 8, border: "1px solid #e0e0e0", display: "block", width: "100%", height: "100%" }}
+      data-testid="deck-visualization"
+      style={{ background: "#f8f9fa", borderRadius: 8, border: "1px solid #e0e0e0", display: "block", width: "100%", height: "auto", maxHeight: "100%" }}
       viewBox={`0 0 ${SVG_W} ${SVG_H}`}
-      preserveAspectRatio="none"
+      preserveAspectRatio="xMidYMid meet"
     >
       <CoordinateGrid
         svgWidth={SVG_W}
@@ -457,19 +458,30 @@ function expandPositions(bounds: Bounds2D, positions: Coordinate3D[], pad: numbe
 }
 
 function expandPoint(bounds: Bounds2D, x: number, y: number, pad: number) {
-  expandRect(bounds, x - pad, y - pad, x + pad, y + pad);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+  const safePad = finiteNumber(pad, 0);
+  expandRect(bounds, x - safePad, y - safePad, x + safePad, y + safePad);
 }
 
 function expandRect(bounds: Bounds2D, minX: number, minY: number, maxX: number, maxY: number) {
+  if (![minX, minY, maxX, maxY].every(Number.isFinite)) return;
   bounds.minX = Math.min(bounds.minX, minX);
   bounds.maxX = Math.max(bounds.maxX, maxX);
   bounds.minY = Math.min(bounds.minY, minY);
   bounds.maxY = Math.max(bounds.maxY, maxY);
 }
 
-function wellPlatePad(xOffset: number, yOffset: number): number {
-  return Math.max(Math.abs(xOffset), Math.abs(yOffset), 9) * 0.5;
+function wellPlatePad(xOffset: unknown, yOffset: unknown): number {
+  const pitchX = finiteNumber(xOffset, 9);
+  const pitchY = finiteNumber(yOffset, 9);
+  return Math.max(Math.abs(pitchX), Math.abs(pitchY), 9) * 0.5;
 }
+
+function finiteNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 
 function filterRenderablePositions(positions?: Record<string, { x: number; y: number; z: number }> | null) {
   if (!positions) {

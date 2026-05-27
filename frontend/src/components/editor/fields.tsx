@@ -6,6 +6,10 @@ function tryParse(s: string): number | null {
   return isNaN(n) ? null : n;
 }
 
+function formatNumberInput(value: number): string {
+  return Number.isFinite(value) ? String(value) : "";
+}
+
 /** Amber "*" rendered next to a field label when the field's current
  * value differs from the last-saved value. Signals "unsaved local
  * edit" — distinct from the red "*" used for required-field markers.
@@ -24,6 +28,8 @@ export function DirtyMarker() {
 }
 
 interface NumberFieldProps {
+  id?: string;
+  name?: string;
   label: string;
   value: number | null | undefined;
   onChange: (v: number) => void;
@@ -33,13 +39,14 @@ interface NumberFieldProps {
   dirty?: boolean;
 }
 
-export function NumberField({ label, value, onChange, required, dirty }: NumberFieldProps) {
-  const [state, setState] = useState({ raw: formatNumber(value), value });
-  if (value !== state.value) {
-    setState({ raw: formatNumber(value), value });
+export function NumberField({ id, name, label, value, onChange, required, dirty }: NumberFieldProps) {
+  const normalizedValue = typeof value === "number" && Number.isFinite(value) ? value : NaN;
+  const [state, setState] = useState({ raw: formatNumberInput(normalizedValue), value: normalizedValue });
+  if (!Object.is(normalizedValue, state.value)) {
+    setState({ raw: formatNumberInput(normalizedValue), value: normalizedValue });
   }
   const raw = state.raw;
-  const setRaw = (next: string) => setState({ raw: next, value });
+  const setRaw = (next: string) => setState({ raw: next, value: normalizedValue });
 
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
@@ -49,6 +56,8 @@ export function NumberField({ label, value, onChange, required, dirty }: NumberF
         {dirty && <DirtyMarker />}
       </span>
       <input
+        id={id}
+        name={name}
         type="text"
         inputMode="decimal"
         value={raw}
@@ -57,18 +66,17 @@ export function NumberField({ label, value, onChange, required, dirty }: NumberF
           const n = tryParse(e.target.value);
           if (n !== null) onChange(n);
         }}
-        onBlur={() => setRaw(formatNumber(value))}
+        onBlur={() => setRaw(formatNumberInput(normalizedValue))}
         style={inputStyle}
       />
     </label>
   );
 }
 
-function formatNumber(value: number | null | undefined): string {
-  return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
-}
 
 interface TextFieldProps {
+  id?: string;
+  name?: string;
   label: string;
   value: string;
   onChange: (v: string) => void;
@@ -77,7 +85,7 @@ interface TextFieldProps {
   dirty?: boolean;
 }
 
-export function TextField({ label, value, onChange, required, dirty }: TextFieldProps) {
+export function TextField({ id, name, label, value, onChange, required, dirty }: TextFieldProps) {
   const hasError = required && !value.trim();
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
@@ -87,6 +95,8 @@ export function TextField({ label, value, onChange, required, dirty }: TextField
         {dirty && <DirtyMarker />}
       </span>
       <input
+        id={id}
+        name={name}
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -97,13 +107,15 @@ export function TextField({ label, value, onChange, required, dirty }: TextField
 }
 
 interface CoordinateFieldProps {
+  id?: string;
+  name?: string;
   label: string;
   value: { x: number; y: number; z: number };
   onChange: (v: { x: number; y: number; z: number }) => void;
   required?: boolean;
 }
 
-export function CoordinateField({ label, value, onChange, required }: CoordinateFieldProps) {
+export function CoordinateField({ id, name, label, value, onChange, required }: CoordinateFieldProps) {
   const [state, setState] = useState({
     rx: String(value.x),
     ry: String(value.y),
@@ -130,34 +142,49 @@ export function CoordinateField({ label, value, onChange, required }: Coordinate
   return (
     <div style={{ fontSize: 12 }}>
       <span style={{ color: "#666" }}>{label}{required && <span style={{ color: "#dc2626" }}> *</span>}</span>
-      <div style={{ display: "flex", gap: 4, marginTop: 2 }}>
-        <input
-          type="text"
-          inputMode="decimal"
-          value={rx}
-          onChange={(e) => { setRx(e.target.value); const n = tryParse(e.target.value); if (n !== null) onChange({ ...value, x: n }); }}
-          onBlur={() => setRx(String(value.x))}
-          style={{ ...inputStyle, width: 80 }}
-          placeholder="X"
-        />
-        <input
-          type="text"
-          inputMode="decimal"
-          value={ry}
-          onChange={(e) => { setRy(e.target.value); const n = tryParse(e.target.value); if (n !== null) onChange({ ...value, y: n }); }}
-          onBlur={() => setRy(String(value.y))}
-          style={{ ...inputStyle, width: 80 }}
-          placeholder="Y"
-        />
-        <input
-          type="text"
-          inputMode="decimal"
-          value={rz}
-          onChange={(e) => { setRz(e.target.value); const n = tryParse(e.target.value); if (n !== null) onChange({ ...value, z: n }); }}
-          onBlur={() => setRz(String(value.z))}
-          style={{ ...inputStyle, width: 80 }}
-          placeholder="Z"
-        />
+      <div style={coordinateGridStyle}>
+        <label style={axisFieldStyle}>
+          <span style={axisLabelStyle}>X</span>
+          <input
+            id={id ? `${id}-x` : undefined}
+            name={name ? `${name}_x` : undefined}
+            aria-label={`${label} X`}
+            type="text"
+            inputMode="decimal"
+            value={rx}
+            onChange={(e) => { setRx(e.target.value); const n = tryParse(e.target.value); if (n !== null) onChange({ ...value, x: n }); }}
+            onBlur={() => setRx(String(value.x))}
+            style={{ ...inputStyle, width: "100%" }}
+          />
+        </label>
+        <label style={axisFieldStyle}>
+          <span style={axisLabelStyle}>Y</span>
+          <input
+            id={id ? `${id}-y` : undefined}
+            name={name ? `${name}_y` : undefined}
+            aria-label={`${label} Y`}
+            type="text"
+            inputMode="decimal"
+            value={ry}
+            onChange={(e) => { setRy(e.target.value); const n = tryParse(e.target.value); if (n !== null) onChange({ ...value, y: n }); }}
+            onBlur={() => setRy(String(value.y))}
+            style={{ ...inputStyle, width: "100%" }}
+          />
+        </label>
+        <label style={axisFieldStyle}>
+          <span style={axisLabelStyle}>Z</span>
+          <input
+            id={id ? `${id}-z` : undefined}
+            name={name ? `${name}_z` : undefined}
+            aria-label={`${label} Z`}
+            type="text"
+            inputMode="decimal"
+            value={rz}
+            onChange={(e) => { setRz(e.target.value); const n = tryParse(e.target.value); if (n !== null) onChange({ ...value, z: n }); }}
+            onBlur={() => setRz(String(value.z))}
+            style={{ ...inputStyle, width: "100%" }}
+          />
+        </label>
       </div>
     </div>
   );
@@ -172,12 +199,38 @@ const inputStyle: React.CSSProperties = {
   fontSize: 13,
 };
 
+const coordinateGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: 6,
+  marginTop: 3,
+};
+
+const axisFieldStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "18px minmax(0, 1fr)",
+  alignItems: "center",
+  gap: 4,
+  minWidth: 0,
+};
+
+const axisLabelStyle: React.CSSProperties = {
+  color: "#1f2937",
+  fontSize: 11,
+  fontWeight: 700,
+  textAlign: "center",
+};
+
 export function SelectField({
+  id,
+  name,
   label,
   value,
   options,
   onChange,
 }: {
+  id?: string;
+  name?: string;
   label: string;
   value: string;
   options: string[];
@@ -186,7 +239,7 @@ export function SelectField({
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
       <span style={{ color: "#666" }}>{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} style={inputStyle}>
+      <select id={id} name={name} value={value} onChange={(e) => onChange(e.target.value)} style={inputStyle}>
         {options.length === 0 && <option value="">No configs found</option>}
         {options.map((o) => (
           <option key={o} value={o}>

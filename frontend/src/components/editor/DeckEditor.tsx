@@ -9,7 +9,7 @@ interface Props {
   onSelectFile: (f: string) => void;
   onImportFile: (f: string) => void;
   deck: DeckResponse | null;
-  onSave: (filename: string, body: DeckConfig) => void;
+  onSave: (filename: string, body: DeckConfig) => Promise<void> | void;
   onLocalChange: (deck: DeckResponse) => void;
   onRefresh: () => void;
 }
@@ -86,6 +86,7 @@ function labwareFromDeck(deck: DeckResponse | null): Record<string, LabwareConfi
 export default function DeckEditor({ configs, selectedFile, onSelectFile, onImportFile, deck, onSave, onLocalChange }: Props) {
   const [labware, setLabware] = useState<Record<string, LabwareConfig>>(() => labwareFromDeck(deck));
   const [saveAs, setSaveAs] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setLabware(labwareFromDeck(deck));
@@ -112,6 +113,7 @@ export default function DeckEditor({ configs, selectedFile, onSelectFile, onImpo
     const idx = Object.keys(labware).length + 1;
     const key = type === "well_plate" ? `wellplate_${idx}` : `vial_${idx}`;
     const template = type === "well_plate" ? structuredClone(EMPTY_WELL_PLATE) : structuredClone(EMPTY_VIAL);
+    template.name = key; // Pre-fill with ID
     const next = { ...labware, [key]: template };
     setLabware(next);
     syncViz(next);
@@ -119,15 +121,22 @@ export default function DeckEditor({ configs, selectedFile, onSelectFile, onImpo
 
   const hasItems = Object.keys(labware).length > 0;
   const valid = hasItems && isValid(labware);
-  const canSave = valid && (!!saveAs.trim() || !!selectedFile);
+  const canSave = valid && (!!saveAs.trim() || !!selectedFile) && !saving;
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!canSave) return;
     const filename = saveAs.trim() || selectedFile || "";
     const normalized = filename.endsWith(".yaml") ? filename : `${filename}.yaml`;
-    onSelectFile(normalized);
-    onSave(normalized, { labware });
-    setSaveAs("");
+    setSaving(true);
+    try {
+      await Promise.resolve(onSave(normalized, { labware }));
+      onSelectFile(normalized);
+      setSaveAs("");
+    } catch (err) {
+      console.error("Deck save failed:", err);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -151,10 +160,10 @@ export default function DeckEditor({ configs, selectedFile, onSelectFile, onImpo
           </div>
           {isEditableDeckLabware(entry) ? (
             <>
-              <TextField label="Name" value={entry.name} onChange={(v) => updateLabware(key, { ...entry, name: v })} required />
-              <TextField label="Model" value={entry.model_name} onChange={(v) => updateLabware(key, { ...entry, model_name: v })} />
-              {entry.type === "well_plate" && <WellPlateFields entry={entry} onChange={(v) => updateLabware(key, v)} />}
-              {entry.type === "vial" && <VialFields entry={entry} onChange={(v) => updateLabware(key, v)} />}
+              <TextField id={`${key}-name`} name={`${key}_name`} label="Component ID" value={entry.name} onChange={(v) => updateLabware(key, { ...entry, name: v })} required />
+              <TextField id={`${key}-model`} name={`${key}_model`} label="Model" value={entry.model_name} onChange={(v) => updateLabware(key, { ...entry, model_name: v })} />
+              {entry.type === "well_plate" && <WellPlateFields entry={entry} onChange={(v) => updateLabware(key, v)} parentKey={key} />}
+              {entry.type === "vial" && <VialFields entry={entry} onChange={(v) => updateLabware(key, v)} parentKey={key} />}
             </>
           ) : (
             <div style={unsupportedNoteStyle}>
@@ -182,44 +191,44 @@ export default function DeckEditor({ configs, selectedFile, onSelectFile, onImpo
   );
 }
 
-function WellPlateFields({ entry, onChange }: { entry: WellPlateConfig; onChange: (v: WellPlateConfig) => void }) {
+function WellPlateFields({ entry, onChange, parentKey }: { entry: WellPlateConfig; onChange: (v: WellPlateConfig) => void; parentKey: string }) {
   const a1 = entry.calibration.a1 ?? entry.a1 ?? { x: 0, y: 0, z: 0 };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
       <div style={{ display: "flex", gap: 8 }}>
-        <NumberField label="Rows" value={entry.rows} step={1} onChange={(v) => onChange({ ...entry, rows: v })} required />
-        <NumberField label="Columns" value={entry.columns} step={1} onChange={(v) => onChange({ ...entry, columns: v })} required />
+        <NumberField id={`${parentKey}-rows`} name={`${parentKey}_rows`} label="Rows" value={entry.rows} step={1} onChange={(v) => onChange({ ...entry, rows: v })} required />
+        <NumberField id={`${parentKey}-cols`} name={`${parentKey}_cols`} label="Columns" value={entry.columns} step={1} onChange={(v) => onChange({ ...entry, columns: v })} required />
       </div>
       <div style={{ display: "flex", gap: 8 }}>
-        <NumberField label="Length (mm)" value={entry.length} onChange={(v) => onChange({ ...entry, length: v })} />
-        <NumberField label="Width (mm)" value={entry.width} onChange={(v) => onChange({ ...entry, width: v })} />
-        <NumberField label="Height (mm)" value={entry.height} onChange={(v) => onChange({ ...entry, height: v })} />
+        <NumberField id={`${parentKey}-length`} name={`${parentKey}_length`} label="Length (mm)" value={entry.length} onChange={(v) => onChange({ ...entry, length: v })} />
+        <NumberField id={`${parentKey}-width`} name={`${parentKey}_width`} label="Width (mm)" value={entry.width} onChange={(v) => onChange({ ...entry, width: v })} />
+        <NumberField id={`${parentKey}-height`} name={`${parentKey}_height`} label="Height (mm)" value={entry.height} onChange={(v) => onChange({ ...entry, height: v })} />
       </div>
-      <CoordinateField label="Calibration A1" value={a1} onChange={(v) => onChange({ ...entry, calibration: { ...entry.calibration, a1: v } })} required />
-      <CoordinateField label="Calibration A2" value={entry.calibration.a2} onChange={(v) => onChange({ ...entry, calibration: { ...entry.calibration, a2: v } })} required />
+      <CoordinateField id={`${parentKey}-a1`} name={`${parentKey}_a1`} label="Calibration A1" value={a1} onChange={(v) => onChange({ ...entry, calibration: { ...entry.calibration, a1: v } })} required />
+      <CoordinateField id={`${parentKey}-a2`} name={`${parentKey}_a2`} label="Calibration A2" value={entry.calibration.a2} onChange={(v) => onChange({ ...entry, calibration: { ...entry.calibration, a2: v } })} required />
       <div style={{ display: "flex", gap: 8 }}>
-        <NumberField label="Well pitch X (mm)" value={entry.x_offset} onChange={(v) => onChange({ ...entry, x_offset: v })} required />
-        <NumberField label="Well pitch Y (mm)" value={entry.y_offset} onChange={(v) => onChange({ ...entry, y_offset: v })} required />
+        <NumberField id={`${parentKey}-xoffset`} name={`${parentKey}_xoffset`} label="Well pitch X (mm)" value={entry.x_offset} onChange={(v) => onChange({ ...entry, x_offset: v })} required />
+        <NumberField id={`${parentKey}-yoffset`} name={`${parentKey}_yoffset`} label="Well pitch Y (mm)" value={entry.y_offset} onChange={(v) => onChange({ ...entry, y_offset: v })} required />
       </div>
       <div style={{ display: "flex", gap: 8 }}>
-        <NumberField label="Capacity (uL)" value={entry.capacity_ul} onChange={(v) => onChange({ ...entry, capacity_ul: v })} />
-        <NumberField label="Working vol (uL)" value={entry.working_volume_ul} onChange={(v) => onChange({ ...entry, working_volume_ul: v })} />
+        <NumberField id={`${parentKey}-capacity`} name={`${parentKey}_capacity`} label="Capacity (uL)" value={entry.capacity_ul} onChange={(v) => onChange({ ...entry, capacity_ul: v })} />
+        <NumberField id={`${parentKey}-workingvol`} name={`${parentKey}_workingvol`} label="Working vol (uL)" value={entry.working_volume_ul} onChange={(v) => onChange({ ...entry, working_volume_ul: v })} />
       </div>
     </div>
   );
 }
 
-function VialFields({ entry, onChange }: { entry: VialConfig; onChange: (v: VialConfig) => void }) {
+function VialFields({ entry, onChange, parentKey }: { entry: VialConfig; onChange: (v: VialConfig) => void; parentKey: string }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
       <div style={{ display: "flex", gap: 8 }}>
-        <NumberField label="Height (mm)" value={entry.height} onChange={(v) => onChange({ ...entry, height: v })} />
-        <NumberField label="Diameter (mm)" value={entry.diameter} onChange={(v) => onChange({ ...entry, diameter: v })} />
+        <NumberField id={`${parentKey}-height`} name={`${parentKey}_height`} label="Height (mm)" value={entry.height} onChange={(v) => onChange({ ...entry, height: v })} />
+        <NumberField id={`${parentKey}-diameter`} name={`${parentKey}_diameter`} label="Diameter (mm)" value={entry.diameter} onChange={(v) => onChange({ ...entry, diameter: v })} />
       </div>
-      <CoordinateField label="Location" value={entry.location} onChange={(v) => onChange({ ...entry, location: v })} required />
+      <CoordinateField id={`${parentKey}-location`} name={`${parentKey}_location`} label="Location" value={entry.location} onChange={(v) => onChange({ ...entry, location: v })} required />
       <div style={{ display: "flex", gap: 8 }}>
-        <NumberField label="Capacity (uL)" value={entry.capacity_ul} onChange={(v) => onChange({ ...entry, capacity_ul: v })} />
-        <NumberField label="Working vol (uL)" value={entry.working_volume_ul} onChange={(v) => onChange({ ...entry, working_volume_ul: v })} />
+        <NumberField id={`${parentKey}-capacity`} name={`${parentKey}_capacity`} label="Capacity (uL)" value={entry.capacity_ul} onChange={(v) => onChange({ ...entry, capacity_ul: v })} />
+        <NumberField id={`${parentKey}-workingvol`} name={`${parentKey}_workingvol`} label="Working vol (uL)" value={entry.working_volume_ul} onChange={(v) => onChange({ ...entry, working_volume_ul: v })} />
       </div>
     </div>
   );

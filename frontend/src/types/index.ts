@@ -254,6 +254,10 @@ export interface FinalizeOriginResponse {
   homing_pull_off_mm?: number | null;
 }
 
+export interface GrblSettingsResponse {
+  settings: Record<string, string>;
+}
+
 // Gantry-mounted instrument introspection (from CubOS)
 
 export interface InstrumentTypeInfo {

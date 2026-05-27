@@ -89,7 +89,7 @@ function createState(): ApiState {
         steps: [
           {
             command: "move",
-            args: { x: 1, y: 2, z: 3 },
+            args: { instrument: "pipette_1", position: "plate_1.A1", travel_z: 3 },
           },
         ],
       },
@@ -185,11 +185,24 @@ function installFetchMock(state: ApiState) {
         {
           name: "move",
           args: [
-            { name: "x", type: "float", required: true, default: 0 },
-            { name: "y", type: "float", required: true, default: 0 },
-            { name: "z", type: "float", required: true, default: 0 },
+            { name: "instrument", type: "str", required: true, default: null },
+            { name: "position", type: "Any", required: true, default: null },
+            { name: "travel_z", type: "float | None", required: false, default: null },
           ],
           description: "Move gantry",
+        },
+        {
+          name: "scan",
+          args: [
+            { name: "plate", type: "str", required: true, default: null },
+            { name: "instrument", type: "str", required: true, default: null },
+            { name: "method", type: "str", required: true, default: null },
+            { name: "measurement_height", type: "float", required: true, default: null },
+            { name: "interwell_scan_height", type: "float", required: true, default: null },
+            { name: "indentation_limit_height", type: "float | None", required: false, default: null },
+            { name: "method_kwargs", type: "Dict[str, Any] | None", required: false, default: null },
+          ],
+          description: "Scan plate",
         },
       ]);
     }
@@ -309,7 +322,6 @@ function renderApp() {
 }
 
 async function importConfig(user: ReturnType<typeof userEvent.setup>, label: string, filename: string) {
-  await user.click(screen.getByRole("button", { name: label }));
   await user.selectOptions(screen.getByRole("combobox", { name: label }), filename);
 }
 
@@ -417,6 +429,30 @@ describe("Zoo editor interactions", () => {
     await user.click(screen.getByRole("button", { name: "Gantry" }));
 
     await waitFor(() => expect(screen.getByLabelText("Port *")).toHaveValue("/dev/ttyUSB4"));
+  });
+
+  it("saves a new gantry filename before selecting it for fetches", async () => {
+    const user = userEvent.setup();
+    const state = createState();
+    const fetchMock = installFetchMock(state);
+    renderApp();
+    await waitForSettingsLoad();
+
+    await importConfig(user, "Import gantry config", "cubos.yaml");
+    expect(await screen.findByLabelText("Serial port")).toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText("cubos.yaml"), "qa_new_gantry");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(state.gantries["qa_new_gantry.yaml"]).toBeDefined());
+    const newFileCalls = fetchMock.mock.calls.filter(([input]) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      return url.pathname === "/api/gantry/qa_new_gantry.yaml";
+    });
+    expect(newFileCalls.length).toBeGreaterThan(0);
+    expect(newFileCalls[0][1]?.method).toBe("PUT");
   });
 
   it("opens the gantry calibration wizard from the control panel", async () => {
@@ -542,22 +578,62 @@ describe("Zoo editor interactions", () => {
 
     await user.click(screen.getByRole("button", { name: "Protocol" }));
     await importConfig(user, "Import protocol config", "move.yaml");
-    const xField = await screen.findByDisplayValue("1");
-    expect(xField).toHaveValue("1");
+    const travelZField = await screen.findByLabelText("Travel Z");
+    expect(travelZField).toHaveValue("3");
+    const parkYField = await screen.findByLabelText("park coordinates Y");
+    expect(parkYField).toHaveValue("20");
 
-    await user.clear(xField);
-    await user.type(xField, "42");
+    await user.clear(travelZField);
+    await user.type(travelZField, "42");
+    await user.selectOptions(screen.getByLabelText(/^Position \*$/), "park");
+    await user.clear(parkYField);
+    await user.type(parkYField, "40");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(state.protocols["move.yaml"]?.positions).toEqual({ park: [10, 20, 30] }));
+    await waitFor(() => expect(state.protocols["move.yaml"]?.positions).toEqual({ park: [10, 40, 30] }));
+    expect(state.protocols["move.yaml"]?.steps[0].args.position).toBe("park");
     await user.click(screen.getByRole("button", { name: "Gantry" }));
     await user.click(screen.getByRole("button", { name: "Protocol" }));
 
     await waitFor(() => expect(screen.getByDisplayValue("42")).toBeInTheDocument());
+    expect(screen.getByLabelText("park coordinates Y")).toHaveValue("40");
+    expect(screen.getByLabelText(/^Position \*$/)).toHaveValue("park");
+  });
+
+  it("adds protocol named positions independently from protocol steps", async () => {
+    const user = userEvent.setup();
+    const state = createState();
+    installFetchMock(state);
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+    await user.click(await screen.findByRole("button", { name: "Add Position" }));
+    const nameField = await screen.findByLabelText("Position 2 name");
+
+    await user.clear(nameField);
+    await user.type(nameField, "staging_position");
+    await user.clear(screen.getByLabelText("staging_position coordinates X"));
+    await user.type(screen.getByLabelText("staging_position coordinates X"), "11");
+    await user.clear(screen.getByLabelText("staging_position coordinates Y"));
+    await user.type(screen.getByLabelText("staging_position coordinates Y"), "22");
+    await user.clear(screen.getByLabelText("staging_position coordinates Z"));
+    await user.type(screen.getByLabelText("staging_position coordinates Z"), "33");
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      expect(state.protocols["move.yaml"]?.positions).toEqual({
+        park: [10, 20, 30],
+        staging_position: [11, 22, 33],
+      });
+    });
   });
 
   it("validates the selected setup through the full CubOS setup endpoint", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.mocked(fetch);
+
     renderApp();
     await waitForSettingsLoad();
     await loadRequiredProtocolDependencies(user);
@@ -578,5 +654,56 @@ describe("Zoo editor interactions", () => {
         }),
       }),
     );
+  });
+
+  it("keeps Run Protocol disabled while the gantry is disconnected", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+    const runButton = await screen.findByRole("button", { name: "Run Protocol" });
+
+    expect(runButton).toBeDisabled();
+    await user.click(runButton);
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/protocol/run",
+      expect.anything(),
+    );
+  });
+
+  it("adds protocol steps with deck, instrument, method, and ASMI force-limit choices", async () => {
+    const user = userEvent.setup();
+    const state = createState();
+    state.gantries["cubos.yaml"].config.instruments = {
+      asmi: {
+        type: "asmi",
+        vendor: "vernier",
+        offset_x: 1,
+        offset_y: 2,
+        depth: 0,
+        measurement_height: 0,
+        safe_approach_height: 0,
+      },
+    };
+    installFetchMock(state);
+
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    expect(screen.getByText("Load a protocol or add steps.")).toBeInTheDocument();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Add step" }), "scan");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(await screen.findByLabelText(/Plate/)).toHaveValue("plate_1");
+    expect(screen.getByLabelText(/Instrument/)).toHaveValue("asmi");
+    expect(screen.getByLabelText(/^Measurement \*$/)).toHaveValue("indentation");
+    expect(screen.getByLabelText("Force limit (N)")).toHaveValue("10");
   });
 });

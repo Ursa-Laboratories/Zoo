@@ -49,6 +49,7 @@ export default function HolderRenderer({
     machineXRange,
     machineYRange,
   );
+  const labelY = rect.y > 16 ? rect.y - 4 : rect.y + 13;
 
   return (
     <g>
@@ -64,7 +65,7 @@ export default function HolderRenderer({
         strokeDasharray="6 3"
         rx={4}
       />
-      <text x={rect.x + 4} y={rect.y - 4} fill="#4b5563" fontSize={10} fontWeight={500}>
+      <text x={rect.x + 4} y={labelY} fill="#4b5563" fontSize={10} fontWeight={500}>
         {label}
       </text>
     </g>

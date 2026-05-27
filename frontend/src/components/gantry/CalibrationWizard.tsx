@@ -224,6 +224,10 @@ export default function CalibrationWizard({
   const close = async () => {
     if (busy) return;
     stopJog();
+    if (!connected) {
+      onClose();
+      return;
+    }
     try {
       await gantryApi.restoreCalibrationSoftLimits();
     } catch (err) {

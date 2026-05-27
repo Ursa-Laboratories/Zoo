@@ -4,6 +4,7 @@ import copy
 import inspect
 import logging
 import math
+import re
 import threading
 import time
 from typing import Any, Dict, List, Optional
@@ -23,7 +24,7 @@ from instruments.registry import (
     get_supported_types,
     get_supported_vendors,
 )
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ValidationError, model_validator
 
 from zoo.config import get_settings
 from zoo.models.gantry import GantryPosition, GantryResponse
@@ -296,6 +297,15 @@ def _api_gantry_config(
         cnc["calibration_block_height_mm"] = source_cnc["calibration_block_height_mm"]
     payload["cnc"] = cnc
     return payload
+
+
+def _clear_connected_gantry_state() -> None:
+    """Drop stale connection state after a live serial query fails."""
+    global _gantry, _last_position, _calibration_warning, _calibration_restore_soft_limits
+    _gantry = None
+    _last_position = None
+    _calibration_warning = None
+    _calibration_restore_soft_limits = False
 
 
 def _runtime_connect_config(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -609,7 +619,7 @@ def get_position() -> GantryPosition:
             return _position_from_cache_with_status(_alarm_status_from_error(exc))
         logging.error("Position query failed: %s", exc)
         if _last_position is not None:
-            # During calibration the frontend reads live position to compute Z math —
+            # During calibration the frontend reads live position to compute Z math;
             # returning stale coords silently would poison the calibration result.
             if _calibration_jog_bypass_working_volume:
                 return _position_from_cache_with_status("Query failed")
@@ -691,6 +701,15 @@ class ConfigureSoftLimitsRequest(BaseModel):
     tolerance_mm: float = 0.25
 
 
+class GrblSettingsResponse(BaseModel):
+    settings: Dict[str, str]
+
+
+class SetGrblSettingRequest(BaseModel):
+    setting: str
+    value: str
+
+
 class JogBlockingRequest(BaseModel):
     x: float = 0.0
     y: float = 0.0
@@ -764,6 +783,25 @@ def _restore_calibration_soft_limits_if_needed() -> None:
         return
     _gantry.set_soft_limits_enabled(True)
     _calibration_restore_soft_limits = False
+
+
+def _normalize_grbl_setting_code(setting: str) -> str:
+    raw = setting.strip()
+    if not re.fullmatch(r"\$?\d+", raw):
+        raise ValueError("GRBL setting must be a numeric code like $20 or 20.")
+    return raw if raw.startswith("$") else f"${raw}"
+
+
+def _parse_grbl_setting_value(value: str) -> float:
+    raw = value.strip()
+    if raw == "":
+        raise ValueError("GRBL setting value cannot be empty.")
+    if "\n" in raw or "\r" in raw:
+        raise ValueError("GRBL setting value cannot contain newlines.")
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise ValueError("GRBL setting value must be numeric.") from exc
 
 
 _move_error: Optional[str] = None
@@ -1073,6 +1111,77 @@ def unlock() -> GantryPosition:
     return get_position()
 
 
+@router.post("/reset-unlock")
+def reset_and_unlock() -> GantryPosition:
+    """Soft-reset the controller, then send unlock through CubOS."""
+    if _gantry is None:
+        raise HTTPException(400, "Gantry not connected")
+    with _serial_lock:
+        try:
+            _gantry.reset_and_unlock()
+        except Exception as e:
+            raise HTTPException(500, f"Reset and unlock failed: {e}")
+    return get_position()
+
+
+@router.post("/feed-hold")
+def feed_hold() -> GantryPosition:
+    """Immediately stop gantry motion using CubOS feed-hold semantics."""
+    if _gantry is None:
+        raise HTTPException(400, "Gantry not connected")
+    with _serial_lock:
+        try:
+            _gantry.stop()
+        except Exception as e:
+            raise HTTPException(500, f"Feed hold failed: {e}")
+    return get_position()
+
+
+@router.post("/jog-cancel")
+def jog_cancel() -> GantryPosition:
+    """Cancel any active jog through CubOS."""
+    if _gantry is None:
+        raise HTTPException(400, "Gantry not connected")
+    with _serial_lock:
+        try:
+            _gantry.jog_cancel()
+        except Exception as e:
+            raise HTTPException(500, f"Jog cancel failed: {e}")
+    return get_position()
+
+
+@router.get("/grbl-settings")
+def read_grbl_settings() -> GrblSettingsResponse:
+    """Read live GRBL settings from the connected controller."""
+    if _gantry is None:
+        raise HTTPException(400, "Gantry not connected")
+    with _serial_lock:
+        try:
+            settings = _gantry.read_grbl_settings()
+        except Exception as e:
+            raise HTTPException(500, f"Read GRBL settings failed: {e}")
+    return GrblSettingsResponse(settings={str(k): str(v) for k, v in settings.items()})
+
+
+@router.post("/grbl-settings")
+def set_grbl_setting(req: SetGrblSettingRequest) -> GrblSettingsResponse:
+    """Set one GRBL setting through CubOS, then return the refreshed settings."""
+    if _gantry is None:
+        raise HTTPException(400, "Gantry not connected")
+    try:
+        setting = _normalize_grbl_setting_code(req.setting)
+        value = _parse_grbl_setting_value(req.value)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    with _serial_lock:
+        try:
+            _gantry.set_grbl_setting(setting, value)
+            settings = _gantry.read_grbl_settings()
+        except Exception as e:
+            raise HTTPException(500, f"Set GRBL setting failed: {e}")
+    return GrblSettingsResponse(settings={str(k): str(v) for k, v in settings.items()})
+
+
 class ConnectRequest(BaseModel):
     filename: Optional[str] = None
 
@@ -1136,6 +1245,10 @@ def connect(body: Optional[ConnectRequest] = None) -> GantryPosition:
                 if info["work_pos"] is not None:
                     break
                 time.sleep(0.1)
+        except HTTPException:
+            raise
+        except (ValueError, ValidationError) as e:
+            raise HTTPException(400, f"Invalid gantry config: {e}")
         except Exception as e:
             raise HTTPException(500, f"Failed to connect: {e}")
         _gantry = staged
@@ -1203,15 +1316,21 @@ def get_gantry(filename: str) -> GantryResponse:
     path = resolve_config_path(get_settings().configs_dir, "gantry", filename)
     if not path.is_file():
         raise HTTPException(404, f"Config not found: {filename}")
-    data = read_yaml(path)
-    config = _validated_gantry_config(data)
+    try:
+        data = read_yaml(path)
+        config = _validated_gantry_config(data)
+    except (ValueError, ValidationError) as e:
+        raise HTTPException(400, str(e))
     return GantryResponse(filename=filename, config=_api_gantry_config(config, data))
 
 
 @router.put("/{filename}")
 def put_gantry(filename: str, body: dict) -> GantryResponse:
     path = resolve_config_path(get_settings().configs_dir, "gantry", filename)
-    config = _validated_gantry_config(body)
+    try:
+        config = _validated_gantry_config(body)
+    except (ValueError, ValidationError) as e:
+        raise HTTPException(400, str(e))
     config_dict = config.model_dump(mode="json", exclude_none=True)
     # calibration_block_height_mm is not in the CubOS CNC schema so it is stripped
     # by _normalize_gantry_yaml. Preserve it from the incoming body so the editor
