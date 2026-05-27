@@ -688,6 +688,7 @@ class ConfigureSoftLimitsRequest(BaseModel):
     max_travel_z: float
     status_report: Optional[float] = None
     homing_pull_off: Optional[float] = None
+    hard_limits: Optional[bool] = None
     tolerance_mm: float = 0.25
 
 
@@ -849,12 +850,18 @@ def configure_soft_limits(req: ConfigureSoftLimitsRequest) -> dict:
         raise HTTPException(400, "Gantry not connected")
     with _serial_lock:
         try:
+            hard_limits = (
+                req.hard_limits
+                if req.hard_limits is not None
+                else _connected_grbl_setting("hard_limits")
+            )
             _gantry.configure_soft_limits_from_spans(
                 max_travel_x=req.max_travel_x,
                 max_travel_y=req.max_travel_y,
                 max_travel_z=req.max_travel_z,
                 status_report=req.status_report,
                 homing_pull_off=req.homing_pull_off,
+                hard_limits=hard_limits,
                 tolerance_mm=req.tolerance_mm,
             )
             _calibration_restore_soft_limits = False
@@ -870,6 +877,8 @@ def configure_soft_limits(req: ConfigureSoftLimitsRequest) -> dict:
                     "max_travel_y": req.max_travel_y,
                     "max_travel_z": req.max_travel_z,
                 })
+                if hard_limits is not None:
+                    grbl_settings["hard_limits"] = bool(hard_limits)
                 if req.status_report is not None:
                     grbl_settings["status_report"] = req.status_report
                 if req.homing_pull_off is not None:
@@ -958,6 +967,7 @@ def finalize_calibration_origin(req: FinalizeOriginRequest) -> FinalizeOriginRes
                 total_z_range=req.factory_z_travel,
                 status_report=0,
                 homing_pull_off=_connected_grbl_setting("homing_pull_off"),
+                hard_limits=_connected_grbl_setting("hard_limits"),
                 tolerance_mm=req.tolerance_mm,
             )
             max_travel = {
