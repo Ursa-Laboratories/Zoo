@@ -147,6 +147,25 @@ export const gantryApi = {
     request<import("../types").GantryPosition>("/gantry/unlock", {
       method: "POST",
     }),
+  resetUnlock: () =>
+    request<import("../types").GantryPosition>("/gantry/reset-unlock", {
+      method: "POST",
+    }),
+  feedHold: () =>
+    request<import("../types").GantryPosition>("/gantry/feed-hold", {
+      method: "POST",
+    }),
+  jogCancel: () =>
+    request<import("../types").GantryPosition>("/gantry/jog-cancel", {
+      method: "POST",
+    }),
+  readGrblSettings: () =>
+    request<import("../types").GrblSettingsResponse>("/gantry/grbl-settings"),
+  setGrblSetting: (body: { setting: string; value: string }) =>
+    request<import("../types").GrblSettingsResponse>("/gantry/grbl-settings", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };
 
 // Protocol

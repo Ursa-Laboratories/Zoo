@@ -100,7 +100,10 @@ def get_protocol(filename: str) -> ProtocolResponse:
     path = resolve_config_path(get_settings().configs_dir, "protocol", filename)
     if not path.is_file():
         raise HTTPException(404, f"Protocol file not found: {filename}")
-    data = read_yaml(path)
+    try:
+        data = read_yaml(path)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     if "protocol" not in data or not isinstance(data["protocol"], list):
         raise HTTPException(400, f"File '{filename}' is not a valid protocol YAML")
 

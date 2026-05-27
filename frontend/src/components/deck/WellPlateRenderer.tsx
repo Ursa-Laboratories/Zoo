@@ -40,6 +40,7 @@ export default function WellPlateRenderer({
   const rectY = Math.min(topLeft.sy, bottomRight.sy);
   const rectW = Math.abs(bottomRight.sx - topLeft.sx);
   const rectH = Math.abs(bottomRight.sy - topLeft.sy);
+  const labelY = rectY > 16 ? rectY - 4 : rectY + 13;
 
   return (
     <g>
@@ -54,7 +55,7 @@ export default function WellPlateRenderer({
         strokeWidth={1.5}
         rx={3}
       />
-      <text x={rectX + 4} y={rectY - 4} fill="#2563eb" fontSize={10} fontWeight={500}>
+      <text x={rectX + 4} y={labelY} fill="#2563eb" fontSize={10} fontWeight={500}>
         {config.name || "Well Plate"}
       </text>
       {Object.entries(wells).map(([id, pos]) => {
@@ -77,3 +78,4 @@ export default function WellPlateRenderer({
     </g>
   );
 }
+

@@ -406,6 +406,64 @@ def test_get_gantry_preserves_factory_z_travel_for_offset_z_bounds(monkeypatch, 
     assert config["working_volume"]["z_max"] == 135.0
 
 
+def test_get_gantry_returns_400_for_invalid_yaml(monkeypatch, tmp_path):
+    from zoo.config import get_settings
+
+    config_dir = tmp_path / "configs"
+    gantry_dir = config_dir / "gantry"
+    gantry_dir.mkdir(parents=True)
+    (gantry_dir / "broken.yaml").write_text("serial_port: [\n", encoding="utf-8")
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+
+    response = api_request(create_app(), "GET", "/api/gantry/broken.yaml")
+
+    assert response.status_code == 400
+    assert "Invalid YAML" in response.text
+
+
+def test_connect_returns_400_for_invalid_selected_yaml(monkeypatch, tmp_path):
+    from zoo.config import get_settings
+
+    config_dir = tmp_path / "configs"
+    gantry_dir = config_dir / "gantry"
+    gantry_dir.mkdir(parents=True)
+    (gantry_dir / "broken.yaml").write_text("serial_port: [\n", encoding="utf-8")
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/connect",
+        json={"filename": "broken.yaml"},
+    )
+
+    assert response.status_code == 400
+    assert "Invalid gantry config" in response.text
+
+
+def test_position_query_failure_returns_cached_position(monkeypatch):
+    from zoo.models.gantry import GantryPosition
+
+    mock_gantry = MagicMock()
+    mock_gantry.get_position_info.side_effect = RuntimeError("serial read failed")
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    cached = GantryPosition(x=1, y=2, z=3, connected=True, status="Idle")
+    monkeypatch.setattr(gantry_router, "_last_position", cached)
+    monkeypatch.setattr(gantry_router, "_calibration_warning", "stale warning")
+    monkeypatch.setattr(gantry_router, "_calibration_restore_soft_limits", True)
+
+    response = api_request(create_app(), "GET", "/api/gantry/position")
+
+    assert response.status_code == 200
+    assert response.json()["connected"] is True
+    assert response.json()["status"] == "Idle"
+    assert response.json()["x"] == 1
+    assert gantry_router._gantry is mock_gantry
+    assert gantry_router._last_position is cached
+    assert gantry_router._calibration_warning == "stale warning"
+    assert gantry_router._calibration_restore_soft_limits is True
+
+
 def test_move_to_blocking_allows_targets_inside_working_volume(monkeypatch):
     mock_gantry = MagicMock()
     mock_gantry.config = {
@@ -1171,6 +1229,83 @@ def test_unlock_returns_500_when_unlock_raises(monkeypatch):
     response = api_request(create_app(), "POST", "/api/gantry/unlock")
 
     assert response.status_code == 500
+
+
+def test_reset_unlock_delegates_to_gantry(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.get_position_info.return_value = idle_position_info()
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(create_app(), "POST", "/api/gantry/reset-unlock")
+
+    assert response.status_code == 200
+    mock_gantry.reset_and_unlock.assert_called_once()
+
+
+def test_feed_hold_delegates_to_gantry_stop(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.get_position_info.return_value = idle_position_info()
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(create_app(), "POST", "/api/gantry/feed-hold")
+
+    assert response.status_code == 200
+    mock_gantry.stop.assert_called_once()
+
+
+def test_jog_cancel_delegates_to_gantry(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.get_position_info.return_value = idle_position_info()
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(create_app(), "POST", "/api/gantry/jog-cancel")
+
+    assert response.status_code == 200
+    mock_gantry.jog_cancel.assert_called_once()
+
+
+def test_read_grbl_settings_delegates_to_gantry(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.read_grbl_settings.return_value = {"$20": "1", "$130": "300.0"}
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(create_app(), "GET", "/api/gantry/grbl-settings")
+
+    assert response.status_code == 200
+    assert response.json() == {"settings": {"$20": "1", "$130": "300.0"}}
+    mock_gantry.read_grbl_settings.assert_called_once()
+
+
+def test_set_grbl_setting_delegates_and_refreshes(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.read_grbl_settings.return_value = {"$20": "0"}
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/grbl-settings",
+        json={"setting": "$20", "value": "0"},
+    )
+
+    assert response.status_code == 200
+    mock_gantry.set_grbl_setting.assert_called_once_with("$20", 0.0)
+    assert response.json() == {"settings": {"$20": "0"}}
+
+
+def test_set_grbl_setting_rejects_non_numeric_codes(monkeypatch):
+    mock_gantry = MagicMock()
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/grbl-settings",
+        json={"setting": "$X", "value": "1"},
+    )
+
+    assert response.status_code == 400
+    mock_gantry.set_grbl_setting.assert_not_called()
 
 
 def test_gantry_exposes_instrument_registry_endpoints():

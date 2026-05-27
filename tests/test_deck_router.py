@@ -107,3 +107,135 @@ labware:
     assert vial_holder["geometry"] == {"length": 36.2, "width": 300.2, "height": 35.1}
     assert vial_holder["location"] == {"x": 30.0, "y": 60.0, "z": 8.0}
     assert vial_holder["positions"]["vial_1"] == {"x": 30.0, "y": 60.0, "z": 26.0}
+
+
+def test_get_deck_normalizes_current_well_plate_editor_fields(monkeypatch, tmp_path: Path):
+    config_dir = tmp_path / "configs"
+    deck_dir = config_dir / "deck"
+    deck_dir.mkdir(parents=True)
+    (deck_dir / "asmi_deck.yaml").write_text(
+        """\
+labware:
+  plate:
+    load_name: sbs_96_wellplate
+    name: asmi_96_well_deck_origin
+    model_name: asmi_96_well_deck_origin
+    calibration:
+      a1: {x: 347.0, y: 42.0, z: 30.0}
+      a2: {x: 338.0, y: 42.0, z: 30.0}
+    x_offset: 9.0
+    y_offset: 9.0
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+    app = create_app()
+
+    response = api_request(app, "GET", "/api/deck/asmi_deck.yaml")
+
+    assert response.status_code == 200
+    plate = response.json()["labware"][0]["config"]
+    assert plate["rows"] == 8
+    assert plate["columns"] == 12
+    assert plate["length"] == 127.76
+    assert plate["width"] == 85.47
+    assert plate["x_offset"] == 9.0
+    assert plate["y_offset"] == 9.0
+
+
+def test_get_deck_returns_400_for_invalid_yaml(monkeypatch, tmp_path: Path):
+    config_dir = tmp_path / "configs"
+    deck_dir = config_dir / "deck"
+    deck_dir.mkdir(parents=True)
+    (deck_dir / "broken.yaml").write_text("labware: [\n", encoding="utf-8")
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+
+    response = api_request(create_app(), "GET", "/api/deck/broken.yaml")
+
+    assert response.status_code == 400
+    assert "Invalid YAML" in response.text
+
+
+def test_put_deck_validates_current_vial_fields_before_overwriting(monkeypatch, tmp_path: Path):
+    from zoo.services.yaml_io import read_yaml
+
+    config_dir = tmp_path / "configs"
+    deck_dir = config_dir / "deck"
+    deck_dir.mkdir(parents=True)
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+
+    response = api_request(
+        create_app(),
+        "PUT",
+        "/api/deck/qa_vial.yaml",
+        json={
+            "labware": {
+                "vial_1": {
+                    "type": "vial",
+                    "name": "QA vial",
+                    "model_name": "",
+                    "height": 66.75,
+                    "diameter": 28.0,
+                    "location": {"x": 30.0, "y": 40.0, "z": 20.0},
+                    "capacity_ul": 1500.0,
+                    "working_volume_ul": 1200.0,
+                }
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    vial = response.json()["labware"][0]["config"]
+    assert vial["height"] == 66.75
+    assert vial["diameter"] == 28.0
+
+    saved = read_yaml(deck_dir / "qa_vial.yaml")
+    assert saved["labware"]["vial_1"]["height"] == 66.75
+    assert saved["labware"]["vial_1"]["diameter"] == 28.0
+
+
+def test_put_deck_validates_before_overwriting_existing_file(monkeypatch, tmp_path: Path):
+    config_dir = tmp_path / "configs"
+    deck_dir = config_dir / "deck"
+    deck_dir.mkdir(parents=True)
+    path = deck_dir / "existing.yaml"
+    path.write_text(
+        """\
+labware:
+  vial_1:
+    type: vial
+    name: Existing vial
+    model_name: ''
+    height: 20.0
+    diameter: 10.0
+    location: {x: 1.0, y: 2.0, z: 3.0}
+    capacity_ul: 100.0
+    working_volume_ul: 50.0
+""",
+        encoding="utf-8",
+    )
+    original = path.read_text(encoding="utf-8")
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+
+    response = api_request(
+        create_app(),
+        "PUT",
+        "/api/deck/existing.yaml",
+        json={
+            "labware": {
+                "vial_1": {
+                    "type": "vial",
+                    "name": "Invalid vial",
+                    "model_name": "",
+                    "height": 20.0,
+                    "diameter": 10.0,
+                    "location": {"x": 1.0, "y": 2.0, "z": 3.0},
+                    "capacity_ul": 100.0,
+                    "working_volume_ul": 150.0,
+                }
+            }
+        },
+    )
+
+    assert response.status_code == 400
+    assert path.read_text(encoding="utf-8") == original

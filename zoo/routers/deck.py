@@ -2,6 +2,8 @@
 
 from copy import deepcopy
 import logging
+from pathlib import Path
+import tempfile
 from typing import Any, Dict, Optional
 
 from deck import load_deck_from_yaml
@@ -58,11 +60,11 @@ def get_deck(filename: str) -> DeckResponse:
 
     # Use CubOS's loader for validation + well derivation.
     try:
+        raw = read_yaml(path)
         deck = load_deck_from_yaml(path)
     except (ValueError, ValidationError) as e:
         raise HTTPException(400, str(e))
 
-    raw = read_yaml(path)
     items: list[LabwareResponse] = []
     for key, labware in deck.labware.items():
         config = _normalize_labware_config(raw.get("labware", {}).get(key, {}), labware, key)
@@ -111,8 +113,26 @@ def preview_wells(body: dict) -> Dict[str, WellPosition]:
 @router.put("/{filename}")
 def put_deck(filename: str, body: dict) -> DeckResponse:
     path = resolve_config_path(get_settings().configs_dir, "deck", filename)
-    write_yaml(path, body)
+    payload = deepcopy(body)
+    try:
+        _validate_deck_payload(payload)
+    except (ValueError, ValidationError) as e:
+        raise HTTPException(400, str(e))
+    write_yaml(path, payload)
     return get_deck(filename)
+
+
+def _validate_deck_payload(payload: dict) -> None:
+    """Validate a prospective deck payload through CubOS before writing it."""
+    tmp_path: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        write_yaml(tmp_path, payload)
+        load_deck_from_yaml(tmp_path)
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
 
 
 def _serialize_point(point: Any) -> Optional[WellPosition]:
@@ -171,7 +191,37 @@ def _normalize_labware_config(raw_config: Any, labware: Any, deck_key: str) -> D
     if "name" not in config:
         config["name"] = deck_key
 
+    if inferred_type == "well_plate":
+        _normalize_well_plate_config(config, labware)
+    elif inferred_type == "vial":
+        _normalize_vial_config(config, labware)
+
     return config
+
+
+def _normalize_well_plate_config(config: Dict[str, Any], labware: Any) -> None:
+    """Expose CubOS-resolved well-plate defaults in the current deck schema shape."""
+    _set_default(config, "rows", getattr(labware, "rows", None))
+    _set_default(config, "columns", getattr(labware, "columns", None))
+    _set_default(config, "length", getattr(labware, "length", None))
+    _set_default(config, "width", getattr(labware, "width", None))
+    _set_default(config, "height", getattr(labware, "height", None))
+    _set_default(config, "well_depth", getattr(labware, "well_depth", None))
+    _set_default(config, "capacity_ul", getattr(labware, "capacity_ul", None))
+    _set_default(config, "working_volume_ul", getattr(labware, "working_volume_ul", None))
+
+
+def _normalize_vial_config(config: Dict[str, Any], labware: Any) -> None:
+    """Expose CubOS-resolved vial defaults in the current deck schema shape."""
+    _set_default(config, "height", getattr(labware, "height", None))
+    _set_default(config, "diameter", getattr(labware, "diameter", None))
+    _set_default(config, "capacity_ul", getattr(labware, "capacity_ul", None))
+    _set_default(config, "working_volume_ul", getattr(labware, "working_volume_ul", None))
+
+
+def _set_default(config: Dict[str, Any], key: str, value: Any) -> None:
+    if config.get(key) is None and value is not None:
+        config[key] = value
 
 
 def _infer_labware_type(labware: Any, deck_key: str) -> Optional[str]:

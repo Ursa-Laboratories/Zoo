@@ -181,4 +181,83 @@ describe("DeckVisualization", () => {
     expect(screen.getByText("Wide Plate")).toBeInTheDocument();
     expect(screen.getByText("350")).toBeInTheDocument();
   });
+
+  it("renders holder labware with current CubOS dimension keys without NaN attributes", () => {
+    const currentDeck: DeckResponse = {
+      filename: "legacy_holder.yaml",
+      labware: [
+        {
+          key: "plate_holder",
+          config: {
+            type: "well_plate_holder",
+            name: "Legacy Plate Holder",
+            location: { x: 100, y: 100, z: 10 },
+            well_plate: {
+              name: "Legacy Plate",
+              model_name: "legacy_plate",
+              rows: 2,
+              columns: 2,
+              calibration: {
+                a1: { x: 100, y: 100 },
+                a2: { x: 109, y: 100 },
+              },
+              length: 127.76,
+              width: 85.47,
+              height: 14.22,
+              x_offset: 9,
+              y_offset: 9,
+            },
+          },
+          wells: null,
+          location: { x: 100, y: 100, z: 10 },
+          geometry: { length: 100, width: 155, height: 14.8 },
+          positions: {
+            "plate.A1": { x: 100, y: 100, z: 15 },
+            "plate.A2": { x: 109, y: 100, z: 15 },
+            "plate.B1": { x: 100, y: 91, z: 15 },
+            "plate.B2": { x: 109, y: 91, z: 15 },
+          },
+        },
+        {
+          key: "vial_holder",
+          config: {
+            type: "vial_holder",
+            name: "Legacy Vials",
+            location: { x: 30, y: 60, z: 8 },
+            vials: {
+              vial_1: {
+                name: "Legacy Vial",
+                model_name: "20ml_vial",
+                height: 57,
+                diameter: 28,
+                location: { x: 30, y: 60 },
+                capacity_ul: 20000,
+                working_volume_ul: 15000,
+              },
+            },
+          },
+          wells: null,
+          location: { x: 30, y: 60, z: 8 },
+          geometry: { length: 36.2, width: 300.2, height: 35.1 },
+          positions: {
+            vial_1: { x: 30, y: 60, z: 26 },
+          },
+        },
+      ],
+    };
+
+    render(
+      <DeckVisualization
+        deck={currentDeck}
+        instruments={null}
+        gantryPosition={null}
+        machineXRange={[0, 300]}
+        machineYRange={[0, 200]}
+      />,
+    );
+
+    expect(screen.getByText("Legacy Plate")).toBeInTheDocument();
+    expect(screen.getByText("Legacy Vial")).toBeInTheDocument();
+    expect(screen.getByTestId("deck-visualization").outerHTML).not.toContain("NaN");
+  });
 });
