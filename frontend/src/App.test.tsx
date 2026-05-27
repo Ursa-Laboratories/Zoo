@@ -585,7 +585,9 @@ describe("Zoo editor interactions", () => {
 
     await user.clear(travelZField);
     await user.type(travelZField, "42");
-    await user.selectOptions(screen.getByLabelText(/^Position \*$/), "park");
+    const positionField = screen.getByLabelText(/^Position \*$/);
+    await user.clear(positionField);
+    await user.type(positionField, "park");
     await user.clear(parkYField);
     await user.type(parkYField, "40");
     await user.click(screen.getByRole("button", { name: "Save" }));

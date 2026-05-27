@@ -182,8 +182,8 @@ describe("DeckVisualization", () => {
     expect(screen.getByText("350")).toBeInTheDocument();
   });
 
-  it("renders holder labware with legacy CubOS dimension keys without NaN attributes", () => {
-    const legacyDeck: DeckResponse = {
+  it("renders holder labware with current CubOS dimension keys without NaN attributes", () => {
+    const currentDeck: DeckResponse = {
       filename: "legacy_holder.yaml",
       labware: [
         {
@@ -210,7 +210,7 @@ describe("DeckVisualization", () => {
           },
           wells: null,
           location: { x: 100, y: 100, z: 10 },
-          geometry: { length_mm: 100, width_mm: 155, height_mm: 14.8 },
+          geometry: { length: 100, width: 155, height: 14.8 },
           positions: {
             "plate.A1": { x: 100, y: 100, z: 15 },
             "plate.A2": { x: 109, y: 100, z: 15 },
@@ -238,7 +238,7 @@ describe("DeckVisualization", () => {
           },
           wells: null,
           location: { x: 30, y: 60, z: 8 },
-          geometry: { length_mm: 36.2, width_mm: 300.2, height_mm: 35.1 },
+          geometry: { length: 36.2, width: 300.2, height: 35.1 },
           positions: {
             vial_1: { x: 30, y: 60, z: 26 },
           },
@@ -248,7 +248,7 @@ describe("DeckVisualization", () => {
 
     render(
       <DeckVisualization
-        deck={legacyDeck}
+        deck={currentDeck}
         instruments={null}
         gantryPosition={null}
         machineXRange={[0, 300]}

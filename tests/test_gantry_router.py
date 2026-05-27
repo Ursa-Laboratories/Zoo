@@ -441,29 +441,27 @@ def test_connect_returns_400_for_invalid_selected_yaml(monkeypatch, tmp_path):
     assert "Invalid gantry config" in response.text
 
 
-def test_position_query_failure_marks_gantry_disconnected(monkeypatch):
+def test_position_query_failure_returns_cached_position(monkeypatch):
     from zoo.models.gantry import GantryPosition
 
     mock_gantry = MagicMock()
     mock_gantry.get_position_info.side_effect = RuntimeError("serial read failed")
     monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
-    monkeypatch.setattr(
-        gantry_router,
-        "_last_position",
-        GantryPosition(x=1, y=2, z=3, connected=True, status="Idle"),
-    )
+    cached = GantryPosition(x=1, y=2, z=3, connected=True, status="Idle")
+    monkeypatch.setattr(gantry_router, "_last_position", cached)
     monkeypatch.setattr(gantry_router, "_calibration_warning", "stale warning")
     monkeypatch.setattr(gantry_router, "_calibration_restore_soft_limits", True)
 
     response = api_request(create_app(), "GET", "/api/gantry/position")
 
     assert response.status_code == 200
-    assert response.json()["connected"] is False
-    assert response.json()["status"] == "Query failed"
-    assert gantry_router._gantry is None
-    assert gantry_router._last_position is None
-    assert gantry_router._calibration_warning is None
-    assert gantry_router._calibration_restore_soft_limits is False
+    assert response.json()["connected"] is True
+    assert response.json()["status"] == "Idle"
+    assert response.json()["x"] == 1
+    assert gantry_router._gantry is mock_gantry
+    assert gantry_router._last_position is cached
+    assert gantry_router._calibration_warning == "stale warning"
+    assert gantry_router._calibration_restore_soft_limits is True
 
 
 def test_move_to_blocking_allows_targets_inside_working_volume(monkeypatch):

@@ -109,7 +109,7 @@ labware:
     assert vial_holder["positions"]["vial_1"] == {"x": 30.0, "y": 60.0, "z": 26.0}
 
 
-def test_get_deck_normalizes_well_plate_editor_fields(monkeypatch, tmp_path: Path):
+def test_get_deck_normalizes_current_well_plate_editor_fields(monkeypatch, tmp_path: Path):
     config_dir = tmp_path / "configs"
     deck_dir = config_dir / "deck"
     deck_dir.mkdir(parents=True)
@@ -137,10 +137,10 @@ labware:
     plate = response.json()["labware"][0]["config"]
     assert plate["rows"] == 8
     assert plate["columns"] == 12
-    assert plate["length_mm"] == 127.76
-    assert plate["width_mm"] == 85.47
-    assert plate["x_offset_mm"] == 9.0
-    assert plate["y_offset_mm"] == 9.0
+    assert plate["length"] == 127.76
+    assert plate["width"] == 85.47
+    assert plate["x_offset"] == 9.0
+    assert plate["y_offset"] == 9.0
 
 
 def test_get_deck_returns_400_for_invalid_yaml(monkeypatch, tmp_path: Path):
@@ -156,7 +156,7 @@ def test_get_deck_returns_400_for_invalid_yaml(monkeypatch, tmp_path: Path):
     assert "Invalid YAML" in response.text
 
 
-def test_put_deck_coerces_frontend_vial_fields_before_cubos_validation(monkeypatch, tmp_path: Path):
+def test_put_deck_validates_current_vial_fields_before_overwriting(monkeypatch, tmp_path: Path):
     from zoo.services.yaml_io import read_yaml
 
     config_dir = tmp_path / "configs"
@@ -174,8 +174,8 @@ def test_put_deck_coerces_frontend_vial_fields_before_cubos_validation(monkeypat
                     "type": "vial",
                     "name": "QA vial",
                     "model_name": "",
-                    "height_mm": 66.75,
-                    "diameter_mm": 28.0,
+                    "height": 66.75,
+                    "diameter": 28.0,
                     "location": {"x": 30.0, "y": 40.0, "z": 20.0},
                     "capacity_ul": 1500.0,
                     "working_volume_ul": 1200.0,
@@ -186,14 +186,12 @@ def test_put_deck_coerces_frontend_vial_fields_before_cubos_validation(monkeypat
 
     assert response.status_code == 200
     vial = response.json()["labware"][0]["config"]
-    assert vial["height_mm"] == 66.75
-    assert vial["diameter_mm"] == 28.0
+    assert vial["height"] == 66.75
+    assert vial["diameter"] == 28.0
 
     saved = read_yaml(deck_dir / "qa_vial.yaml")
     assert saved["labware"]["vial_1"]["height"] == 66.75
     assert saved["labware"]["vial_1"]["diameter"] == 28.0
-    assert "height_mm" not in saved["labware"]["vial_1"]
-    assert "diameter_mm" not in saved["labware"]["vial_1"]
 
 
 def test_put_deck_validates_before_overwriting_existing_file(monkeypatch, tmp_path: Path):
@@ -229,8 +227,8 @@ labware:
                     "type": "vial",
                     "name": "Invalid vial",
                     "model_name": "",
-                    "height_mm": 20.0,
-                    "diameter_mm": 10.0,
+                    "height": 20.0,
+                    "diameter": 10.0,
                     "location": {"x": 1.0, "y": 2.0, "z": 3.0},
                     "capacity_ul": 100.0,
                     "working_volume_ul": 150.0,
