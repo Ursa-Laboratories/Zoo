@@ -142,10 +142,11 @@ export default function ProtocolEditor({
 
   const moveStep = (i: number, dir: -1 | 1) => {
     const j = i + dir;
-    if (j < 0 || j >= steps.length) return;
-    const next = [...steps];
-    [next[i], next[j]] = [next[j], next[i]];
-    commit(next);
+    if (j >= 0 && j < steps.length) {
+      const next = [...steps];
+      [next[i], next[j]] = [next[j], next[i]];
+      commit(next);
+    }
   };
 
   const updateStepArg = (i: number, argName: string, value: unknown) => {
@@ -185,16 +186,17 @@ export default function ProtocolEditor({
 
   const updatePosition = (id: string, patch: Partial<Omit<EditablePosition, "id">>) => {
     const current = positionRows.find((row) => row.id === id);
-    if (!current) return;
-    const oldName = current.name.trim();
-    const nextRows = positionRows.map((row) => (
-      row.id === id ? { ...row, ...patch } : row
-    ));
-    commitPositions(nextRows);
-    if (typeof patch.name === "string") {
-      const newName = patch.name.trim();
-      if (oldName && newName && oldName !== newName) {
-        renamePositionReferences(oldName, newName);
+    if (current) {
+      const oldName = current.name.trim();
+      const nextRows = positionRows.map((row) => (
+        row.id === id ? { ...row, ...patch } : row
+      ));
+      commitPositions(nextRows);
+      if (typeof patch.name === "string") {
+        const newName = patch.name.trim();
+        if (oldName && newName && oldName !== newName) {
+          renamePositionReferences(oldName, newName);
+        }
       }
     }
   };
@@ -228,17 +230,18 @@ export default function ProtocolEditor({
 
   const handleSave = async () => {
     const filename = saveAs.trim() || selectedFile || "";
-    if (!filename || saving || hasPositionErrors) return;
-    const normalized = filename.endsWith(".yaml") ? filename : filename + ".yaml";
-    setSaving(true);
-    try {
-      await Promise.resolve(onSave(normalized, buildConfig()));
-      onSelectFile(normalized);
-      setSaveAs("");
-    } catch (err) {
-      console.error("Protocol save failed:", err);
-    } finally {
-      setSaving(false);
+    if (filename && !saving && !hasPositionErrors) {
+      const normalized = filename.endsWith(".yaml") ? filename : filename + ".yaml";
+      setSaving(true);
+      try {
+        await Promise.resolve(onSave(normalized, buildConfig()));
+        onSelectFile(normalized);
+        setSaveAs("");
+      } catch (err) {
+        console.error("Protocol save failed:", err);
+      } finally {
+        setSaving(false);
+      }
     }
   };
 

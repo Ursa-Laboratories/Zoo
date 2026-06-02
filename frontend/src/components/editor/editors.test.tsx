@@ -1,7 +1,8 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import DeckEditor from "./DeckEditor";
+import EditorTabs from "./EditorTabs";
 import GantryEditor from "./GantryEditor";
 import ProtocolEditor from "./ProtocolEditor";
 import type {
@@ -11,6 +12,7 @@ import type {
   GantryResponse,
   InstrumentSchemas,
   InstrumentTypeInfo,
+  WellPlateConfig,
 } from "../../types";
 
 function deckFixture(): DeckResponse {
@@ -112,7 +114,7 @@ function gantryFixture(): GantryResponse {
 }
 
 const instrumentTypes: InstrumentTypeInfo[] = [
-  { type: "asmi", vendors: ["vernier"], is_mock: false },
+  { type: "asmi", vendors: ["vernier", "manual"], is_mock: false },
   { type: "pipette", vendors: ["opentrons"], is_mock: false },
   { type: "custom_tool", vendors: [], is_mock: true },
 ];
@@ -399,11 +401,14 @@ describe("GantryEditor", () => {
     await user.selectOptions(screen.getByLabelText("Y-axis motion"), "bed");
     await user.clear(factoryZTravel);
     await user.type(factoryZTravel, "95");
+    await user.clear(screen.getByLabelText("X max"));
+    await user.type(screen.getByLabelText("X max"), "320");
     await user.selectOptions(screen.getByLabelText("Soft limits"), "false");
     const homingPullOff = screen.getByDisplayValue("10");
     await user.clear(homingPullOff);
     await user.type(homingPullOff, "12");
     await user.click(within(screen.getByLabelText("Max travel X").closest("div")!.parentElement!).getByRole("button", { name: "Clear" }));
+    await user.selectOptions(screen.getByDisplayValue("vernier"), "manual");
     await user.selectOptions(screen.getByLabelText("Mode *"), "distance");
     await user.selectOptions(screen.getByLabelText("Enabled"), "false");
     await user.clear(screen.getByLabelText("Gain"));
@@ -426,10 +431,12 @@ describe("GantryEditor", () => {
     expect(saved.gantry_type).toBe("cub");
     expect(saved.cnc.factory_z_travel_mm).toBe(95);
     expect(saved.cnc.y_axis_motion).toBe("bed");
+    expect(saved.working_volume.x_max).toBe(320);
     expect(saved.grbl_settings?.soft_limits).toBe(false);
     expect(saved.grbl_settings?.homing_pull_off).toBe(12);
     expect(saved.grbl_settings?.max_travel_x).toBeUndefined();
     expect(saved.instruments.asmi_1).toMatchObject({
+      vendor: "manual",
       mode: "distance",
       enabled: false,
       gain: 3.25,
@@ -590,6 +597,28 @@ describe("GantryEditor", () => {
   });
 });
 
+describe("EditorTabs", () => {
+  it("allows opening a disabled tab when a disabled message explains it", async () => {
+    const user = userEvent.setup();
+    const onTabChange = vi.fn();
+    render(
+      <EditorTabs
+        activeTab="Gantry"
+        onTabChange={onTabChange}
+        disabledTabs={["Protocol"]}
+        disabledMessage="Load gantry and deck first."
+        loadedFilenames={{ Gantry: "gantry.yaml" }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await user.click(screen.getByRole("button", { name: "Deck" }));
+
+    expect(onTabChange).toHaveBeenCalledWith("Protocol");
+    expect(onTabChange).toHaveBeenCalledWith("Deck");
+  });
+});
+
 describe("ProtocolEditor", () => {
   it("edits named positions, renames references, validates, saves, and runs", async () => {
     const user = userEvent.setup();
@@ -623,8 +652,7 @@ describe("ProtocolEditor", () => {
       />,
     );
 
-    await user.clear(screen.getByLabelText("Position 1 name"));
-    await user.type(screen.getByLabelText("Position 1 name"), "staging");
+    fireEvent.change(screen.getByLabelText("Position 1 name"), { target: { value: "staging" } });
     await user.selectOptions(screen.getByLabelText(/^Position \*$/), "staging");
     await user.clear(screen.getByLabelText("staging coordinates Z"));
     await user.type(screen.getByLabelText("staging coordinates Z"), "44");
@@ -765,8 +793,10 @@ describe("ProtocolEditor", () => {
 
     expect(screen.getByLabelText("Seconds *")).toHaveValue("0");
     expect(screen.getByLabelText("Comment")).toHaveValue("pause");
+    await user.clear(screen.getByLabelText("Comment"));
+    await user.type(screen.getByLabelText("Comment"), "resume");
     expect(onLocalChange).toHaveBeenLastCalledWith([
-      expect.objectContaining({ command: "wait", args: expect.objectContaining({ comment: "pause" }) }),
+      expect.objectContaining({ command: "wait", args: expect.objectContaining({ comment: "resume" }) }),
     ]);
   });
 
@@ -785,6 +815,27 @@ describe("ProtocolEditor", () => {
       film_1: {
         type: "filmetrics",
         vendor: "filmetrics",
+        offset_x: 0,
+        offset_y: 0,
+        depth: 0,
+      },
+      uv_1: {
+        type: "mock_uv_curing",
+        vendor: "mock",
+        offset_x: 0,
+        offset_y: 0,
+        depth: 0,
+      },
+      pipette_1: {
+        type: "pipette",
+        vendor: "opentrons",
+        offset_x: 0,
+        offset_y: 0,
+        depth: 0,
+      },
+      custom_1: {
+        type: "custom_probe",
+        vendor: "mock",
         offset_x: 0,
         offset_y: 0,
         depth: 0,
@@ -826,6 +877,12 @@ describe("ProtocolEditor", () => {
     await user.selectOptions(screen.getByLabelText(/Instrument/), "film_1");
     expect(screen.getByLabelText(/^Measurement \*$/)).toHaveValue("measure");
     expect(screen.queryByText("ASMI indentation options")).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText(/Instrument/), "uv_1");
+    expect(screen.getByLabelText(/^Measurement \*$/)).toHaveValue("measure");
+    await user.selectOptions(screen.getByLabelText(/Instrument/), "custom_1");
+    expect(screen.getByLabelText(/^Measurement \*$/)).toHaveValue("measure");
+    await user.selectOptions(screen.getByLabelText(/Instrument/), "pipette_1");
+    expect(screen.getByLabelText(/^Measurement \*$/)).toHaveValue("measure");
 
     await user.selectOptions(screen.getByLabelText(/Instrument/), "asmi_1");
     await user.selectOptions(screen.getByLabelText(/^Measurement \*$/), "indentation");
@@ -837,6 +894,49 @@ describe("ProtocolEditor", () => {
       baseline_samples: 10,
       measure_with_return: false,
     });
+  });
+
+  it("renames source and destination position references", async () => {
+    const onLocalChange = vi.fn();
+    const transferCommand: CommandInfo = {
+      name: "transfer",
+      description: "Transfer between named positions",
+      args: [
+        { name: "source", type: "str", required: true, default: null },
+        { name: "destination", type: "str", required: true, default: null },
+      ],
+    };
+    render(
+      <ProtocolEditor
+        configs={[]}
+        selectedFile="protocol.yaml"
+        onSelectFile={vi.fn()}
+        commands={[transferCommand]}
+        deck={deckFixture()}
+        gantry={gantryFixture()}
+        steps={[{ command: "transfer", args: { source: "park", destination: "park" } }]}
+        positions={{ park: [1, 2, 3] }}
+        onSave={vi.fn()}
+        onLocalChange={onLocalChange}
+        onValidate={vi.fn()}
+        validationErrors={null}
+        isValidating={false}
+        onRun={vi.fn()}
+        canRun={false}
+        isRunning={false}
+        runResult={null}
+        runError={null}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Position 1 name"), { target: { value: "staging" } });
+
+    expect(onLocalChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        args: expect.objectContaining({ source: "staging", destination: "staging" }),
+      }),
+    ]);
   });
 
   it("reorders and removes steps before saving with a new filename", async () => {
@@ -892,11 +992,12 @@ describe("ProtocolEditor", () => {
   it("keeps current large-position choices searchable and editable", async () => {
     const user = userEvent.setup();
     const largeDeck = deckFixture();
+    const plateConfig = largeDeck.labware[0].config as WellPlateConfig;
     largeDeck.labware[0] = {
       ...largeDeck.labware[0],
       key: "large_plate",
       config: {
-        ...largeDeck.labware[0].config,
+        ...plateConfig,
         type: "well_plate",
         rows: 4,
         columns: 8,

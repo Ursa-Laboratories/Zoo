@@ -117,6 +117,33 @@ describe("GantryPositionWidget manual move safety", () => {
     fireEvent.mouseUp(screen.getByTitle("Z+"));
   });
 
+  it("still sends a jog when the current work position is not finite", () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ status: "ok" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <GantryPositionWidget
+        position={position({ x: Number.NaN, work_x: null })}
+        workingVolume={workingVolume}
+        gantryFile="cubos.yaml"
+        gantry={null}
+        onSaveCalibrated={async () => undefined}
+      />,
+    );
+
+    fireEvent.mouseDown(screen.getByTitle("X+"));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/jog",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ x: 0.5, y: 0, z: 0 }) }),
+    );
+  });
+
   it("shows connection failures and disconnect success through the bottom controls", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn(async (input: string | URL | Request) => {

@@ -407,6 +407,8 @@ describe("CalibrationWizard alarm recovery", () => {
     }));
 
     await waitFor(() => expect(screen.queryByText("GANTRY ALARM")).not.toBeInTheDocument());
+    rerender(<CalibrationWizard {...props} position={position("Idle")} />);
+    expect(screen.queryByText("GANTRY ALARM")).not.toBeInTheDocument();
   });
 
   it("does not re-trigger recovery when re-rendered with the same alarm status and delta", async () => {

@@ -97,7 +97,10 @@ describe("CalibrationWizard multi-instrument calibration", () => {
   it("homes, records instruments, programs soft limits, and saves calibrated offsets", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
-    const onSaveCalibrated = vi.fn(async () => undefined);
+    const onSaveCalibrated = vi.fn(async (filename: string, config: GantryConfig) => {
+      void filename;
+      void config;
+    });
     const getPositionResults = [
       position({ work_x: 100, work_y: 100, work_z: 40 }),
       position({ work_x: 98.5, work_y: 101.25, work_z: 39 }),
@@ -316,6 +319,107 @@ describe("CalibrationWizard multi-instrument calibration", () => {
     expect(await screen.findByText(/Work coordinate position is not available/)).toBeInTheDocument();
   });
 
+  it("reports a disconnected home response", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      if (url.pathname === "/api/gantry/calibration/prepare-origin" && init?.method === "POST") {
+        return jsonResponse(position({ connected: false }));
+      }
+      return jsonResponse(position());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWizard();
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByRole("button", { name: "Home gantry" }));
+
+    expect(await screen.findByText("Gantry is not connected.")).toBeInTheDocument();
+  });
+
+  it("requires finite homed Z bounds before setting the Z reference", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      if (url.pathname === "/api/gantry/calibration/prepare-origin" && init?.method === "POST") {
+        return jsonResponse(position({ work_x: 0, work_y: 0, work_z: 90 }));
+      }
+      if (url.pathname === "/api/gantry/work-coordinates" && init?.method === "POST") {
+        return jsonResponse(position({ work_x: 0, work_y: 0, work_z: 35 }));
+      }
+      if (url.pathname === "/api/gantry/calibration/home-and-center" && init?.method === "POST") {
+        return jsonResponse({
+          xy_bounds: { x: 300, y: 200 },
+          position: { x: 150, y: 100, z: 90 },
+        });
+      }
+      if (url.pathname === "/api/gantry/position") {
+        return jsonResponse(position({ work_x: 100, work_y: 100, work_z: 40 }));
+      }
+      return jsonResponse(position());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWizard();
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByRole("button", { name: "Home gantry" }));
+    await user.click(await screen.findByRole("button", { name: "Set XY origin and continue" }));
+    await user.click(await screen.findByRole("button", { name: "Set Z reference with reference and retract" }));
+
+    expect(await screen.findByText(/Homed XY bounds is not available/)).toBeInTheDocument();
+  });
+
+  it("reports non-alarm blocking retract failures without starting recovery", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      if (url.pathname === "/api/gantry/calibration/prepare-origin" && init?.method === "POST") {
+        return jsonResponse(position({ work_x: 0, work_y: 0, work_z: 90 }));
+      }
+      if (url.pathname === "/api/gantry/work-coordinates" && init?.method === "POST") {
+        return jsonResponse(position({ work_x: 0, work_y: 0, work_z: 35 }));
+      }
+      if (url.pathname === "/api/gantry/calibration/home-and-center" && init?.method === "POST") {
+        return jsonResponse({
+          xy_bounds: { x: 300, y: 200, z: 90 },
+          position: { x: 150, y: 100, z: 90 },
+        });
+      }
+      if (url.pathname === "/api/gantry/position") {
+        return jsonResponse(position({ work_x: 100, work_y: 100, work_z: 40 }));
+      }
+      if (url.pathname === "/api/gantry/jog-blocking" && init?.method === "POST") {
+        return new Response("motor stalled", { status: 500 });
+      }
+      return jsonResponse(position());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWizard();
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByRole("button", { name: "Home gantry" }));
+    await user.click(await screen.findByRole("button", { name: "Set XY origin and continue" }));
+    await user.click(await screen.findByRole("button", { name: "Set Z reference with reference and retract" }));
+
+    expect(await screen.findByText("500: motor stalled")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/gantry/calibration/recover-limit",
+      expect.anything(),
+    );
+  });
+
   it("reports non-positive measured travel before saving multi-instrument calibration", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
@@ -390,6 +494,22 @@ describe("CalibrationWizard multi-instrument calibration", () => {
 
     expect(await screen.findByText(/Failed to restore soft limits: 500: controller busy/)).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("restores soft limits before closing a connected wizard", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const fetchMock = vi.fn(async () => jsonResponse(position()));
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWizard({ onClose });
+    await user.click(screen.getByRole("button", { name: "Close calibration" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/calibration/restore-soft-limits",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
   it("closes immediately when the gantry is not connected", async () => {

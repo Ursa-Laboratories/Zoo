@@ -361,6 +361,29 @@ describe("DeckVisualization", () => {
       filename: "edge_deck.yaml",
       labware: [
         {
+          key: "missing_positions_holder",
+          config: {
+            type: "well_plate_holder",
+            name: "Missing Positions Holder",
+            location: { x: 20, y: 20, z: 0 },
+            well_plate: {
+              name: "Missing Positions Plate",
+              model_name: "plate",
+              rows: 1,
+              columns: 1,
+              calibration: {
+                a1: { x: 20, y: 20 },
+                a2: { x: 20, y: 20 },
+              },
+              x_offset: 9,
+              y_offset: 9,
+            },
+          },
+          wells: null,
+          location: { x: 20, y: 20, z: 0 },
+          geometry: { length: 20, width: 20, height: 5 },
+        },
+        {
           key: "missing_vial_holder",
           config: {
             type: "vial_holder",
@@ -472,6 +495,20 @@ describe("DeckVisualization", () => {
     expect(screen.queryByText("Absent Vial")).not.toBeInTheDocument();
     expect(screen.queryByText("Unsupported")).not.toBeInTheDocument();
     expect(screen.getByTestId("deck-visualization").outerHTML).not.toContain("NaN");
+  });
+
+  it("keeps rendering when configured machine ranges are reversed", () => {
+    render(
+      <DeckVisualization
+        deck={{ filename: "empty.yaml", labware: [] }}
+        instruments={null}
+        gantryPosition={null}
+        machineXRange={[0, -100]}
+        machineYRange={[0, -50]}
+      />,
+    );
+
+    expect(screen.getByTestId("deck-visualization")).toBeInTheDocument();
   });
 
   it("returns no SVG elements for empty holder and tip rack renderers", () => {

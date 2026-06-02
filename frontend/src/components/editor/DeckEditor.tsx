@@ -124,18 +124,19 @@ export default function DeckEditor({ configs, selectedFile, onSelectFile, onImpo
   const canSave = valid && (!!saveAs.trim() || !!selectedFile) && !saving;
 
   const handleSave = async () => {
-    if (!canSave) return;
-    const filename = saveAs.trim() || selectedFile || "";
-    const normalized = filename.endsWith(".yaml") ? filename : `${filename}.yaml`;
-    setSaving(true);
-    try {
-      await Promise.resolve(onSave(normalized, { labware }));
-      onSelectFile(normalized);
-      setSaveAs("");
-    } catch (err) {
-      console.error("Deck save failed:", err);
-    } finally {
-      setSaving(false);
+    if (canSave) {
+      const filename = saveAs.trim() || selectedFile || "";
+      const normalized = filename.endsWith(".yaml") ? filename : `${filename}.yaml`;
+      setSaving(true);
+      try {
+        await Promise.resolve(onSave(normalized, { labware }));
+        onSelectFile(normalized);
+        setSaveAs("");
+      } catch (err) {
+        console.error("Deck save failed:", err);
+      } finally {
+        setSaving(false);
+      }
     }
   };
 
