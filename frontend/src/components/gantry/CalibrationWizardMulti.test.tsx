@@ -206,6 +206,29 @@ describe("CalibrationWizard multi-instrument calibration", () => {
     expect(screen.queryByRole("button", { name: "Home gantry" })).not.toBeInTheDocument();
   });
 
+  it("updates multi-instrument output and instrument choices and resets them", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(position())));
+
+    renderWizard();
+
+    const output = screen.getByLabelText("Output YAML");
+    await user.clear(output);
+    await user.type(output, "calibrated_multi.yaml");
+    await user.selectOptions(screen.getByLabelText("Reference instrument"), "probe");
+    await user.selectOptions(screen.getByLabelText("Lowest instrument"), "probe");
+
+    expect(output).toHaveValue("multi.yamlcalibrated_multi.yaml");
+    expect(screen.getByLabelText("Reference instrument")).toHaveValue("probe");
+    expect(screen.getByLabelText("Lowest instrument")).toHaveValue("probe");
+
+    await user.click(screen.getByRole("button", { name: "Reset wizard" }));
+
+    expect(screen.getByLabelText("Output YAML")).toHaveValue("multi.yaml");
+    expect(screen.getByLabelText("Reference instrument")).toHaveValue("reference");
+    expect(screen.getByLabelText("Lowest instrument")).toHaveValue("reference");
+  });
+
   it("restores soft limits before closing and reports restore failures", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();

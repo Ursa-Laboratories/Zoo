@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import CalibrationWizard from "./CalibrationWizard";
@@ -132,6 +132,71 @@ describe("CalibrationWizard alarm recovery", () => {
     await waitFor(() => expect(screen.queryByText("GANTRY ALARM")).not.toBeInTheDocument());
     expect(await screen.findByText(/Recovered from limit switch after 1 attempt/)).toBeInTheDocument();
     expect(zDown).not.toBeDisabled();
+  });
+
+  it("shows a manual recovery prompt when an alarm appears without a recent jog", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      if (url.pathname === "/api/gantry/unlock" && init?.method === "POST") {
+        return jsonResponse(position());
+      }
+      return jsonResponse(position());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <CalibrationWizard
+        open
+        onClose={() => undefined}
+        gantry={{ filename: "cubos.yaml", config: gantryConfig() }}
+        position={position("ALARM:1")}
+        onSaveCalibrated={async () => undefined}
+      />,
+    );
+
+    expect(await screen.findByText(/no recent jog direction for automatic recovery/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Unlock alarm" }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/unlock",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(await screen.findByText(/Unlock command sent/)).toBeInTheDocument();
+  });
+
+  it("shows an alarm prompt when homing enters an alarm state", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      if (url.pathname === "/api/gantry/calibration/prepare-origin" && init?.method === "POST") {
+        return new Response("ALARM:1 hard limit", { status: 409 });
+      }
+      return jsonResponse(position());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <CalibrationWizard
+        open
+        onClose={() => undefined}
+        gantry={{ filename: "cubos.yaml", config: gantryConfig() }}
+        position={position()}
+        onSaveCalibrated={async () => undefined}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByRole("button", { name: "Home gantry" }));
+
+    expect(await screen.findByText(/Gantry entered an alarm state/)).toBeInTheDocument();
+    expect(screen.getByText("GANTRY ALARM")).toBeInTheDocument();
   });
 
   it("recovers when a hard limit is first reported by position polling after a jog", async () => {
@@ -429,5 +494,53 @@ describe("CalibrationWizard alarm recovery", () => {
     const countAfterError = jogCallCount;
     await new Promise((r) => setTimeout(r, 300));
     expect(jogCallCount).toBe(countAfterError);
+  });
+
+  it("sends touch jogs with edited step sizes", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      if (url.pathname === "/api/gantry/calibration/prepare-origin" && init?.method === "POST") {
+        return jsonResponse(position());
+      }
+      return jsonResponse({ status: "ok" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <CalibrationWizard
+        open
+        onClose={() => undefined}
+        gantry={{ filename: "cubos.yaml", config: gantryConfig() }}
+        position={position()}
+        onSaveCalibrated={async () => undefined}
+      />,
+    );
+
+    await advanceToOriginJog(user);
+    fireEvent.change(screen.getByLabelText("XY mm"), { target: { value: "0.25" } });
+    fireEvent.change(screen.getByLabelText("Z mm"), { target: { value: "0.125" } });
+    fireEvent.touchStart(screen.getByRole("button", { name: "→" }));
+    fireEvent.touchEnd(screen.getByRole("button", { name: "→" }));
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Z+" }));
+    fireEvent.mouseLeave(screen.getByRole("button", { name: "Z+" }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/jog",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ x: 0.25, y: 0, z: 0 }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/jog",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ x: 0, y: 0, z: 0.125 }),
+      }),
+    );
   });
 });
