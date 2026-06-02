@@ -1,6 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import DeckVisualization from "./DeckVisualization";
+import HolderRenderer from "./HolderRenderer";
+import TipRackRenderer from "./TipRackRenderer";
 import type { DeckResponse } from "../../types";
 
 const deck: DeckResponse = {
@@ -352,5 +354,160 @@ describe("DeckVisualization", () => {
     expect(svg.querySelector('g[transform^="translate"]')).toBeInTheDocument();
     expect(svg.outerHTML).not.toContain("tip.A1");
     expect(svg.outerHTML).not.toContain("998");
+  });
+
+  it("skips missing vial positions, unsupported labware, and incomplete holders", () => {
+    const edgeDeck = {
+      filename: "edge_deck.yaml",
+      labware: [
+        {
+          key: "missing_vial_holder",
+          config: {
+            type: "vial_holder",
+            name: "Missing Vials",
+            location: { x: 10, y: 10, z: 0 },
+            vials: {
+              absent: {
+                name: "Absent Vial",
+                model_name: "vial",
+                height: 20,
+                diameter: 10,
+                location: { x: 10, y: 10 },
+                capacity_ul: 1000,
+                working_volume_ul: 800,
+              },
+            },
+          },
+          wells: null,
+          location: { x: 10, y: 10, z: 0 },
+          geometry: null,
+          positions: {},
+        },
+        {
+          key: "anchor_holder",
+          config: {
+            type: "well_plate_holder",
+            name: "Anchor Holder",
+            location: { x: 30, y: 30, z: 0 },
+            well_plate: null,
+          },
+          wells: null,
+          location: { x: 30, y: 30, z: 0 },
+          geometry: null,
+          positions: {
+            bad: { x: Number.NaN, y: 30, z: 0 },
+          },
+        },
+        {
+          key: "no_center_holder",
+          config: {
+            type: "well_plate_holder",
+            name: "No Center Holder",
+            location: null,
+            well_plate: null,
+          },
+          wells: null,
+          geometry: { length: 20, width: 20, height: 5 },
+          positions: {},
+        },
+        {
+          key: "nested_null_calibration",
+          config: {
+            type: "well_plate_holder",
+            name: "Nested Holder",
+            location: { x: 90, y: 90, z: 0 },
+            well_plate: {
+              name: "Nested Null Plate",
+              model_name: "nested_plate",
+              rows: 1,
+              columns: 1,
+              calibration: {
+                a1: null,
+                a2: null,
+              },
+              x_offset: 9,
+              y_offset: 9,
+            },
+          },
+          wells: null,
+          location: { x: 90, y: 90, z: 0 },
+          geometry: { length: 20, width: 20, height: 5 },
+          positions: {
+            "plate.A1": { x: 90, y: 90, z: 0 },
+          },
+        },
+        {
+          key: "empty_tip_rack",
+          config: {
+            type: "tip_rack",
+            name: "Empty Tips",
+            model_name: "rack",
+            rows: 1,
+            columns: 1,
+          },
+          wells: null,
+        },
+        {
+          key: "unsupported",
+          config: {
+            type: "unsupported_labware",
+            name: "Unsupported",
+          },
+          wells: null,
+        },
+      ],
+    } as unknown as DeckResponse;
+
+    render(
+      <DeckVisualization
+        deck={edgeDeck}
+        instruments={null}
+        gantryPosition={null}
+        machineXRange={[0, 120]}
+        machineYRange={[0, 120]}
+      />,
+    );
+
+    expect(screen.getByText("Nested Null Plate")).toBeInTheDocument();
+    expect(screen.queryByText("Absent Vial")).not.toBeInTheDocument();
+    expect(screen.queryByText("Unsupported")).not.toBeInTheDocument();
+    expect(screen.getByTestId("deck-visualization").outerHTML).not.toContain("NaN");
+  });
+
+  it("returns no SVG elements for empty holder and tip rack renderers", () => {
+    const { container } = render(
+      <svg>
+        <HolderRenderer
+          label="No Geometry"
+          geometry={null}
+          anchor={{ x: 10, y: 10, z: 0 }}
+          childPositions={[]}
+          svgWidth={600}
+          svgHeight={420}
+          machineXRange={[0, 100]}
+          machineYRange={[0, 100]}
+        />
+        <HolderRenderer
+          label="No Center"
+          geometry={{ length: 20, width: 20, height: 1 }}
+          anchor={null}
+          childPositions={[]}
+          svgWidth={600}
+          svgHeight={420}
+          machineXRange={[0, 100]}
+          machineYRange={[0, 100]}
+        />
+        <TipRackRenderer
+          config={{ type: "tip_rack", name: "Empty Rack", model_name: "rack", rows: 1, columns: 1 }}
+          positions={{}}
+          svgWidth={600}
+          svgHeight={420}
+          machineXRange={[0, 100]}
+          machineYRange={[0, 100]}
+        />
+      </svg>,
+    );
+
+    expect(container.querySelector("svg")).toBeEmptyDOMElement();
   });
 });
