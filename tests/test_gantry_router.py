@@ -608,6 +608,7 @@ def test_configure_soft_limits_delegates_to_gantry(monkeypatch):
         max_travel_z=80.0,
         status_report=0.0,
         homing_pull_off=10.0,
+        hard_limits=None,
         tolerance_mm=0.1,
     )
     assert gantry_router._calibration_restore_soft_limits is False
@@ -619,6 +620,7 @@ def test_configure_soft_limits_refreshes_calibration_warning(monkeypatch):
     mock_gantry.read_grbl_settings.return_value = {
         "$10": "0",
         "$20": "1",
+        "$21": "1",
         "$22": "1",
         "$27": "10",
         "$130": "300",
@@ -639,6 +641,7 @@ def test_configure_soft_limits_refreshes_calibration_warning(monkeypatch):
                 "status_report": 0.0,
                 "homing_pull_off": 10.0,
                 "soft_limits": True,
+                "hard_limits": True,
                 "homing_enable": True,
                 "max_travel_x": 300.0,
                 "max_travel_y": 200.0,
@@ -660,6 +663,15 @@ def test_configure_soft_limits_refreshes_calibration_warning(monkeypatch):
     )
 
     assert response.status_code == 200
+    mock_gantry.configure_soft_limits_from_spans.assert_called_once_with(
+        max_travel_x=300.0,
+        max_travel_y=200.0,
+        max_travel_z=80.0,
+        status_report=None,
+        homing_pull_off=None,
+        hard_limits=True,
+        tolerance_mm=0.1,
+    )
     assert gantry_router._calibration_warning is None
 
 
@@ -743,6 +755,7 @@ def test_finalize_origin_returns_controller_span_and_refreshes_connected_config(
     }
     mock_gantry.read_grbl_settings.return_value = {
         "$20": "1",
+        "$21": "1",
         "$22": "1",
         "$130": "396",
         "$131": "260.5",
@@ -761,7 +774,11 @@ def test_finalize_origin_returns_controller_span_and_refreshes_connected_config(
                 "z_min": 0.0,
                 "z_max": 91.0,
             },
-            "grbl_settings": {"status_report": 1, "homing_pull_off": 10},
+            "grbl_settings": {
+                "status_report": 1,
+                "homing_pull_off": 10,
+                "hard_limits": True,
+            },
         },
     )
     monkeypatch.setattr(gantry_router, "_calibration_restore_soft_limits", True)
@@ -791,6 +808,7 @@ def test_finalize_origin_returns_controller_span_and_refreshes_connected_config(
     assert grbl_settings["max_travel_z"] == 101.0
     assert grbl_settings["status_report"] == 0
     assert grbl_settings["homing_pull_off"] == 10.0
+    assert grbl_settings["hard_limits"] is True
     mock_gantry.finalize_deck_origin_calibration.assert_called_once_with(
         home_z=91.0,
         block_touch_z=10.0,
@@ -798,6 +816,7 @@ def test_finalize_origin_returns_controller_span_and_refreshes_connected_config(
         total_z_range=100.0,
         status_report=0,
         homing_pull_off=10.0,
+        hard_limits=True,
         tolerance_mm=0.25,
     )
     assert gantry_router._calibration_restore_soft_limits is False
