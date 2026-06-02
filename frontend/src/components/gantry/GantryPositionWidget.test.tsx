@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import GantryPositionWidget from "./GantryPositionWidget";
@@ -30,6 +30,7 @@ const workingVolume: WorkingVolume = {
 describe("GantryPositionWidget manual move safety", () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -262,11 +263,14 @@ describe("GantryPositionWidget manual move safety", () => {
     expect(await screen.findByText("$132")).toBeInTheDocument();
     expect(screen.getByText("90")).toBeInTheDocument();
 
+    const settingKey = screen.getByPlaceholderText("$20");
+    await user.clear(settingKey);
+    await user.type(settingKey, "$21");
     const settingValue = screen.getAllByPlaceholderText("0").at(-1)!;
     await user.clear(settingValue);
     await user.type(settingValue, "0");
     await user.click(screen.getByRole("button", { name: "Send Setting" }));
-    expect(await screen.findByText("Sent $20=0.")).toBeInTheDocument();
+    expect(await screen.findByText("Sent $21=0.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Reset + Unlock" }));
     expect(await screen.findByText("Reset and unlock sent.")).toBeInTheDocument();
@@ -313,5 +317,117 @@ describe("GantryPositionWidget manual move safety", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await vi.advanceTimersByTimeAsync(200);
+  });
+
+  it("handles step warnings, touch jogs, repeated starts, and all keyboard jog axes", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const fetchMock = vi.fn(async () => new Response("jog failed", { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <GantryPositionWidget
+        position={position()}
+        workingVolume={workingVolume}
+        gantryFile="cubos.yaml"
+        gantry={null}
+        onSaveCalibrated={async () => undefined}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("XY mm"), { target: { value: "0.0005" } });
+    fireEvent.change(screen.getByLabelText("Z mm"), { target: { value: "0.0005" } });
+    expect(screen.getByText("min 0.001mm")).toBeInTheDocument();
+
+    fireEvent.touchStart(screen.getByTitle("X+"));
+    fireEvent.touchEnd(screen.getByTitle("X+"));
+    fireEvent.mouseDown(screen.getByTitle("X+"));
+    fireEvent.mouseDown(screen.getByTitle("X+"));
+    fireEvent.mouseUp(screen.getByTitle("X+"));
+
+    for (const key of ["ArrowLeft", "ArrowUp", "ArrowDown", "x", "Z"]) {
+      fireEvent.keyDown(window, { key });
+      fireEvent.keyUp(window, { key });
+    }
+
+    await waitFor(() => expect(consoleError).toHaveBeenCalledWith("Jog failed:", expect.any(Error)));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/jog",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ x: 0.001, y: 0, z: 0 }) }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/jog",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ x: -0.001, y: 0, z: 0 }) }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/jog",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ x: 0, y: 0.001, z: 0 }) }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/jog",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ x: 0, y: -0.001, z: 0 }) }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/jog",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ x: 0, y: 0, z: 0.001 }) }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/jog",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ x: 0, y: 0, z: -0.001 }) }),
+    );
+    consoleError.mockRestore();
+  });
+
+  it("reports failed unlock, home, move, and disconnect actions", async () => {
+    const user = userEvent.setup();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const alertMock = vi.fn();
+    const confirmMock = vi.fn(() => true);
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(typeof input === "string" ? input : input.toString(), "http://localhost");
+      if (url.pathname === "/api/gantry/unlock") {
+        return new Response("unlock failed", { status: 500 });
+      }
+      if (url.pathname === "/api/gantry/home") {
+        return new Response("home failed", { status: 500 });
+      }
+      if (url.pathname === "/api/gantry/move-to") {
+        return new Response("move failed", { status: 500 });
+      }
+      if (url.pathname === "/api/gantry/disconnect") {
+        return new Response("disconnect failed", { status: 500 });
+      }
+      return new Response(JSON.stringify(position()), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("alert", alertMock);
+    vi.stubGlobal("confirm", confirmMock);
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <GantryPositionWidget
+        position={position({ status: "ALARM:2" })}
+        workingVolume={workingVolume}
+        gantryFile="cubos.yaml"
+        gantry={null}
+        onSaveCalibrated={async () => undefined}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Unlock ($X)" }));
+    await waitFor(() => expect(consoleError).toHaveBeenCalledWith("Unlock failed:", expect.any(Error)));
+    await user.click(screen.getByRole("button", { name: "Home" }));
+    await waitFor(() => expect(consoleError).toHaveBeenCalledWith("Homing failed:", expect.any(Error)));
+
+    await user.type(screen.getAllByPlaceholderText("0")[0], "10");
+    await user.type(screen.getAllByPlaceholderText("0")[1], "20");
+    await user.type(screen.getAllByPlaceholderText("0")[2], "30");
+    await user.click(screen.getByRole("button", { name: "Go" }));
+    await waitFor(() => expect(alertMock).toHaveBeenCalledWith("Move failed: Error: 500: move failed"));
+
+    await user.click(screen.getByRole("button", { name: "Disconnect" }));
+    expect(await screen.findByText(/Disconnect failed/)).toHaveTextContent("500: disconnect failed");
+    consoleError.mockRestore();
   });
 });
