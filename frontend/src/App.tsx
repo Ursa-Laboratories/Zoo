@@ -216,25 +216,22 @@ export default function App() {
 
   const handleRunProtocol = async () => {
     if (!gantryFile || !deckFile || !protocolFile) return;
-    if (!gantryConnected) {
+    if (gantryConnected) {
+      setIsRunning(true);
       setRunResult(null);
-      setRunError("Connect gantry before running a protocol.");
-      return;
-    }
-    setIsRunning(true);
-    setRunResult(null);
-    setRunError(null);
-    try {
-      const result = await protocolApi.run({
-        gantry_file: gantryFile,
-        deck_file: deckFile,
-        protocol_file: protocolFile,
-      });
-      setRunResult(result);
-    } catch (err: unknown) {
-      setRunError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setIsRunning(false);
+      setRunError(null);
+      try {
+        const result = await protocolApi.run({
+          gantry_file: gantryFile,
+          deck_file: deckFile,
+          protocol_file: protocolFile,
+        });
+        setRunResult(result);
+      } catch (err: unknown) {
+        setRunError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setIsRunning(false);
+      }
     }
   };
 

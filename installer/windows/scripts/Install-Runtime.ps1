@@ -57,7 +57,7 @@ try {
     }
 
     Invoke-LoggedNative $Python @("-m", "pip", "install", "--no-index", "--find-links", $Wheelhouse, "-r", $Requirements)
-    Invoke-LoggedNative $Python @("-m", "pip", "install", "--no-index", "--find-links", $Wheelhouse, "--no-deps", "cubos", "zoo")
+    Invoke-LoggedNative $Python @("-m", "pip", "install", "--no-index", "--find-links", $Wheelhouse, "--no-deps", "cubos", "zoo-backend")
     Invoke-LoggedNative $Python @("-m", "pip", "check")
     Invoke-LoggedNative $Python @("-c", "import zoo, gantry, deck, protocol_engine; print('Zoo runtime import check passed')")
 

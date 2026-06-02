@@ -142,37 +142,38 @@ export default function CalibrationWizard({
   }, [rawIsAlarm, resolvedAlarmStatus]);
 
   const recoverFromLimitAlarm = useCallback(async (delta: JogDelta, err: unknown, resolvedStatus?: string) => {
-    if (recoveryInProgress.current) return;
-    recoveryInProgress.current = true;
-    stopJog();
-    const message = err instanceof Error ? err.message : String(err);
-    setBusy(true);
-    setOperation("Recovering from limit switch");
-    setError(null);
-    setAlarmPrompt(
-      "Gantry hit a limit switch. Controls are locked while CubOS clears the alarm and backs off.",
-    );
-    setStatusNote(null);
-    try {
-      const result = await gantryApi.recoverCalibrationLimit(delta);
-      setAlarmPrompt(null);
-      if (resolvedStatus) {
-        setResolvedAlarmStatus(resolvedStatus);
-      }
-      setStatusNote(
-        `Recovered from limit switch after ${result.attempts} ${pluralize(result.attempts, "attempt")}. Controls are unlocked; continue calibration.`,
-      );
-    } catch (recoveryErr) {
-      const recoveryMessage = recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr);
-      setResolvedAlarmStatus(null);
+    if (!recoveryInProgress.current) {
+      recoveryInProgress.current = true;
+      stopJog();
+      const message = err instanceof Error ? err.message : String(err);
+      setBusy(true);
+      setOperation("Recovering from limit switch");
+      setError(null);
       setAlarmPrompt(
-        "Limit recovery did not clear the switch. Controls stay locked; use E-stop/controller reset before continuing.",
+        "Gantry hit a limit switch. Controls are locked while CubOS clears the alarm and backs off.",
       );
-      setError(`Limit recovery failed after jog error (${message}): ${recoveryMessage}`);
-    } finally {
-      setOperation(null);
-      setBusy(false);
-      recoveryInProgress.current = false;
+      setStatusNote(null);
+      try {
+        const result = await gantryApi.recoverCalibrationLimit(delta);
+        setAlarmPrompt(null);
+        if (resolvedStatus) {
+          setResolvedAlarmStatus(resolvedStatus);
+        }
+        setStatusNote(
+          `Recovered from limit switch after ${result.attempts} ${pluralize(result.attempts, "attempt")}. Controls are unlocked; continue calibration.`,
+        );
+      } catch (recoveryErr) {
+        const recoveryMessage = recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr);
+        setResolvedAlarmStatus(null);
+        setAlarmPrompt(
+          "Limit recovery did not clear the switch. Controls stay locked; use E-stop/controller reset before continuing.",
+        );
+        setError(`Limit recovery failed after jog error (${message}): ${recoveryMessage}`);
+      } finally {
+        setOperation(null);
+        setBusy(false);
+        recoveryInProgress.current = false;
+      }
     }
   }, [stopJog]);
 
@@ -187,9 +188,10 @@ export default function CalibrationWizard({
       return;
     }
     const key = `${status}|${delta.x}|${delta.y}|${delta.z}`;
-    if (recoveryAttemptKey.current === key) return;
-    recoveryAttemptKey.current = key;
-    void recoverFromLimitAlarm(delta, new Error(status), status);
+    if (recoveryAttemptKey.current !== key) {
+      recoveryAttemptKey.current = key;
+      void recoverFromLimitAlarm(delta, new Error(status), status);
+    }
   }, [alarmPrompt, connected, isAlarm, open, recoverFromLimitAlarm, status, stopJog]);
 
   const reportError = useCallback((err: unknown) => {
@@ -222,21 +224,22 @@ export default function CalibrationWizard({
   };
 
   const close = async () => {
-    if (busy) return;
-    stopJog();
-    if (!connected) {
+    if (!busy) {
+      stopJog();
+      if (!connected) {
+        onClose();
+        return;
+      }
+      try {
+        await gantryApi.restoreCalibrationSoftLimits();
+      } catch (err) {
+        setError(
+          `Failed to restore soft limits: ${err instanceof Error ? err.message : String(err)}. Reconnect before running protocols.`,
+        );
+        return;
+      }
       onClose();
-      return;
     }
-    try {
-      await gantryApi.restoreCalibrationSoftLimits();
-    } catch (err) {
-      setError(
-        `Failed to restore soft limits: ${err instanceof Error ? err.message : String(err)}. Reconnect before running protocols.`,
-      );
-      return;
-    }
-    onClose();
   };
 
   const runAction = async (label: string, action: () => Promise<void>) => {
@@ -275,59 +278,52 @@ export default function CalibrationWizard({
 
   // Step 0 → 1: just navigate, no hardware action yet.
   const goToHome = () => {
-    if (!filename || instruments.length === 0) return;
-    if (isMulti && config) {
-      try {
-        getConfiguredHomingPullOff(config);
-      } catch (err) {
-        setError(
-          `Multi-instrument calibration requires grbl_settings.homing_pull_off in the gantry YAML. ` +
-          `Edit the config and save before calibrating. (${errorMessage(err)})`,
-        );
-        return;
+    if (filename && instruments.length > 0) {
+      if (isMulti && config) {
+        try {
+          getConfiguredHomingPullOff(config);
+        } catch (err) {
+          setError(
+            `Multi-instrument calibration requires grbl_settings.homing_pull_off in the gantry YAML. ` +
+            `Edit the config and save before calibrating. (${errorMessage(err)})`,
+          );
+          return;
+        }
       }
+      setStatusNote(null);
+      setStep(1);
     }
-    setStatusNote(null);
-    setStep(1);
   };
 
   // Step 1: connect (if needed) then home. This is the first hardware action.
   const homeForCalibration = () => runAction("Connecting, homing, and disabling stale soft limits", async () => {
-    if (!filename) throw new Error("Select a gantry config first.");
-    if (!connected) {
-      await gantryApi.connect(filename);
+    if (filename) {
+      if (!connected) {
+        await gantryApi.connect(filename);
+      }
+      const result = await gantryApi.prepareCalibrationOrigin();
+      const homed = requirePosition(result);
+      setCalibrationHome(homed);
+      setStatusNote(isMulti ? formatCaptured("Homed and ready to set origin", homed) : "Homed. Enter the calibration block height.");
+      setStep(2);
     }
-    const result = await gantryApi.prepareCalibrationOrigin();
-    const homed = requirePosition(result);
-    setCalibrationHome(homed);
-    setStatusNote(isMulti ? formatCaptured("Homed and ready to set origin", homed) : "Homed. Enter the calibration block height.");
-    setStep(2);
   });
 
   const setXY = () => runAction(
-    isMulti
-      ? "Setting XY origin, re-homing, capturing XY bounds, and moving to deck center"
-      : "Restoring soft limits and setting XY origin",
+    "Setting XY origin, re-homing, capturing XY bounds, and moving to deck center",
     async () => {
-    if (!isMulti) {
-      await gantryApi.restoreCalibrationSoftLimits();
-    }
     const result = await gantryApi.setWorkCoordinates({ x: 0, y: 0 });
     const captured = requirePosition(result);
     setXyOrigin(captured);
-    if (isMulti) {
-      const centered = await gantryApi.homeAndCenterForCalibration();
-      const bounds = capturedFromPlain(centered.xy_bounds);
-      const center = capturedFromPlain(centered.position);
-      setXyBounds(bounds);
-      setCenterPosition(center);
-      setStatusNote(
-        `XY origin set. Homed bounds X=${bounds.x.toFixed(3)} Y=${bounds.y.toFixed(3)} Z=${bounds.z.toFixed(3)}; moved to center X=${center.x.toFixed(3)} Y=${center.y.toFixed(3)} Z=${center.z.toFixed(3)}.`,
-      );
-      setStep(3);
-    } else {
-      setStatusNote(formatCaptured("XY origin set — now jog to the block and set Z", captured));
-    }
+    const centered = await gantryApi.homeAndCenterForCalibration();
+    const bounds = capturedFromPlain(centered.xy_bounds);
+    const center = capturedFromPlain(centered.position);
+    setXyBounds(bounds);
+    setCenterPosition(center);
+    setStatusNote(
+      `XY origin set. Homed bounds X=${bounds.x.toFixed(3)} Y=${bounds.y.toFixed(3)} Z=${bounds.z.toFixed(3)}; moved to center X=${center.x.toFixed(3)} Y=${center.y.toFixed(3)} Z=${center.z.toFixed(3)}.`,
+    );
+    setStep(3);
   });
 
   const continueToSingleInstrumentOrigin = () => {
@@ -343,45 +339,41 @@ export default function CalibrationWizard({
   };
 
   const setSingleInstrumentOrigin = () => runAction("Setting origin", async () => {
-    if (!config) throw new Error("No gantry config is loaded.");
-    const height = parseBlockHeight(blockHeight);
-    const blockTouch = requirePosition(await gantryApi.getPosition());
-    // Set WPos before restoring soft limits: if setWorkCoordinates fails, soft
-    // limits stay disabled so the operator can still jog freely and retry.
-    const result = await gantryApi.setWorkCoordinates({ x: 0, y: 0, z: height });
-    await gantryApi.restoreCalibrationSoftLimits();
-    const captured = requirePosition(result);
-    setBlockTouch(blockTouch);
-    setZReference(captured);
-    setZCalibration(null);
-    setStatusNote("Origin set. Ready to measure and save.");
-    setStep(4);
+    if (config) {
+      const height = parseBlockHeight(blockHeight);
+      const blockTouch = requirePosition(await gantryApi.getPosition());
+      // Set WPos before restoring soft limits: if setWorkCoordinates fails, soft
+      // limits stay disabled so the operator can still jog freely and retry.
+      const result = await gantryApi.setWorkCoordinates({ x: 0, y: 0, z: height });
+      await gantryApi.restoreCalibrationSoftLimits();
+      const captured = requirePosition(result);
+      setBlockTouch(blockTouch);
+      setZReference(captured);
+      setZCalibration(null);
+      setStatusNote("Origin set. Ready to measure and save.");
+      setStep(4);
+    }
   });
 
   const setZ = () => runAction(
-    isMulti && selectedLowest
-      ? `Setting Z reference with ${selectedLowest} and retracting Z`
-      : "Setting Z reference",
+    `Setting Z reference with ${selectedLowest} and retracting Z`,
     async () => {
-    if (!config) throw new Error("No gantry config is loaded.");
-    const height = getCalibrationBlockHeight(config);
-    const factoryZTravel = getFactoryZTravel(config);
-    const blockTouch = requirePosition(await gantryApi.getPosition());
-    const homeZ = isMulti
-      ? requireCaptured(xyBounds, "Homed XY bounds")
-      : requireCaptured(calibrationHome, "Home position");
-    const calibration = calculateSingleInstrumentZCalibration({
-      homeZ,
-      blockTouchZ: blockTouch.z,
-      blockHeight: height,
-      factoryZTravel,
-    });
-    const zReferenceValue = height;
-    const result = await gantryApi.setWorkCoordinates({ z: zReferenceValue });
-    const captured = requirePosition(result);
-    setZReference(captured);
-    setZCalibration(calibration);
-    if (isMulti && selectedLowest) {
+    if (config) {
+      const height = getCalibrationBlockHeight(config);
+      const factoryZTravel = getFactoryZTravel(config);
+      const blockTouch = requirePosition(await gantryApi.getPosition());
+      const homeZ = requireCaptured(xyBounds, "Homed XY bounds");
+      const calibration = calculateSingleInstrumentZCalibration({
+        homeZ,
+        blockTouchZ: blockTouch.z,
+        blockHeight: height,
+        factoryZTravel,
+      });
+      const zReferenceValue = height;
+      const result = await gantryApi.setWorkCoordinates({ z: zReferenceValue });
+      const captured = requirePosition(result);
+      setZReference(captured);
+      setZCalibration(calibration);
       setInstrumentPositions((prev) => ({ ...prev, [selectedLowest]: captured }));
       const recovered = await jogBlockingWithRecovery({ x: 0, y: 0, z: 15 }, 15);
       setStatusNote(
@@ -389,146 +381,147 @@ export default function CalibrationWizard({
           ? `${formatCaptured(`Recorded ${selectedLowest}`, captured)}; recovered from a limit during Z retract.`
           : formatCaptured(`Recorded ${selectedLowest} and retracted Z`, captured),
       );
-    } else {
-      setStatusNote(
-        `${formatCaptured("Z reference set", captured)}; home-to-block travel=${calibration.homeToBlockTravel.toFixed(3)} mm; z min=${calibration.zMin.toFixed(3)} mm; expected home Z=${calibration.zMax.toFixed(3)} mm.`,
-      );
+      setStep(4);
     }
-    setStep(isMulti ? 4 : 3);
   });
 
   const recordCurrentInstrument = (name: string) => runAction(`Recording ${name} and retracting Z`, async () => {
-    if (!name) return;
-    const captured = requirePosition(await gantryApi.getPosition());
-    const nextPositions = { ...instrumentPositions, [name]: captured };
-    setInstrumentPositions(nextPositions);
-    const recovered = await jogBlockingWithRecovery({ x: 0, y: 0, z: 15 }, 15);
-    setStatusNote(
-      recovered
-        ? `${formatCaptured(`Recorded ${name}`, captured)}; recovered from a limit during Z retract.`
-        : formatCaptured(`Recorded ${name} and retracted Z`, captured),
-    );
-    if (allInstrumentPositionsReady(instruments, nextPositions, selectedReference, selectedLowest)) {
-      setStep(5);
+    if (name) {
+      const captured = requirePosition(await gantryApi.getPosition());
+      const nextPositions = { ...instrumentPositions, [name]: captured };
+      setInstrumentPositions(nextPositions);
+      const recovered = await jogBlockingWithRecovery({ x: 0, y: 0, z: 15 }, 15);
+      setStatusNote(
+        recovered
+          ? `${formatCaptured(`Recorded ${name}`, captured)}; recovered from a limit during Z retract.`
+          : formatCaptured(`Recorded ${name} and retracted Z`, captured),
+      );
+      if (allInstrumentPositionsReady(instruments, nextPositions, selectedReference, selectedLowest)) {
+        setStep(5);
+      }
     }
   });
 
   const save = () => runAction("Re-homing, measuring working volume, programming soft limits, saving YAML, and closing", async () => {
-    if (!config) throw new Error("No gantry config is loaded.");
-    if (!readyForSave) throw new Error("Complete the calibration positions before saving.");
-    if (!isMulti) {
-      const homeZ = requireCaptured(calibrationHome, "Home position");
-      const blockTouchZ = requireCaptured(blockTouch, "Block touch position");
-      const height = parseBlockHeight(blockHeight);
-      const factoryZTravel = getFactoryZTravel(config);
-      const finalized = await gantryApi.finalizeCalibrationOrigin({
-        home_z: homeZ,
-        block_touch_z: blockTouchZ,
-        block_height: height,
-        factory_z_travel: factoryZTravel,
-      });
-      const measuredVolume = capturedFromPlain(finalized.measured_volume);
-      const maxTravel = capturedFromPlain(finalized.max_travel);
-      setMeasuredVolume(measuredVolume);
-      await onSaveCalibrated(normalizedOutput, buildCalibratedConfig({
-        config: {
+    if (config && readyForSave) {
+      if (!isMulti) {
+        const homeZ = requireCaptured(calibrationHome, "Home position");
+        const blockTouchZ = requireCaptured(blockTouch, "Block touch position");
+        const height = parseBlockHeight(blockHeight);
+        const factoryZTravel = getFactoryZTravel(config);
+        const finalized = await gantryApi.finalizeCalibrationOrigin({
+          home_z: homeZ,
+          block_touch_z: blockTouchZ,
+          block_height: height,
+          factory_z_travel: factoryZTravel,
+        });
+        const measuredVolume = capturedFromPlain(finalized.measured_volume);
+        const maxTravel = capturedFromPlain(finalized.max_travel);
+        setMeasuredVolume(measuredVolume);
+        await onSaveCalibrated(normalizedOutput, buildCalibratedConfig({
+          config: {
+            ...config,
+            cnc: {
+              ...config.cnc,
+              calibration_block_height_mm: finalized.z_calibration.block_height,
+            },
+            grbl_settings: {
+              ...(config.grbl_settings ?? {}),
+              homing_pull_off: finalized.homing_pull_off_mm ?? config.grbl_settings?.homing_pull_off,
+            },
+          },
+          measuredVolume,
+          zMin: finalized.z_calibration.z_min,
+          zMax: finalized.z_calibration.z_max,
+          maxTravel,
+          isMulti: false,
+          instruments,
+          instrumentPositions,
+          referenceInstrument: selectedReference,
+          lowestInstrument: selectedLowest,
+        }));
+        onClose();
+        return;
+      }
+      const result = await gantryApi.home();
+      const captured = requirePosition(result);
+      setMeasuredVolume(captured);
+      const initialZCalibration = zCalibration;
+      if (initialZCalibration) {
+        const calibratedConfig = {
           ...config,
           cnc: {
             ...config.cnc,
-            calibration_block_height_mm: finalized.z_calibration.block_height,
+            calibration_block_height_mm: initialZCalibration.blockHeight,
           },
-          grbl_settings: {
-            ...(config.grbl_settings ?? {}),
-            homing_pull_off: finalized.homing_pull_off_mm ?? config.grbl_settings?.homing_pull_off,
-          },
-        },
-        measuredVolume,
-        zMin: finalized.z_calibration.z_min,
-        zMax: finalized.z_calibration.z_max,
-        maxTravel,
-        isMulti: false,
-        instruments,
-        instrumentPositions,
-        referenceInstrument: selectedReference,
-        lowestInstrument: selectedLowest,
-      }));
-      onClose();
-      return;
-    }
-    const result = await gantryApi.home();
-    const captured = requirePosition(result);
-    setMeasuredVolume(captured);
-    const initialZCalibration = requireZCalibration(zCalibration);
-    const calibratedConfig = {
-      ...config,
-      cnc: {
-        ...config.cnc,
-        calibration_block_height_mm: initialZCalibration.blockHeight,
-      },
-    };
-    const finalZCalibration = calculateSingleInstrumentZCalibration({
-      homeZ: initialZCalibration.homeZ,
-      blockTouchZ: initialZCalibration.blockTouchZ,
-      blockHeight: initialZCalibration.blockHeight,
-      factoryZTravel: initialZCalibration.factoryZTravel,
-      homedZ: captured.z,
-    });
-    const zMin = finalZCalibration.zMin;
-    const zMax = finalZCalibration.zMax;
-    const homingPullOff = getConfiguredHomingPullOff(config);
-    const maxTravel = {
-      x: roundMm(captured.x + homingPullOff),
-      y: roundMm(captured.y + homingPullOff),
-      z: roundMm(finalZCalibration.maxTravelZ + homingPullOff),
-    };
-    if (maxTravel.x <= 0 || maxTravel.y <= 0 || maxTravel.z <= 0) {
-      throw new Error("Measured travel spans must be positive.");
-    }
-    await gantryApi.configureSoftLimits({
-      max_travel_x: maxTravel.x,
-      max_travel_y: maxTravel.y,
-      max_travel_z: maxTravel.z,
-      status_report: 0,
-      homing_pull_off: homingPullOff,
-    });
-    await onSaveCalibrated(normalizedOutput, buildCalibratedConfig({
-      config: {
-        ...calibratedConfig,
-        grbl_settings: {
-          ...(calibratedConfig.grbl_settings ?? {}),
+        };
+        const finalZCalibration = calculateSingleInstrumentZCalibration({
+          homeZ: initialZCalibration.homeZ,
+          blockTouchZ: initialZCalibration.blockTouchZ,
+          blockHeight: initialZCalibration.blockHeight,
+          factoryZTravel: initialZCalibration.factoryZTravel,
+          homedZ: captured.z,
+        });
+        const zMin = finalZCalibration.zMin;
+        const zMax = finalZCalibration.zMax;
+        const homingPullOff = getConfiguredHomingPullOff(config);
+        const maxTravel = {
+          x: roundMm(captured.x + homingPullOff),
+          y: roundMm(captured.y + homingPullOff),
+          z: roundMm(finalZCalibration.maxTravelZ + homingPullOff),
+        };
+        if (maxTravel.x <= 0 || maxTravel.y <= 0 || maxTravel.z <= 0) {
+          throw new Error("Measured travel spans must be positive.");
+        }
+        await gantryApi.configureSoftLimits({
+          max_travel_x: maxTravel.x,
+          max_travel_y: maxTravel.y,
+          max_travel_z: maxTravel.z,
+          status_report: 0,
           homing_pull_off: homingPullOff,
-        },
-      },
-      measuredVolume: captured,
-      zMin,
-      zMax,
-      maxTravel,
-      isMulti,
-      instruments,
-      instrumentPositions,
-      referenceInstrument: selectedReference,
-      lowestInstrument: selectedLowest,
-    }));
-    onClose();
+        });
+        await onSaveCalibrated(normalizedOutput, buildCalibratedConfig({
+          config: {
+            ...calibratedConfig,
+            grbl_settings: {
+              ...(calibratedConfig.grbl_settings ?? {}),
+              homing_pull_off: homingPullOff,
+            },
+          },
+          measuredVolume: captured,
+          zMin,
+          zMax,
+          maxTravel,
+          isMulti,
+          instruments,
+          instrumentPositions,
+          referenceInstrument: selectedReference,
+          lowestInstrument: selectedLowest,
+        }));
+      }
+      onClose();
+    }
   });
 
   const jog = useCallback((x: number, y: number, z: number) => {
-    if (!connected || busy || alarmRecoveryMessage || recoveryInProgress.current) return;
-    rememberJogDelta({ x, y, z });
-    gantryApi.jog(x, y, z).catch((err) => {
-      if (looksLikeAlarm(errorMessage(err))) {
-        void recoverFromLimitAlarm({ x, y, z }, err);
-      } else {
-        reportError(err);
-      }
-    });
+    if (connected && !busy && !alarmRecoveryMessage && !recoveryInProgress.current) {
+      rememberJogDelta({ x, y, z });
+      gantryApi.jog(x, y, z).catch((err) => {
+        if (looksLikeAlarm(errorMessage(err))) {
+          void recoverFromLimitAlarm({ x, y, z }, err);
+        } else {
+          reportError(err);
+        }
+      });
+    }
   }, [alarmRecoveryMessage, busy, connected, recoverFromLimitAlarm, rememberJogDelta, reportError]);
 
   const startJog = (x: number, y: number, z: number) => {
-    if (busy || alarmRecoveryMessage || recoveryInProgress.current) return;
-    stopJog();
-    jog(x, y, z);
-    jogTimer.current = setInterval(() => jog(x, y, z), JOG_INTERVAL_MS);
+    if (!busy && !alarmRecoveryMessage && !recoveryInProgress.current) {
+      stopJog();
+      jog(x, y, z);
+      jogTimer.current = setInterval(() => jog(x, y, z), JOG_INTERVAL_MS);
+    }
   };
 
   const xy = Math.max(MIN_STEP, parseFloat(xyStep) || 0.5);
@@ -976,13 +969,6 @@ function requireCaptured(value: CapturedPosition | null, label: string): number 
   return value.z;
 }
 
-function requireZCalibration(value: ZCalibrationResult | null): ZCalibrationResult {
-  if (!value) {
-    throw new Error("Z calibration is not available. Set the Z reference before saving.");
-  }
-  return value;
-}
-
 function capturedFromPlain(position: { x: number; y: number; z: number }): CapturedPosition {
   return {
     x: Number(position.x),
@@ -1015,13 +1001,7 @@ function formatCaptured(label: string, position: CapturedPosition): string {
 }
 
 function safeZRange(config: GantryConfig | null): string {
-  if (!config) return "Unavailable";
-  try {
-    return getFactoryZTravel(config).toFixed(3);
-  } catch (e) {
-    console.error("safeZRange: factory_z_travel_mm is invalid — save will also fail:", e);
-    return "Invalid config";
-  }
+  return config ? getFactoryZTravel(config).toFixed(3) : "Unavailable";
 }
 
 function looksLikeAlarm(message: string): boolean {

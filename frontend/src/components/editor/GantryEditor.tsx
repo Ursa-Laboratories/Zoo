@@ -112,57 +112,61 @@ export default function GantryEditor({
   };
 
   const updateInstrument = (key: string, inst: InstrumentConfig) => {
-    if (!config) return;
-    commit({
-      ...config,
-      instruments: { ...config.instruments, [key]: inst },
-    });
+    if (config) {
+      commit({
+        ...config,
+        instruments: { ...config.instruments, [key]: inst },
+      });
+    }
   };
 
   const removeInstrument = (key: string) => {
-    if (!config) return;
-    const next = { ...config.instruments };
-    delete next[key];
-    commit({ ...config, instruments: next });
+    if (config) {
+      const next = { ...config.instruments };
+      delete next[key];
+      commit({ ...config, instruments: next });
+    }
   };
 
   const addInstrument = () => {
-    if (!config || !selectedAddType) return;
-    let idx = Object.keys(config.instruments).length + 1;
-    let key = `${selectedAddType}_${idx}`;
-    while (config.instruments[key]) {
-      idx += 1;
-      key = `${selectedAddType}_${idx}`;
-    }
-
-    const vendors = vendorsForType(instrumentTypes, selectedAddType);
-    const template: InstrumentConfig = {
-      type: selectedAddType,
-      vendor: vendors[0] ?? "",
-      offset_x: 0,
-      offset_y: 0,
-      depth: 0,
-      measurement_height: 0,
-      safe_approach_height: 0,
-    };
-    const fields = instrumentSchemas[selectedAddType] ?? [];
-    for (const field of fields) {
-      if (field.default != null) {
-        (template as Record<string, unknown>)[field.name] = field.default;
+    if (config && selectedAddType) {
+      let idx = Object.keys(config.instruments).length + 1;
+      let key = `${selectedAddType}_${idx}`;
+      while (config.instruments[key]) {
+        idx += 1;
+        key = `${selectedAddType}_${idx}`;
       }
+
+      const vendors = vendorsForType(instrumentTypes, selectedAddType);
+      const template: InstrumentConfig = {
+        type: selectedAddType,
+        vendor: vendors[0] ?? "",
+        offset_x: 0,
+        offset_y: 0,
+        depth: 0,
+        measurement_height: 0,
+        safe_approach_height: 0,
+      };
+      const fields = instrumentSchemas[selectedAddType] ?? [];
+      for (const field of fields) {
+        if (field.default != null) {
+          (template as Record<string, unknown>)[field.name] = field.default;
+        }
+      }
+      commit({ ...config, instruments: { ...config.instruments, [key]: template } });
     }
-    commit({ ...config, instruments: { ...config.instruments, [key]: template } });
   };
 
   const updateGrblSetting = (field: keyof GrblSettingsConfig, value: number | boolean | null) => {
-    if (!config) return;
-    const nextSettings = { ...(config.grbl_settings ?? {}) };
-    if (value === null) {
-      delete nextSettings[field];
-    } else {
-      (nextSettings as Record<string, number | boolean>)[field] = value;
+    if (config) {
+      const nextSettings = { ...(config.grbl_settings ?? {}) };
+      if (value === null) {
+        delete nextSettings[field];
+      } else {
+        (nextSettings as Record<string, number | boolean>)[field] = value;
+      }
+      commit({ ...config, grbl_settings: nextSettings });
     }
-    commit({ ...config, grbl_settings: nextSettings });
   };
 
   // Per-field dirty compared against the last-saved config. A missing
@@ -192,18 +196,19 @@ export default function GantryEditor({
   const canSave = !!config && isValidGantry(config) && (!!saveAs.trim() || !!selectedFile) && !saving;
 
   const handleSave = async () => {
-    if (!config || !canSave) return;
-    const filename = saveAs.trim() || selectedFile || "";
-    const normalized = filename.endsWith(".yaml") ? filename : filename + ".yaml";
-    setSaving(true);
-    try {
-      await Promise.resolve(onSave(normalized, config));
-      onSelectFile(normalized);
-      setSaveAs("");
-    } catch (err) {
-      console.error("Gantry save failed:", err);
-    } finally {
-      setSaving(false);
+    if (config && canSave) {
+      const filename = saveAs.trim() || selectedFile || "";
+      const normalized = filename.endsWith(".yaml") ? filename : filename + ".yaml";
+      setSaving(true);
+      try {
+        await Promise.resolve(onSave(normalized, config));
+        onSelectFile(normalized);
+        setSaveAs("");
+      } catch (err) {
+        console.error("Gantry save failed:", err);
+      } finally {
+        setSaving(false);
+      }
     }
   };
 

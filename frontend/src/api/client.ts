@@ -137,6 +137,7 @@ export const gantryApi = {
     max_travel_z: number;
     status_report?: number;
     homing_pull_off?: number;
+    hard_limits?: boolean;
     tolerance_mm?: number;
   }) =>
     request<{ status: string }>("/gantry/soft-limits", {

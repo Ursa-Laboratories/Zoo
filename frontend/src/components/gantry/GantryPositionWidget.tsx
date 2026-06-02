@@ -57,19 +57,22 @@ export default function GantryPositionWidget({
   }, [position]);
 
   const jog = useCallback((x: number, y: number, z: number): boolean => {
-    if (!connected) return false;
-    if (workingVolume) {
-      const base = predictedJogPosition.current ?? currentWorkPosition(position);
-      if (base) {
-        const target = { x: base.x + x, y: base.y + y, z: base.z + z };
-        if (!isInsideWorkingVolume(target, workingVolume)) {
-          return false;
+    let sent = false;
+    if (connected) {
+      if (workingVolume) {
+        const base = predictedJogPosition.current ?? currentWorkPosition(position);
+        if (base) {
+          const target = { x: base.x + x, y: base.y + y, z: base.z + z };
+          if (!isInsideWorkingVolume(target, workingVolume)) {
+            return false;
+          }
+          predictedJogPosition.current = target;
         }
-        predictedJogPosition.current = target;
       }
+      gantryApi.jog(x, y, z).catch((e) => console.error("Jog failed:", e));
+      sent = true;
     }
-    gantryApi.jog(x, y, z).catch((e) => console.error("Jog failed:", e));
-    return true;
+    return sent;
   }, [connected, position, workingVolume]);
 
   const stopJog = useCallback(() => {
@@ -80,13 +83,14 @@ export default function GantryPositionWidget({
   }, []);
 
   const startJog = useCallback((x: number, y: number, z: number) => {
-    if (!jog(x, y, z)) return;
-    if (jogTimer.current) clearInterval(jogTimer.current);
-    jogTimer.current = setInterval(() => {
-      if (!jog(x, y, z)) {
-        stopJog();
-      }
-    }, JOG_INTERVAL_MS);
+    if (jog(x, y, z)) {
+      if (jogTimer.current) clearInterval(jogTimer.current);
+      jogTimer.current = setInterval(() => {
+        if (!jog(x, y, z)) {
+          stopJog();
+        }
+      }, JOG_INTERVAL_MS);
+    }
   }, [jog, stopJog]);
 
   // Clean up on unmount
@@ -141,15 +145,16 @@ export default function GantryPositionWidget({
   }, [connected, stepXY, stepZ, startJog, stopJog]);
 
   const handleConnect = async () => {
-    if (!gantryFile) return;
-    setLoading(true);
-    setConnectionError(null);
-    try {
-      await gantryApi.connect(gantryFile);
-    } catch (e) {
-      setConnectionError(`Connection failed: ${e}`);
+    if (gantryFile) {
+      setLoading(true);
+      setConnectionError(null);
+      try {
+        await gantryApi.connect(gantryFile);
+      } catch (e) {
+        setConnectionError(`Connection failed: ${e}`);
+      }
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleDisconnect = async () => {
@@ -164,28 +169,30 @@ export default function GantryPositionWidget({
   };
 
   const handleUnlock = async () => {
-    if (!connected) return;
-    setJogBusy(true);
-    try {
-      await gantryApi.unlock();
-    } catch (e) {
-      console.error("Unlock failed:", e);
+    if (connected) {
+      setJogBusy(true);
+      try {
+        await gantryApi.unlock();
+      } catch (e) {
+        console.error("Unlock failed:", e);
+      }
+      setJogBusy(false);
     }
-    setJogBusy(false);
   };
 
   const runAdvancedAction = async (label: string, action: () => Promise<void>) => {
-    if (!connected) return;
-    setAdvancedBusy(true);
-    setAdvancedMessage(null);
-    setAdvancedError(null);
-    try {
-      await action();
-      setAdvancedMessage(label);
-    } catch (e) {
-      setAdvancedError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setAdvancedBusy(false);
+    if (connected) {
+      setAdvancedBusy(true);
+      setAdvancedMessage(null);
+      setAdvancedError(null);
+      try {
+        await action();
+        setAdvancedMessage(label);
+      } catch (e) {
+        setAdvancedError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setAdvancedBusy(false);
+      }
     }
   };
 
@@ -216,49 +223,50 @@ export default function GantryPositionWidget({
   });
 
   const handleHome = async () => {
-    if (!connected) return;
-    if (!window.confirm("Confirm you want to go to home?")) return;
-    setJogBusy(true);
-    try {
-      await gantryApi.home();
-    } catch (e) {
-      console.error("Homing failed:", e);
+    if (connected && window.confirm("Confirm you want to go to home?")) {
+      setJogBusy(true);
+      try {
+        await gantryApi.home();
+      } catch (e) {
+        console.error("Homing failed:", e);
+      }
+      setJogBusy(false);
     }
-    setJogBusy(false);
   };
 
   const handleMoveTo = () => {
-    if (!connected) return;
-    const x = parseFloat(moveX);
-    const y = parseFloat(moveY);
-    const z = parseFloat(moveZ);
-    if (isNaN(x) || isNaN(y) || isNaN(z)) {
-      alert("Enter valid X, Y, and Z coordinates");
-      return;
-    }
-    if (x < 0 || y < 0 || z < 0) {
-      alert("Coordinates must be positive (user space)");
-      return;
-    }
-    if (workingVolume) {
-      const axisChecks: Array<[string, number, number, number]> = [
-        ["X", x, workingVolume.x_min, workingVolume.x_max],
-        ["Y", y, workingVolume.y_min, workingVolume.y_max],
-        ["Z", z, workingVolume.z_min, workingVolume.z_max],
-      ];
-      const violations = axisChecks.filter(([, value, min, max]) => (
-        value < min || value > max
-      ));
-      if (violations.length > 0) {
-        alert(
-          `Move target outside working volume: ${violations
-            .map(([axis, value, min, max]) => `${axis}=${Number(value).toFixed(3)} outside [${Number(min).toFixed(3)}, ${Number(max).toFixed(3)}]`)
-            .join("; ")}`,
-        );
+    if (connected) {
+      const x = parseFloat(moveX);
+      const y = parseFloat(moveY);
+      const z = parseFloat(moveZ);
+      if (isNaN(x) || isNaN(y) || isNaN(z)) {
+        alert("Enter valid X, Y, and Z coordinates");
         return;
       }
+      if (x < 0 || y < 0 || z < 0) {
+        alert("Coordinates must be positive (user space)");
+        return;
+      }
+      if (workingVolume) {
+        const axisChecks: Array<[string, number, number, number]> = [
+          ["X", x, workingVolume.x_min, workingVolume.x_max],
+          ["Y", y, workingVolume.y_min, workingVolume.y_max],
+          ["Z", z, workingVolume.z_min, workingVolume.z_max],
+        ];
+        const violations = axisChecks.filter(([, value, min, max]) => (
+          value < min || value > max
+        ));
+        if (violations.length > 0) {
+          alert(
+            `Move target outside working volume: ${violations
+              .map(([axis, value, min, max]) => `${axis}=${Number(value).toFixed(3)} outside [${Number(min).toFixed(3)}, ${Number(max).toFixed(3)}]`)
+              .join("; ")}`,
+          );
+          return;
+        }
+      }
+      gantryApi.moveTo(x, y, z).catch((e) => alert(`Move failed: ${e}`));
     }
-    gantryApi.moveTo(x, y, z).catch((e) => alert(`Move failed: ${e}`));
   };
 
   // 800 steps/mm → min 0.00125mm; clamp to 0.001mm floor

@@ -14,6 +14,8 @@ See also:
 - Zoo should stay a thin layer over CubOS loaders, schemas, registries, and motion logic.
 - The checked-in dependency currently points at a Git branch in `pyproject.toml`. Confirm branch strategy before changing it.
 - Zoo uses CubOS' current three-config runtime surface: gantry, deck, and protocol. Mounted instruments are edited and saved inside gantry YAML.
+- The Python distribution is `zoo-backend`; the import package and entrypoint remain `zoo` so `python -m zoo` and `uvicorn zoo.app:create_app --factory` stay stable.
+- The frontend npm package is `zoo-frontend` and lives under `frontend/`.
 
 ## Local Config Storage
 
@@ -70,7 +72,7 @@ Defaults:
 
 ## Test And Build
 
-- Backend tests: `pytest tests/`
+- Backend tests with coverage floor: `pytest`
 - Frontend lint: `cd frontend && npm run lint`
 - Frontend tests: `cd frontend && npm run test`
 - Frontend build: `cd frontend && npm run build`

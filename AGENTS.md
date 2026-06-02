@@ -26,7 +26,7 @@ Key rule: Zoo stays a thin layer over CubOS. Read the relevant source/docs from 
 - `frontend/src/api/`
 - `frontend/src/components/`
 - `frontend/src/hooks/`
-- `tests/`
+- `backend/tests/`
 
 ## Runtime Model
 
@@ -38,7 +38,7 @@ Key rule: Zoo stays a thin layer over CubOS. Read the relevant source/docs from 
 ## Commands
 
 ```bash
-pytest tests/
+pytest
 cd frontend && npm run lint
 cd frontend && npm run test
 cd frontend && npm run build

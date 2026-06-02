@@ -464,11 +464,12 @@ function expandPoint(bounds: Bounds2D, x: number, y: number, pad: number) {
 }
 
 function expandRect(bounds: Bounds2D, minX: number, minY: number, maxX: number, maxY: number) {
-  if (![minX, minY, maxX, maxY].every(Number.isFinite)) return;
-  bounds.minX = Math.min(bounds.minX, minX);
-  bounds.maxX = Math.max(bounds.maxX, maxX);
-  bounds.minY = Math.min(bounds.minY, minY);
-  bounds.maxY = Math.max(bounds.maxY, maxY);
+  if ([minX, minY, maxX, maxY].every(Number.isFinite)) {
+    bounds.minX = Math.min(bounds.minX, minX);
+    bounds.maxX = Math.max(bounds.maxX, maxX);
+    bounds.minY = Math.min(bounds.minY, minY);
+    bounds.maxY = Math.max(bounds.maxY, maxY);
+  }
 }
 
 function wellPlatePad(xOffset: unknown, yOffset: unknown): number {

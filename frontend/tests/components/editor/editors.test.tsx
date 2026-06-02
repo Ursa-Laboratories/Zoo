@@ -1,0 +1,1137 @@
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
+import DeckEditor from "../../../src/components/editor/DeckEditor";
+import EditorTabs from "../../../src/components/editor/EditorTabs";
+import GantryEditor from "../../../src/components/editor/GantryEditor";
+import ProtocolEditor from "../../../src/components/editor/ProtocolEditor";
+import type {
+  CommandInfo,
+  DeckResponse,
+  GantryConfig,
+  GantryResponse,
+  InstrumentSchemas,
+  InstrumentTypeInfo,
+  WellPlateConfig,
+} from "../../../src/types";
+
+function deckFixture(): DeckResponse {
+  return {
+    filename: "deck.yaml",
+    labware: [
+      {
+        key: "plate_1",
+        config: {
+          type: "well_plate",
+          name: "Plate 1",
+          model_name: "plate-model",
+          rows: 2,
+          columns: 2,
+          length: 127.76,
+          width: 85.47,
+          height: 14.22,
+          a1: null,
+          calibration: {
+            a1: { x: 10, y: 20, z: 30 },
+            a2: { x: 19, y: 20, z: 30 },
+          },
+          x_offset: 9,
+          y_offset: 9,
+          capacity_ul: 200,
+          working_volume_ul: 150,
+        },
+        wells: {
+          A1: { x: 10, y: 20, z: 30 },
+          A2: { x: 19, y: 20, z: 30 },
+        },
+      },
+      {
+        key: "vial_1",
+        config: {
+          type: "vial",
+          name: "Sample Vial",
+          model_name: "vial-model",
+          height: 66.75,
+          diameter: 28,
+          location: { x: 30, y: 40, z: 20 },
+          capacity_ul: 1500,
+          working_volume_ul: 1200,
+        },
+        wells: null,
+      },
+      {
+        key: "rack_1",
+        config: {
+          type: "tip_rack",
+          name: "Tip Rack",
+          model_name: "rack-model",
+          rows: 1,
+          columns: 1,
+        },
+        wells: null,
+      },
+    ],
+  };
+}
+
+function gantryConfig(): GantryConfig {
+  return {
+    serial_port: "/dev/ttyUSB0",
+    gantry_type: "cub_xl",
+    cnc: {
+      homing_strategy: "standard",
+      factory_z_travel_mm: 90,
+      calibration_block_height_mm: 35,
+      y_axis_motion: "head",
+      safe_z: 80,
+    },
+    working_volume: { x_min: 0, x_max: 300, y_min: 0, y_max: 200, z_min: 0, z_max: 80 },
+    grbl_settings: {
+      soft_limits: true,
+      homing_pull_off: 10,
+      max_travel_x: 310,
+    },
+    instruments: {
+      asmi_1: {
+        type: "asmi",
+        vendor: "vernier",
+        offset_x: 1,
+        offset_y: 2,
+        depth: 3,
+        measurement_height: 4,
+        safe_approach_height: 5,
+        mode: "force",
+        enabled: true,
+        gain: 2.5,
+        note: "ready",
+      },
+    },
+  };
+}
+
+function gantryFixture(): GantryResponse {
+  return { filename: "gantry.yaml", config: gantryConfig() };
+}
+
+const instrumentTypes: InstrumentTypeInfo[] = [
+  { type: "asmi", vendors: ["vernier", "manual"], is_mock: false },
+  { type: "pipette", vendors: ["opentrons"], is_mock: false },
+  { type: "custom_tool", vendors: [], is_mock: true },
+];
+
+const instrumentSchemas: InstrumentSchemas = {
+  asmi: [
+    { name: "mode", type: "str", required: true, default: "force", choices: ["force", "distance"] },
+    { name: "enabled", type: "bool", required: false, default: true, choices: null },
+    { name: "gain", type: "float", required: false, default: 1.5, choices: null },
+    { name: "note", type: "str", required: false, default: "ready", choices: null },
+  ],
+  pipette: [
+    { name: "port", type: "str", required: true, default: "/dev/ttyUSB0", choices: null },
+  ],
+};
+
+const commands: CommandInfo[] = [
+  {
+    name: "move",
+    description: "Move to a position",
+    args: [
+      { name: "instrument", type: "str", required: true, default: null },
+      { name: "position", type: "str", required: true, default: null },
+      { name: "travel_z", type: "float | None", required: false, default: null },
+    ],
+  },
+  {
+    name: "scan",
+    description: "Scan a plate",
+    args: [
+      { name: "plate", type: "str", required: true, default: null },
+      { name: "instrument", type: "str", required: true, default: null },
+      { name: "method", type: "str", required: true, default: null },
+      { name: "measurement_height", type: "float", required: true, default: null },
+      { name: "method_kwargs", type: "Dict[str, Any] | None", required: false, default: null },
+    ],
+  },
+  {
+    name: "wait",
+    description: "Wait",
+    args: [
+      { name: "seconds", type: "float", required: true, default: null },
+      { name: "comment", type: "str", required: false, default: "pause" },
+    ],
+  },
+];
+
+describe("DeckEditor", () => {
+  it("edits, preserves, removes, and saves deck labware", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    const onLocalChange = vi.fn();
+    const onSelectFile = vi.fn();
+    render(
+      <DeckEditor
+        configs={["deck.yaml"]}
+        selectedFile="deck.yaml"
+        onSelectFile={onSelectFile}
+        onImportFile={vi.fn()}
+        deck={deckFixture()}
+        onSave={onSave}
+        onLocalChange={onLocalChange}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/editing not supported/i)).toHaveTextContent("tip_rack");
+    await user.clear(screen.getByLabelText(/^Rows/));
+    await user.type(screen.getByLabelText(/^Rows/), "3");
+    await user.clear(screen.getByLabelText("Calibration A1 X"));
+    await user.type(screen.getByLabelText("Calibration A1 X"), "12");
+    await user.clear(screen.getByLabelText("Diameter (mm)"));
+    await user.type(screen.getByLabelText("Diameter (mm)"), "31");
+    await user.click(within(screen.getByText("rack_1").closest("div")!).getByRole("button", { name: "Remove" }));
+    await user.click(screen.getByRole("button", { name: "+ Well Plate" }));
+    await user.click(screen.getByRole("button", { name: "+ Vial" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(
+      "deck.yaml",
+      expect.objectContaining({
+        labware: expect.objectContaining({
+          plate_1: expect.objectContaining({ rows: 3 }),
+          vial_1: expect.objectContaining({ diameter: 31 }),
+          wellplate_3: expect.objectContaining({ type: "well_plate", name: "wellplate_3" }),
+          vial_4: expect.objectContaining({ type: "vial", name: "vial_4" }),
+        }),
+      }),
+    ));
+    expect(onSave.mock.calls[0][1].labware.rack_1).toBeUndefined();
+    expect(onSelectFile).toHaveBeenCalledWith("deck.yaml");
+    expect(onLocalChange).toHaveBeenCalled();
+  });
+
+  it("requires editable labware names before saving", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    render(
+      <DeckEditor
+        configs={[]}
+        selectedFile="deck.yaml"
+        onSelectFile={vi.fn()}
+        onImportFile={vi.fn()}
+        deck={deckFixture()}
+        onSave={onSave}
+        onLocalChange={vi.fn()}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.clear(screen.getByDisplayValue("Plate 1"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("creates a deck from scratch and edits generated labware fields", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    const onLocalChange = vi.fn();
+    const onSelectFile = vi.fn();
+    render(
+      <DeckEditor
+        configs={[]}
+        selectedFile={null}
+        onSelectFile={onSelectFile}
+        onImportFile={vi.fn()}
+        deck={null}
+        onSave={onSave}
+        onLocalChange={onLocalChange}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "+ Well Plate" }));
+    await user.click(screen.getByRole("button", { name: "+ Vial" }));
+    await user.clear(screen.getAllByLabelText("Model")[0]);
+    await user.type(screen.getAllByLabelText("Model")[0], "plate-model-new");
+    await user.clear(screen.getAllByLabelText("Model")[1]);
+    await user.type(screen.getAllByLabelText("Model")[1], "vial-model-new");
+    await user.clear(screen.getByLabelText(/^Columns/));
+    await user.type(screen.getByLabelText(/^Columns/), "6");
+    await user.clear(screen.getByLabelText("Length (mm)"));
+    await user.type(screen.getByLabelText("Length (mm)"), "120");
+    await user.clear(screen.getByLabelText("Width (mm)"));
+    await user.type(screen.getByLabelText("Width (mm)"), "80");
+    await user.clear(screen.getAllByLabelText("Height (mm)")[0]);
+    await user.type(screen.getAllByLabelText("Height (mm)")[0], "15");
+    await user.clear(screen.getByLabelText("Calibration A2 Y"));
+    await user.type(screen.getByLabelText("Calibration A2 Y"), "55");
+    await user.clear(screen.getByLabelText(/^Well pitch X/));
+    await user.type(screen.getByLabelText(/^Well pitch X/), "8");
+    await user.clear(screen.getByLabelText(/^Well pitch Y/));
+    await user.type(screen.getByLabelText(/^Well pitch Y/), "7");
+    await user.clear(screen.getAllByLabelText("Capacity (uL)")[0]);
+    await user.type(screen.getAllByLabelText("Capacity (uL)")[0], "300");
+    await user.clear(screen.getAllByLabelText("Working vol (uL)")[0]);
+    await user.type(screen.getAllByLabelText("Working vol (uL)")[0], "250");
+    await user.clear(screen.getAllByLabelText("Height (mm)")[1]);
+    await user.type(screen.getAllByLabelText("Height (mm)")[1], "70");
+    await user.clear(screen.getByLabelText("Location Z"));
+    await user.type(screen.getByLabelText("Location Z"), "25");
+    await user.clear(screen.getAllByLabelText("Capacity (uL)")[1]);
+    await user.type(screen.getAllByLabelText("Capacity (uL)")[1], "1800");
+    await user.clear(screen.getAllByLabelText("Working vol (uL)")[1]);
+    await user.type(screen.getAllByLabelText("Working vol (uL)")[1], "1600");
+    await user.type(screen.getByPlaceholderText("my_deck.yaml"), "scratch_deck");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(
+      "scratch_deck.yaml",
+      expect.objectContaining({
+        labware: expect.objectContaining({
+          wellplate_1: expect.objectContaining({
+            model_name: "plate-model-new",
+            columns: 6,
+            length: 120,
+            width: 80,
+            height: 15,
+            x_offset: 8,
+            y_offset: 7,
+            capacity_ul: 300,
+            working_volume_ul: 250,
+          }),
+          vial_2: expect.objectContaining({
+            model_name: "vial-model-new",
+            height: 70,
+            location: expect.objectContaining({ z: 25 }),
+            capacity_ul: 1800,
+            working_volume_ul: 1600,
+          }),
+        }),
+      }),
+    ));
+    expect(onSelectFile).toHaveBeenCalledWith("scratch_deck.yaml");
+    expect(onLocalChange).toHaveBeenCalledWith(expect.objectContaining({ filename: "unsaved" }));
+  });
+
+  it("reports deck save failures without changing the selected filename", async () => {
+    const user = userEvent.setup();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const onSave = vi.fn(async () => {
+      throw new Error("disk full");
+    });
+    const onSelectFile = vi.fn();
+    render(
+      <DeckEditor
+        configs={[]}
+        selectedFile="deck.yaml"
+        onSelectFile={onSelectFile}
+        onImportFile={vi.fn()}
+        deck={deckFixture()}
+        onSave={onSave}
+        onLocalChange={vi.fn()}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(consoleError).toHaveBeenCalledWith("Deck save failed:", expect.any(Error)));
+    expect(onSelectFile).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+});
+
+describe("GantryEditor", () => {
+  it("starts a new gantry config and saves a normalized filename", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    const onSelectFile = vi.fn();
+    const onLocalChange = vi.fn();
+    render(
+      <GantryEditor
+        configs={[]}
+        selectedFile={null}
+        onSelectFile={onSelectFile}
+        gantry={null}
+        baseline={null}
+        instrumentTypes={instrumentTypes}
+        instrumentSchemas={instrumentSchemas}
+        onSave={onSave}
+        onLocalChange={onLocalChange}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "+ New config" }));
+    await user.type(screen.getByPlaceholderText("my_gantry.yaml"), "new_gantry");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(
+      "new_gantry.yaml",
+      expect.objectContaining({ gantry_type: "cub_xl", instruments: {} }),
+    ));
+    expect(onSelectFile).toHaveBeenCalledWith("new_gantry.yaml");
+    expect(onLocalChange).toHaveBeenCalledWith(expect.objectContaining({ filename: "unsaved" }));
+  });
+
+  it("edits CNC, GRBL, and schema-driven instrument fields", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    const onLocalChange = vi.fn();
+    render(
+      <GantryEditor
+        configs={["gantry.yaml"]}
+        selectedFile="gantry.yaml"
+        onSelectFile={vi.fn()}
+        gantry={gantryFixture()}
+        baseline={gantryFixture()}
+        instrumentTypes={instrumentTypes}
+        instrumentSchemas={instrumentSchemas}
+        onSave={onSave}
+        onLocalChange={onLocalChange}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    const serialPort = screen.getByDisplayValue("/dev/ttyUSB0");
+    const factoryZTravel = screen.getByDisplayValue("90");
+    await user.clear(serialPort);
+    await user.type(serialPort, "/dev/ttyUSB9");
+    await user.selectOptions(screen.getByLabelText(/^Gantry type/), "cub");
+    await user.selectOptions(screen.getByLabelText("Y-axis motion"), "bed");
+    await user.clear(factoryZTravel);
+    await user.type(factoryZTravel, "95");
+    await user.clear(screen.getByLabelText("X max"));
+    await user.type(screen.getByLabelText("X max"), "320");
+    await user.selectOptions(screen.getByLabelText("Soft limits"), "false");
+    const homingPullOff = screen.getByDisplayValue("10");
+    await user.clear(homingPullOff);
+    await user.type(homingPullOff, "12");
+    await user.click(within(screen.getByLabelText("Max travel X").closest("div")!.parentElement!).getByRole("button", { name: "Clear" }));
+    await user.selectOptions(screen.getByDisplayValue("vernier"), "manual");
+    await user.selectOptions(screen.getByLabelText("Mode *"), "distance");
+    await user.selectOptions(screen.getByLabelText("Enabled"), "false");
+    await user.clear(screen.getByLabelText("Gain"));
+    await user.type(screen.getByLabelText("Gain"), "3.25");
+    const note = screen.getByDisplayValue("ready");
+    await user.clear(note);
+    await user.type(note, "updated");
+    const addTypeSelect = screen.getAllByRole("combobox").find((select) => (
+      within(select).queryByRole("option", { name: "Pipette" })
+    ));
+    expect(addTypeSelect).toBeDefined();
+    await user.selectOptions(addTypeSelect!, "pipette");
+    await user.click(screen.getByRole("button", { name: "+ Add" }));
+    await user.click(within(screen.getByText("pipette_2").closest("div")!).getByRole("button", { name: "Remove" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    const saved = onSave.mock.calls[0][1] as GantryConfig;
+    expect(saved.serial_port).toBe("/dev/ttyUSB9");
+    expect(saved.gantry_type).toBe("cub");
+    expect(saved.cnc.factory_z_travel_mm).toBe(95);
+    expect(saved.cnc.y_axis_motion).toBe("bed");
+    expect(saved.working_volume.x_max).toBe(320);
+    expect(saved.grbl_settings?.soft_limits).toBe(false);
+    expect(saved.grbl_settings?.homing_pull_off).toBe(12);
+    expect(saved.grbl_settings?.max_travel_x).toBeUndefined();
+    expect(saved.instruments.asmi_1).toMatchObject({
+      vendor: "manual",
+      mode: "distance",
+      enabled: false,
+      gain: 3.25,
+      note: "updated",
+    });
+    expect(saved.instruments.pipette_2).toBeUndefined();
+    expect(onLocalChange).toHaveBeenCalled();
+    expect(screen.getAllByTitle("Unsaved local edit").length).toBeGreaterThan(0);
+  });
+
+  it("disables save for unsafe gantry values", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    render(
+      <GantryEditor
+        configs={[]}
+        selectedFile="gantry.yaml"
+        onSelectFile={vi.fn()}
+        gantry={gantryFixture()}
+        baseline={null}
+        instrumentTypes={instrumentTypes}
+        instrumentSchemas={instrumentSchemas}
+        onSave={onSave}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.clear(screen.getByLabelText("Z max"));
+    await user.type(screen.getByLabelText("Z max"), "120");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("edits gantry validation edges and no-vendor instruments", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    const onLocalChange = vi.fn();
+    const config = gantryConfig();
+    config.instruments = {
+      custom_tool_2: {
+        type: "custom_tool",
+        vendor: "manual",
+        offset_x: 0,
+        offset_y: 0,
+        depth: 0,
+        measurement_height: 0,
+        safe_approach_height: 0,
+      },
+    };
+    render(
+      <GantryEditor
+        configs={[]}
+        selectedFile="gantry.yaml"
+        onSelectFile={vi.fn()}
+        gantry={{ filename: "gantry.yaml", config }}
+        baseline={null}
+        instrumentTypes={instrumentTypes}
+        instrumentSchemas={instrumentSchemas}
+        onSave={onSave}
+        onLocalChange={onLocalChange}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    const saveButton = screen.getByRole("button", { name: "Save" });
+    await user.clear(screen.getByLabelText("X min"));
+    await user.type(screen.getByLabelText("X min"), "350");
+    expect(saveButton).toBeDisabled();
+    await user.clear(screen.getByLabelText("X min"));
+    await user.type(screen.getByLabelText("X min"), "0");
+    await user.clear(screen.getByLabelText("Y min"));
+    await user.type(screen.getByLabelText("Y min"), "5");
+    await user.clear(screen.getByLabelText("Y max"));
+    await user.type(screen.getByLabelText("Y max"), "205");
+    await user.clear(screen.getByLabelText("Z min"));
+    await user.type(screen.getByLabelText("Z min"), "1");
+    await user.clear(screen.getByLabelText(/^Block height/));
+    await user.type(screen.getByLabelText(/^Block height/), "0");
+    expect(saveButton).toBeDisabled();
+    await user.clear(screen.getByLabelText(/^Block height/));
+    await user.type(screen.getByLabelText(/^Block height/), "36");
+    await user.clear(screen.getByLabelText("Safe Z"));
+    await user.type(screen.getByLabelText("Safe Z"), "75");
+    await user.selectOptions(screen.getByLabelText("Homing strategy"), "standard");
+    await user.selectOptions(screen.getByLabelText("Soft limits"), "");
+
+    const addTypeSelect = screen.getAllByRole("combobox").find((select) => (
+      within(select).queryByRole("option", { name: "Custom Tool (mock)" })
+    ));
+    expect(addTypeSelect).toBeDefined();
+    await user.selectOptions(addTypeSelect!, "custom_tool");
+    await user.click(screen.getByRole("button", { name: "+ Add" }));
+    expect(saveButton).toBeDisabled();
+
+    const customCard = screen.getByText(/custom_tool_3/).closest("div")!.parentElement!;
+    const typeInput = within(customCard).getByLabelText(/^Type/);
+    await user.clear(typeInput);
+    expect(saveButton).toBeDisabled();
+    await user.type(typeInput, "custom_tool");
+    await user.type(within(customCard).getByLabelText(/^Vendor/), "manual");
+    await user.clear(within(customCard).getByLabelText("Offset X"));
+    await user.type(within(customCard).getByLabelText("Offset X"), "1.5");
+    await user.clear(within(customCard).getByLabelText("Offset Y"));
+    await user.type(within(customCard).getByLabelText("Offset Y"), "-2.5");
+    await user.clear(within(customCard).getByLabelText("Depth"));
+    await user.type(within(customCard).getByLabelText("Depth"), "8");
+    await user.clear(within(customCard).getByLabelText("Measurement height"));
+    await user.type(within(customCard).getByLabelText("Measurement height"), "5");
+    expect(saveButton).toBeDisabled();
+    await user.clear(within(customCard).getByLabelText("Safe approach"));
+    await user.type(within(customCard).getByLabelText("Safe approach"), "6");
+    await user.click(saveButton);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    const saved = onSave.mock.calls[0][1] as GantryConfig;
+    expect(saved.working_volume).toMatchObject({ x_min: 0, y_min: 5, y_max: 205, z_min: 1 });
+    expect(saved.cnc).toMatchObject({ calibration_block_height_mm: 36, safe_z: 75 });
+    expect(saved.grbl_settings?.soft_limits).toBeUndefined();
+    expect(saved.instruments.custom_tool_3).toMatchObject({
+      type: "custom_tool",
+      vendor: "manual",
+      offset_x: 1.5,
+      offset_y: -2.5,
+      depth: 8,
+      measurement_height: 5,
+      safe_approach_height: 6,
+    });
+    expect(onLocalChange).toHaveBeenCalled();
+  });
+
+  it("reports gantry save failures without changing the selected filename", async () => {
+    const user = userEvent.setup();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const onSave = vi.fn(async () => {
+      throw new Error("disk full");
+    });
+    const onSelectFile = vi.fn();
+    render(
+      <GantryEditor
+        configs={[]}
+        selectedFile="gantry.yaml"
+        onSelectFile={onSelectFile}
+        gantry={gantryFixture()}
+        baseline={null}
+        instrumentTypes={instrumentTypes}
+        instrumentSchemas={instrumentSchemas}
+        onSave={onSave}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(consoleError).toHaveBeenCalledWith("Gantry save failed:", expect.any(Error)));
+    expect(onSelectFile).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+});
+
+describe("EditorTabs", () => {
+  it("allows opening a disabled tab when a disabled message explains it", async () => {
+    const user = userEvent.setup();
+    const onTabChange = vi.fn();
+    render(
+      <EditorTabs
+        activeTab="Gantry"
+        onTabChange={onTabChange}
+        disabledTabs={["Protocol"]}
+        disabledMessage="Load gantry and deck first."
+        loadedFilenames={{ Gantry: "gantry.yaml" }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await user.click(screen.getByRole("button", { name: "Deck" }));
+
+    expect(onTabChange).toHaveBeenCalledWith("Protocol");
+    expect(onTabChange).toHaveBeenCalledWith("Deck");
+  });
+});
+
+describe("ProtocolEditor", () => {
+  it("edits named positions, renames references, validates, saves, and runs", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    const onLocalChange = vi.fn();
+    const onPositionsChange = vi.fn();
+    const onValidate = vi.fn();
+    const onRun = vi.fn();
+    render(
+      <ProtocolEditor
+        configs={["protocol.yaml"]}
+        selectedFile="protocol.yaml"
+        onSelectFile={vi.fn()}
+        commands={commands}
+        deck={deckFixture()}
+        gantry={gantryFixture()}
+        steps={[{ command: "move", args: { instrument: "asmi_1", position: "park", travel_z: 3 } }]}
+        positions={{ park: [10, 20, 30] }}
+        onSave={onSave}
+        onLocalChange={onLocalChange}
+        onPositionsChange={onPositionsChange}
+        onValidate={onValidate}
+        validationErrors={[]}
+        isValidating={false}
+        onRun={onRun}
+        canRun
+        isRunning={false}
+        runResult={{ status: "ok", steps_executed: 1 }}
+        runError={null}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Position 1 name"), { target: { value: "staging" } });
+    await user.selectOptions(screen.getByLabelText(/^Position \*$/), "staging");
+    await user.clear(screen.getByLabelText("staging coordinates Z"));
+    await user.type(screen.getByLabelText("staging coordinates Z"), "44");
+    await user.click(screen.getByRole("button", { name: "Add Position" }));
+    await user.clear(screen.getByLabelText("Position 2 name"));
+    await user.type(screen.getByLabelText("Position 2 name"), "staging");
+    expect(screen.getByText('Position "staging" is duplicated.')).toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Position 2 name"));
+    await user.type(screen.getByLabelText("Position 2 name"), "parking_2");
+    await user.click(screen.getByRole("button", { name: "Validate" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Run Protocol" }));
+
+    expect(onValidate).toHaveBeenCalledWith(expect.objectContaining({
+      positions: expect.objectContaining({ staging: [10, 20, 44] }),
+    }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(
+      "protocol.yaml",
+      expect.objectContaining({
+        positions: expect.objectContaining({ parking_2: [0, 0, 0] }),
+        protocol: [expect.objectContaining({ args: expect.objectContaining({ position: "staging" }) })],
+      }),
+    ));
+    expect(onRun).toHaveBeenCalledOnce();
+    expect(onLocalChange).toHaveBeenCalled();
+    expect(onPositionsChange).toHaveBeenCalled();
+    expect(screen.getByText(/Protocol complete/)).toHaveTextContent("1 steps executed");
+  });
+
+  it("adds defaulted steps and handles unknown commands and validation output", async () => {
+    const user = userEvent.setup();
+    render(
+      <ProtocolEditor
+        configs={[]}
+        selectedFile="protocol.yaml"
+        onSelectFile={vi.fn()}
+        commands={commands}
+        deck={deckFixture()}
+        gantry={gantryFixture()}
+        steps={[{ command: "missing_command", args: {} }]}
+        positions={null}
+        onSave={vi.fn()}
+        onValidate={vi.fn()}
+        validationErrors={["Step 0: bad command", "Global setup error"]}
+        isValidating={true}
+        onRun={vi.fn()}
+        canRun={false}
+        isRunning={true}
+        runResult={null}
+        runError="Gantry disconnected"
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Unknown command: missing_command")).toBeInTheDocument();
+    expect(screen.getAllByText("Step 0: bad command").length).toBeGreaterThan(0);
+    expect(screen.getByText("Global setup error")).toBeInTheDocument();
+    expect(screen.getByText("Gantry disconnected")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "..." })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Running..." })).toBeDisabled();
+
+    await user.selectOptions(screen.getByLabelText("Add step"), "scan");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(await screen.findByLabelText(/Plate/)).toHaveValue("plate_1");
+    expect(screen.getByLabelText(/Instrument/)).toHaveValue("asmi_1");
+    expect(screen.getByLabelText(/^Measurement \*$/)).toHaveValue("indentation");
+    expect(screen.getByLabelText("Force limit (N)")).toHaveValue("10");
+  });
+
+  it("handles empty command maps and named-position validation edge cases", async () => {
+    const user = userEvent.setup();
+    const onLocalChange = vi.fn();
+    const onPositionsChange = vi.fn();
+    render(
+      <ProtocolEditor
+        configs={[]}
+        selectedFile={null}
+        onSelectFile={vi.fn()}
+        commands={[]}
+        deck={deckFixture()}
+        gantry={gantryFixture()}
+        steps={null}
+        positions={{ position_1: [1, 2, 3], bad: [Number.NaN, 2, 3] }}
+        onSave={vi.fn()}
+        onLocalChange={onLocalChange}
+        onPositionsChange={onPositionsChange}
+        onValidate={vi.fn()}
+        validationErrors={null}
+        isValidating={false}
+        onRun={vi.fn()}
+        canRun={false}
+        isRunning={false}
+        runResult={null}
+        runError={null}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    expect(onLocalChange).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Add Position" }));
+    expect(screen.getByLabelText("Position 3 name")).toHaveValue("position_2");
+    await user.click(screen.getByRole("button", { name: "Remove bad" }));
+
+    expect(onPositionsChange).toHaveBeenLastCalledWith(expect.not.objectContaining({ bad: expect.anything() }));
+  });
+
+  it("adds optional default args for wait steps", async () => {
+    const user = userEvent.setup();
+    const onLocalChange = vi.fn();
+    render(
+      <ProtocolEditor
+        configs={[]}
+        selectedFile="protocol.yaml"
+        onSelectFile={vi.fn()}
+        commands={commands}
+        deck={deckFixture()}
+        gantry={gantryFixture()}
+        steps={null}
+        positions={null}
+        onSave={vi.fn()}
+        onLocalChange={onLocalChange}
+        onValidate={vi.fn()}
+        validationErrors={null}
+        isValidating={false}
+        onRun={vi.fn()}
+        canRun={false}
+        isRunning={false}
+        runResult={null}
+        runError={null}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.selectOptions(screen.getByLabelText("Add step"), "wait");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(screen.getByLabelText("Seconds *")).toHaveValue("0");
+    expect(screen.getByLabelText("Comment")).toHaveValue("pause");
+    await user.clear(screen.getByLabelText("Comment"));
+    await user.type(screen.getByLabelText("Comment"), "resume");
+    expect(onLocalChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ command: "wait", args: expect.objectContaining({ comment: "resume" }) }),
+    ]);
+  });
+
+  it("updates measurement methods when the instrument type changes", async () => {
+    const user = userEvent.setup();
+    const onLocalChange = vi.fn();
+    const gantry = gantryFixture();
+    gantry.config.instruments = {
+      asmi_1: {
+        type: "asmi",
+        vendor: "vernier",
+        offset_x: 0,
+        offset_y: 0,
+        depth: 0,
+      },
+      film_1: {
+        type: "filmetrics",
+        vendor: "filmetrics",
+        offset_x: 0,
+        offset_y: 0,
+        depth: 0,
+      },
+      uv_1: {
+        type: "mock_uv_curing",
+        vendor: "mock",
+        offset_x: 0,
+        offset_y: 0,
+        depth: 0,
+      },
+      pipette_1: {
+        type: "pipette",
+        vendor: "opentrons",
+        offset_x: 0,
+        offset_y: 0,
+        depth: 0,
+      },
+      custom_1: {
+        type: "custom_probe",
+        vendor: "mock",
+        offset_x: 0,
+        offset_y: 0,
+        depth: 0,
+      },
+    };
+    render(
+      <ProtocolEditor
+        configs={[]}
+        selectedFile="protocol.yaml"
+        onSelectFile={vi.fn()}
+        commands={commands}
+        deck={deckFixture()}
+        gantry={gantry}
+        steps={[{
+          command: "scan",
+          args: {
+            plate: "plate_1",
+            instrument: "asmi_1",
+            method: "indentation",
+            measurement_height: 4,
+            method_kwargs: null,
+          },
+        }]}
+        positions={null}
+        onSave={vi.fn()}
+        onLocalChange={onLocalChange}
+        onValidate={vi.fn()}
+        validationErrors={null}
+        isValidating={false}
+        onRun={vi.fn()}
+        canRun={false}
+        isRunning={false}
+        runResult={null}
+        runError={null}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.selectOptions(screen.getByLabelText(/Instrument/), "film_1");
+    expect(screen.getByLabelText(/^Measurement \*$/)).toHaveValue("measure");
+    expect(screen.queryByText("ASMI indentation options")).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText(/Instrument/), "uv_1");
+    expect(screen.getByLabelText(/^Measurement \*$/)).toHaveValue("measure");
+    await user.selectOptions(screen.getByLabelText(/Instrument/), "custom_1");
+    expect(screen.getByLabelText(/^Measurement \*$/)).toHaveValue("measure");
+    await user.selectOptions(screen.getByLabelText(/Instrument/), "pipette_1");
+    expect(screen.getByLabelText(/^Measurement \*$/)).toHaveValue("measure");
+
+    await user.selectOptions(screen.getByLabelText(/Instrument/), "asmi_1");
+    await user.selectOptions(screen.getByLabelText(/^Measurement \*$/), "indentation");
+
+    expect(screen.getByText("ASMI indentation options")).toBeInTheDocument();
+    expect(onLocalChange.mock.calls.at(-1)?.[0][0].args.method_kwargs).toMatchObject({
+      step_size: 0.1,
+      force_limit: 10,
+      baseline_samples: 10,
+      measure_with_return: false,
+    });
+  });
+
+  it("renames source and destination position references", async () => {
+    const onLocalChange = vi.fn();
+    const transferCommand: CommandInfo = {
+      name: "transfer",
+      description: "Transfer between named positions",
+      args: [
+        { name: "source", type: "str", required: true, default: null },
+        { name: "destination", type: "str", required: true, default: null },
+      ],
+    };
+    render(
+      <ProtocolEditor
+        configs={[]}
+        selectedFile="protocol.yaml"
+        onSelectFile={vi.fn()}
+        commands={[transferCommand]}
+        deck={deckFixture()}
+        gantry={gantryFixture()}
+        steps={[{ command: "transfer", args: { source: "park", destination: "park" } }]}
+        positions={{ park: [1, 2, 3] }}
+        onSave={vi.fn()}
+        onLocalChange={onLocalChange}
+        onValidate={vi.fn()}
+        validationErrors={null}
+        isValidating={false}
+        onRun={vi.fn()}
+        canRun={false}
+        isRunning={false}
+        runResult={null}
+        runError={null}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Position 1 name"), { target: { value: "staging" } });
+
+    expect(onLocalChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        args: expect.objectContaining({ source: "staging", destination: "staging" }),
+      }),
+    ]);
+  });
+
+  it("reorders and removes steps before saving with a new filename", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    const onSelectFile = vi.fn();
+    const onLocalChange = vi.fn();
+    render(
+      <ProtocolEditor
+        configs={["protocol.yaml"]}
+        selectedFile="protocol.yaml"
+        onSelectFile={onSelectFile}
+        commands={commands}
+        deck={deckFixture()}
+        gantry={gantryFixture()}
+        steps={[
+          { command: "wait", args: { seconds: 1, comment: "first" } },
+          { command: "move", args: { instrument: "asmi_1", position: "plate_1.A1", travel_z: 3 } },
+        ]}
+        positions={null}
+        onSave={onSave}
+        onLocalChange={onLocalChange}
+        onValidate={vi.fn()}
+        validationErrors={null}
+        isValidating={false}
+        onRun={vi.fn()}
+        canRun
+        isRunning={false}
+        runResult={null}
+        runError={null}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByTitle("Move up")[0]).toBeDisabled();
+    await user.click(screen.getAllByTitle("Move down")[0]);
+    expect(onLocalChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ command: "move" }),
+      expect.objectContaining({ command: "wait" }),
+    ]);
+    await user.click(screen.getAllByTitle("Move up")[1]);
+    await user.click(screen.getAllByRole("button", { name: "✕" })[1]);
+    await user.type(screen.getByPlaceholderText("protocol.yaml"), "renamed_protocol");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(
+      "renamed_protocol.yaml",
+      { protocol: [expect.objectContaining({ command: "wait" })] },
+    ));
+    expect(onSelectFile).toHaveBeenCalledWith("renamed_protocol.yaml");
+  });
+
+  it("keeps current large-position choices searchable and editable", async () => {
+    const user = userEvent.setup();
+    const largeDeck = deckFixture();
+    const plateConfig = largeDeck.labware[0].config as WellPlateConfig;
+    largeDeck.labware[0] = {
+      ...largeDeck.labware[0],
+      key: "large_plate",
+      config: {
+        ...plateConfig,
+        type: "well_plate",
+        rows: 4,
+        columns: 8,
+      },
+      wells: null,
+      positions: {
+        "custom.2": { x: 2, y: 2, z: 2 },
+        "custom.10": { x: 10, y: 10, z: 10 },
+      },
+    };
+    const onLocalChange = vi.fn();
+    render(
+      <ProtocolEditor
+        configs={[]}
+        selectedFile="protocol.yaml"
+        onSelectFile={vi.fn()}
+        commands={commands}
+        deck={largeDeck}
+        gantry={gantryFixture()}
+        steps={[{ command: "move", args: { instrument: "asmi_1", position: "kept_external_position", travel_z: 0 } }]}
+        positions={null}
+        onSave={vi.fn()}
+        onLocalChange={onLocalChange}
+        onValidate={vi.fn()}
+        validationErrors={null}
+        isValidating={false}
+        onRun={vi.fn()}
+        canRun={false}
+        isRunning={false}
+        runResult={null}
+        runError={null}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    const positionInput = screen.getByPlaceholderText("Search or select...");
+    expect(positionInput).toHaveValue("kept_external_position");
+    await user.clear(positionInput);
+    await user.type(positionInput, "large_plate.custom.10");
+
+    expect(onLocalChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        args: expect.objectContaining({ position: "large_plate.custom.10" }),
+      }),
+    ]);
+  });
+
+  it("edits ASMI indentation method options", async () => {
+    const user = userEvent.setup();
+    const onLocalChange = vi.fn();
+    render(
+      <ProtocolEditor
+        configs={[]}
+        selectedFile="protocol.yaml"
+        onSelectFile={vi.fn()}
+        commands={commands}
+        deck={deckFixture()}
+        gantry={gantryFixture()}
+        steps={[{
+          command: "scan",
+          args: {
+            plate: "plate_1",
+            instrument: "asmi_1",
+            method: "indentation",
+            measurement_height: 4,
+            method_kwargs: "not an object",
+          },
+        }]}
+        positions={null}
+        onSave={vi.fn()}
+        onLocalChange={onLocalChange}
+        onValidate={vi.fn()}
+        validationErrors={null}
+        isValidating={false}
+        onRun={vi.fn()}
+        canRun={false}
+        isRunning={false}
+        runResult={null}
+        runError={null}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.clear(screen.getByLabelText("Force limit (N)"));
+    await user.type(screen.getByLabelText("Force limit (N)"), "12.5");
+    await user.clear(screen.getByLabelText("Step size (mm)"));
+    await user.type(screen.getByLabelText("Step size (mm)"), "0.25");
+    await user.clear(screen.getByLabelText("Baseline samples"));
+    await user.type(screen.getByLabelText("Baseline samples"), "2.2");
+    await user.selectOptions(screen.getByLabelText("Measure with return"), "true");
+
+    const latest = onLocalChange.mock.calls.at(-1)?.[0][0];
+    expect(latest.args.method_kwargs).toMatchObject({
+      force_limit: 12.5,
+      step_size: 0.25,
+      baseline_samples: 2,
+      measure_with_return: true,
+    });
+  });
+
+  it("reports save failures without changing the selected filename", async () => {
+    const user = userEvent.setup();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const onSave = vi.fn(async () => {
+      throw new Error("disk full");
+    });
+    const onSelectFile = vi.fn();
+    render(
+      <ProtocolEditor
+        configs={[]}
+        selectedFile="protocol.yaml"
+        onSelectFile={onSelectFile}
+        commands={commands}
+        deck={deckFixture()}
+        gantry={gantryFixture()}
+        steps={[{ command: "wait", args: { seconds: 1, comment: "pause" } }]}
+        positions={null}
+        onSave={onSave}
+        onValidate={vi.fn()}
+        validationErrors={null}
+        isValidating={false}
+        onRun={vi.fn()}
+        canRun={false}
+        isRunning={false}
+        runResult={null}
+        runError={null}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(consoleError).toHaveBeenCalledWith("Protocol save failed:", expect.any(Error)));
+    expect(onSelectFile).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+});

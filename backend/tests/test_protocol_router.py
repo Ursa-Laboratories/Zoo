@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.api_client import api_request
+from backend.tests.api_client import api_request
 from zoo.app import create_app
 from zoo.config import get_settings
 from zoo.services.yaml_io import read_yaml, write_yaml
@@ -89,6 +89,59 @@ def test_get_protocol(client, tmp_configs):
     assert data["steps"][1]["args"]["volume_ul"] == 100.0
 
 
+def test_get_protocol_rejects_missing_file(client, tmp_configs):
+    r = api_request(client, "GET", "/api/protocol/missing.yaml")
+
+    assert r.status_code == 404
+    assert "Protocol file not found: missing.yaml" in r.text
+
+
+def test_get_protocol_rejects_invalid_yaml(client, tmp_configs):
+    (tmp_configs / "broken.yaml").write_text("protocol: [\n", encoding="utf-8")
+
+    r = api_request(client, "GET", "/api/protocol/broken.yaml")
+
+    assert r.status_code == 400
+    assert "Invalid YAML" in r.text
+
+
+def test_get_protocol_rejects_non_protocol_yaml(client, tmp_configs):
+    write_yaml(tmp_configs / "not_protocol.yaml", {"labware": {}})
+
+    r = api_request(client, "GET", "/api/protocol/not_protocol.yaml")
+
+    assert r.status_code == 400
+    assert "not a valid protocol YAML" in r.text
+
+
+def test_get_protocol_skips_malformed_steps_and_ignores_non_mapping_positions(client, tmp_configs):
+    write_yaml(
+        tmp_configs / "mixed.yaml",
+        {
+            "positions": ["park", 1, 2, 3],
+            "protocol": [
+                {"move": {"instrument": "pipette", "position": "plate_1.A1"}},
+                {"bad": {}, "extra": {}},
+                "not a step",
+                {"home": None},
+            ],
+        },
+    )
+
+    r = api_request(client, "GET", "/api/protocol/mixed.yaml")
+
+    assert r.status_code == 200
+    data = r.json()
+    assert data["positions"] is None
+    assert data["steps"] == [
+        {
+            "command": "move",
+            "args": {"instrument": "pipette", "position": "plate_1.A1"},
+        },
+        {"command": "home", "args": {}},
+    ]
+
+
 def test_save_protocol(client, tmp_configs):
     body = {
         "positions": {"park": [10.0, 20.0, 30.0]},
@@ -100,6 +153,19 @@ def test_save_protocol(client, tmp_configs):
     assert r.status_code == 200
     assert (tmp_configs / "new_protocol.yaml").exists()
     assert read_yaml(tmp_configs / "new_protocol.yaml")["positions"] == body["positions"]
+
+
+def test_save_protocol_omits_positions_and_writes_empty_args_as_null(client, tmp_configs):
+    body = {
+        "protocol": [
+            {"command": "home", "args": {}},
+        ]
+    }
+
+    r = api_request(client, "PUT", "/api/protocol/home.yaml", json=body)
+
+    assert r.status_code == 200
+    assert read_yaml(tmp_configs / "home.yaml") == {"protocol": [{"home": None}]}
 
 
 def test_validate_protocol_ok(client):
@@ -243,6 +309,38 @@ def test_validate_setup_endpoint_returns_validation_errors(monkeypatch, tmp_path
     assert data["output"] == "RESULT: FAIL"
 
 
+def test_validate_setup_endpoint_reports_unexpected_validation_failure(monkeypatch, tmp_path):
+    from zoo.routers import protocol as protocol_router
+
+    for subdir in ("gantry", "deck", "protocol"):
+        (tmp_path / subdir).mkdir()
+
+    monkeypatch.setattr(
+        protocol_router,
+        "run_setup_validation",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("validator crashed")),
+    )
+    monkeypatch.setattr(
+        protocol_router,
+        "get_settings",
+        lambda: type("S", (), {"configs_dir": tmp_path})(),
+    )
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/protocol/validate-setup",
+        json={
+            "gantry_file": "gantry.yaml",
+            "deck_file": "deck.yaml",
+            "protocol_file": "protocol.yaml",
+        },
+    )
+
+    assert response.status_code == 500
+    assert "validator crashed" in response.text
+
+
 def test_run_endpoint_holds_serial_lock_for_duration(monkeypatch, tmp_configs):
     """Regression: /protocol/run must run inside ``_serial_lock`` so the
     200 ms /position poll can't race the protocol's G-code writes on the
@@ -349,3 +447,141 @@ def test_run_endpoint_blocks_active_calibration_warning(monkeypatch, tmp_path):
     assert response.status_code == 400
     assert "calibration warning is active" in response.text
     mock_gantry.is_healthy.assert_not_called()
+
+
+def test_run_endpoint_requires_connected_gantry(monkeypatch, tmp_path):
+    from zoo.routers import gantry as gantry_router
+    from zoo.routers import protocol as protocol_router
+
+    monkeypatch.setattr(gantry_router, "_gantry", None)
+    monkeypatch.setattr(
+        protocol_router,
+        "get_settings",
+        lambda: type("S", (), {"configs_dir": tmp_path})(),
+    )
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/protocol/run",
+        json={
+            "gantry_file": "gantry.yaml",
+            "deck_file": "deck.yaml",
+            "protocol_file": "protocol.yaml",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Gantry is not connected" in response.text
+
+
+def test_run_endpoint_rejects_unhealthy_connected_gantry(monkeypatch, tmp_path):
+    from unittest.mock import MagicMock
+
+    from zoo.routers import gantry as gantry_router
+    from zoo.routers import protocol as protocol_router
+
+    mock_gantry = MagicMock()
+    mock_gantry.is_healthy.return_value = False
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(gantry_router, "_calibration_warning", None)
+    monkeypatch.setattr(
+        protocol_router,
+        "get_settings",
+        lambda: type("S", (), {"configs_dir": tmp_path})(),
+    )
+    monkeypatch.setattr(
+        protocol_router,
+        "run_protocol",
+        lambda *_args, **_kwargs: pytest.fail("run_protocol should not run"),
+    )
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/protocol/run",
+        json={
+            "gantry_file": "gantry.yaml",
+            "deck_file": "deck.yaml",
+            "protocol_file": "protocol.yaml",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Gantry is not connected" in response.text
+
+
+def test_run_endpoint_returns_setup_validation_errors(monkeypatch, tmp_path):
+    from unittest.mock import MagicMock
+
+    from zoo.routers import gantry as gantry_router
+    from zoo.routers import protocol as protocol_router
+
+    class FakeSetupValidationError(Exception):
+        pass
+
+    mock_gantry = MagicMock()
+    mock_gantry.is_healthy.return_value = True
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(gantry_router, "_calibration_warning", None)
+    monkeypatch.setattr(protocol_router, "SetupValidationError", FakeSetupValidationError)
+    monkeypatch.setattr(
+        protocol_router,
+        "get_settings",
+        lambda: type("S", (), {"configs_dir": tmp_path})(),
+    )
+    monkeypatch.setattr(
+        protocol_router,
+        "run_protocol",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(FakeSetupValidationError("bad setup")),
+    )
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/protocol/run",
+        json={
+            "gantry_file": "gantry.yaml",
+            "deck_file": "deck.yaml",
+            "protocol_file": "protocol.yaml",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "bad setup" in response.text
+
+
+def test_run_endpoint_reports_unexpected_execution_failure(monkeypatch, tmp_path):
+    from unittest.mock import MagicMock
+
+    from zoo.routers import gantry as gantry_router
+    from zoo.routers import protocol as protocol_router
+
+    mock_gantry = MagicMock()
+    mock_gantry.is_healthy.return_value = True
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(gantry_router, "_calibration_warning", None)
+    monkeypatch.setattr(
+        protocol_router,
+        "get_settings",
+        lambda: type("S", (), {"configs_dir": tmp_path})(),
+    )
+    monkeypatch.setattr(
+        protocol_router,
+        "run_protocol",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/protocol/run",
+        json={
+            "gantry_file": "gantry.yaml",
+            "deck_file": "deck.yaml",
+            "protocol_file": "protocol.yaml",
+        },
+    )
+
+    assert response.status_code == 500
+    assert "Execution failed: boom" in response.text

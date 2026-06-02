@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from tests.api_client import api_request
+from backend.tests.api_client import api_request
 from zoo.app import create_app
 from zoo.config import get_settings
+from zoo.routers import deck as deck_router
 
 
 @pytest.fixture(autouse=True)
@@ -109,6 +111,59 @@ labware:
     assert vial_holder["positions"]["vial_1"] == {"x": 30.0, "y": 60.0, "z": 26.0}
 
 
+def test_list_deck_configs_uses_backend_config_dir(monkeypatch, tmp_path: Path):
+    config_dir = tmp_path / "configs"
+    deck_dir = config_dir / "deck"
+    deck_dir.mkdir(parents=True)
+    (deck_dir / "b.yaml").write_text("labware: {}\n", encoding="utf-8")
+    (deck_dir / "a.yaml").write_text("labware: {}\n", encoding="utf-8")
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+
+    response = api_request(create_app(), "GET", "/api/deck/configs")
+
+    assert response.status_code == 200
+    assert response.json() == ["a.yaml", "b.yaml"]
+
+
+def test_get_deck_rejects_missing_file(monkeypatch, tmp_path: Path):
+    config_dir = tmp_path / "configs"
+    (config_dir / "deck").mkdir(parents=True)
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+
+    response = api_request(create_app(), "GET", "/api/deck/missing.yaml")
+
+    assert response.status_code == 404
+    assert "Config not found: missing.yaml" in response.text
+
+
+def test_get_deck_serializes_labware_fallbacks(monkeypatch, tmp_path: Path):
+    config_dir = tmp_path / "configs"
+    deck_dir = config_dir / "deck"
+    deck_dir.mkdir(parents=True)
+    (deck_dir / "fallbacks.yaml").write_text("labware:\n  mystery: []\n", encoding="utf-8")
+
+    class MysteryLabware:
+        pass
+
+    fake_deck = SimpleNamespace(labware={"mystery": MysteryLabware()})
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+    monkeypatch.setattr(deck_router, "load_deck_from_yaml", lambda _path: fake_deck)
+
+    response = api_request(create_app(), "GET", "/api/deck/fallbacks.yaml")
+
+    assert response.status_code == 200
+    item = response.json()["labware"][0]
+    assert item["key"] == "mystery"
+    assert item["config"] == {"name": "mystery"}
+    assert item["location"] is None
+    assert item["geometry"] is None
+    assert item["positions"] is None
+
+
+def test_serialize_point_returns_none_for_missing_point():
+    assert deck_router._serialize_point(None) is None
+
+
 def test_get_deck_normalizes_current_well_plate_editor_fields(monkeypatch, tmp_path: Path):
     config_dir = tmp_path / "configs"
     deck_dir = config_dir / "deck"
@@ -141,6 +196,66 @@ labware:
     assert plate["width"] == 85.47
     assert plate["x_offset"] == 9.0
     assert plate["y_offset"] == 9.0
+
+
+def test_preview_wells_rejects_missing_a1_z():
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/deck/preview-wells",
+        json={
+            "type": "well_plate",
+            "name": "Preview Plate",
+            "model_name": "preview_plate",
+            "rows": 2,
+            "columns": 2,
+            "calibration": {
+                "a1": {"x": 0.0, "y": 0.0},
+                "a2": {"x": 9.0, "y": 0.0},
+            },
+            "x_offset": 9.0,
+            "y_offset": 9.0,
+        },
+    )
+
+    assert response.status_code == 400
+
+
+def test_preview_wells_returns_rounded_positions(monkeypatch):
+    fake_entry = SimpleNamespace(a1_point=SimpleNamespace(z=3.3333))
+    fake_wells = {
+        "A1": SimpleNamespace(x=1.23456, y=2.34567, z=3.3333),
+    }
+    monkeypatch.setattr(
+        deck_router.WellPlateYamlEntry,
+        "model_validate",
+        lambda _body: fake_entry,
+    )
+    monkeypatch.setattr(
+        deck_router,
+        "_derive_wells_from_calibration",
+        lambda entry, resolved_z: fake_wells,
+    )
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/deck/preview-wells",
+        json={"name": "preview"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"A1": {"x": 1.235, "y": 2.346, "z": 3.333}}
+
+
+def test_normalize_labware_config_uses_labware_name_when_raw_name_is_missing():
+    config = deck_router._normalize_labware_config(
+        {},
+        SimpleNamespace(name="Named Labware"),
+        "deck_key",
+    )
+
+    assert config["name"] == "Named Labware"
 
 
 def test_get_deck_returns_400_for_invalid_yaml(monkeypatch, tmp_path: Path):

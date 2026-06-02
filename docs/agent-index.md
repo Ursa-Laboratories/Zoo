@@ -16,7 +16,7 @@ Read these before changing backend routes, config handling, or CubOS integration
 - `zoo/app.py`, `zoo/__main__.py`, `zoo/config.py` — app setup and runtime settings.
 - `zoo/routers/` — FastAPI endpoints; keep these thin.
 - `zoo/services/yaml_io.py` — YAML read/write helper.
-- `tests/` — backend behavior expectations.
+- `backend/tests/` — backend behavior expectations.
 
 Rule: write YAML from UI/API input, then read it back through CubOS loaders/schemas. CubOS remains the source of truth.
 
@@ -56,7 +56,7 @@ CubOS/backend coordinates and hardware semantics are not redefined in Zoo. Zoo d
 Use the smallest meaningful gate first, then broaden as risk requires:
 
 ```bash
-pytest tests/
+pytest
 cd frontend && npm run lint
 cd frontend && npm run test
 cd frontend && npm run build

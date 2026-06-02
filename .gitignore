@@ -1,10 +1,13 @@
 .venv/
 __pycache__/
 *.pyc
+.coverage
+htmlcov/
 *.egg-info/
 dist/
 node_modules/
 frontend/dist/
+frontend/coverage/
 installer/windows/build/
 .omx/
 .pi/

@@ -41,15 +41,15 @@ connection.
 
 | Path | Purpose |
 | --- | --- |
-| `zoo/app.py` | FastAPI app factory |
-| `zoo/__main__.py` | Startup entrypoint |
-| `zoo/config.py` | `ZOO_*` settings and config-directory handling |
-| `zoo/routers/` | REST endpoints for gantry, deck, protocol, raw, settings |
-| `zoo/services/` | YAML file helpers |
-| `frontend/src/` | React + TypeScript application |
+| `zoo/app.py` | Backend FastAPI app factory; import path stays `zoo` |
+| `zoo/__main__.py` | Backend startup entrypoint for `python -m zoo` |
+| `zoo/config.py` | Backend `ZOO_*` settings and config-directory handling |
+| `zoo/routers/` | Backend REST endpoints for gantry, deck, protocol, raw, settings |
+| `zoo/services/` | Backend YAML file helpers |
+| `frontend/src/` | `zoo-frontend` React + TypeScript application |
 | `frontend/src/components/gantry/` | Gantry jog/readout controls and calibration wizard |
 | `configs/` | Default local config store, empty by default in this checkout |
-| `tests/` | Backend tests |
+| `backend/tests/` | Backend tests for the `zoo-backend` distribution |
 
 ## Main Entrypoints
 
@@ -74,7 +74,7 @@ python -m zoo
 Backend:
 
 ```bash
-pytest tests/
+pytest
 ```
 
 Frontend:
@@ -95,6 +95,8 @@ npm run build
 
 - Local operator-facing UI
 - Depends on the published or installable `CubOS` package
+- Python distribution name: `zoo-backend`
+- Frontend package name: `zoo-frontend`
 - `installer/windows/` builds a Windows operator installer from Zoo `main` and
   CubOS `main`; the generated installer includes a private Python runtime,
   prebuilt frontend assets, an offline wheelhouse, Start Menu shortcuts, config
