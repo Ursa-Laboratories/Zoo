@@ -229,6 +229,150 @@ describe("CalibrationWizard multi-instrument calibration", () => {
     expect(screen.getByLabelText("Lowest instrument")).toHaveValue("reference");
   });
 
+  it("recovers when a blocking Z retract hits a limit after setting the reference", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      if (url.pathname === "/api/gantry/calibration/prepare-origin" && init?.method === "POST") {
+        return jsonResponse(position({ work_x: 0, work_y: 0, work_z: 90 }));
+      }
+      if (url.pathname === "/api/gantry/work-coordinates" && init?.method === "POST") {
+        const body = init?.body ? JSON.parse(String(init.body)) : {};
+        return jsonResponse(position({
+          work_x: Number(body.x ?? 100),
+          work_y: Number(body.y ?? 100),
+          work_z: Number(body.z ?? 35),
+        }));
+      }
+      if (url.pathname === "/api/gantry/calibration/home-and-center" && init?.method === "POST") {
+        return jsonResponse({
+          xy_bounds: { x: 300, y: 200, z: 90 },
+          position: { x: 150, y: 100, z: 90 },
+        });
+      }
+      if (url.pathname === "/api/gantry/position") {
+        return jsonResponse(position({ work_x: 100, work_y: 100, work_z: 40 }));
+      }
+      if (url.pathname === "/api/gantry/jog-blocking" && init?.method === "POST") {
+        return new Response("ALARM:1 hard limit", { status: 409 });
+      }
+      if (url.pathname === "/api/gantry/calibration/recover-limit" && init?.method === "POST") {
+        return jsonResponse({
+          status: "recovered",
+          attempts: 1,
+          pull_off: { x: 0, y: 0, z: 5 },
+          messages: ["recovered"],
+        });
+      }
+      return jsonResponse(position());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWizard();
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByRole("button", { name: "Home gantry" }));
+    await user.click(await screen.findByRole("button", { name: "Set XY origin and continue" }));
+    await user.click(await screen.findByRole("button", { name: "Set Z reference with reference and retract" }));
+
+    expect(await screen.findByText(/recovered from a limit during Z retract/)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/calibration/recover-limit",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ x: 0, y: 0, z: 15 }),
+      }),
+    );
+  });
+
+  it("reports missing work coordinates from a home response", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      if (url.pathname === "/api/gantry/calibration/prepare-origin" && init?.method === "POST") {
+        return jsonResponse({
+          x: 0,
+          y: 0,
+          z: 90,
+          status: "Idle",
+          connected: true,
+        });
+      }
+      return jsonResponse(position());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWizard();
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByRole("button", { name: "Home gantry" }));
+
+    expect(await screen.findByText(/Work coordinate position is not available/)).toBeInTheDocument();
+  });
+
+  it("reports non-positive measured travel before saving multi-instrument calibration", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onSaveCalibrated = vi.fn(async () => undefined);
+    const getPositionResults = [
+      position({ work_x: 100, work_y: 100, work_z: 40 }),
+      position({ work_x: 99, work_y: 100, work_z: 39 }),
+    ];
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      if (url.pathname === "/api/gantry/calibration/prepare-origin" && init?.method === "POST") {
+        return jsonResponse(position({ work_x: 0, work_y: 0, work_z: 90 }));
+      }
+      if (url.pathname === "/api/gantry/work-coordinates" && init?.method === "POST") {
+        const body = init?.body ? JSON.parse(String(init.body)) : {};
+        return jsonResponse(position({
+          work_x: Number(body.x ?? 100),
+          work_y: Number(body.y ?? 100),
+          work_z: Number(body.z ?? 35),
+        }));
+      }
+      if (url.pathname === "/api/gantry/calibration/home-and-center" && init?.method === "POST") {
+        return jsonResponse({
+          xy_bounds: { x: 300, y: 200, z: 90 },
+          position: { x: 150, y: 100, z: 90 },
+        });
+      }
+      if (url.pathname === "/api/gantry/position") {
+        return jsonResponse(getPositionResults.shift() ?? position({ work_x: 99, work_y: 100, work_z: 39 }));
+      }
+      if (url.pathname === "/api/gantry/jog-blocking" && init?.method === "POST") {
+        return jsonResponse(position({ work_z: 55 }));
+      }
+      if (url.pathname === "/api/gantry/home" && init?.method === "POST") {
+        return jsonResponse(position({ work_x: -10, work_y: 200, work_z: 91 }));
+      }
+      return jsonResponse(position());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWizard({ onClose, onSaveCalibrated });
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByRole("button", { name: "Home gantry" }));
+    await user.click(await screen.findByRole("button", { name: "Set XY origin and continue" }));
+    await user.click(await screen.findByRole("button", { name: "Set Z reference with reference and retract" }));
+    await user.click(await screen.findByRole("button", { name: "Record probe and retract" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Measured travel spans must be positive.")).toBeInTheDocument();
+    expect(onSaveCalibrated).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("restores soft limits before closing and reports restore failures", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
