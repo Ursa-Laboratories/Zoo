@@ -184,17 +184,17 @@ describe("DeckVisualization", () => {
 
   it("renders holder labware with current CubOS dimension keys without NaN attributes", () => {
     const currentDeck: DeckResponse = {
-      filename: "legacy_holder.yaml",
+      filename: "current_holder.yaml",
       labware: [
         {
           key: "plate_holder",
           config: {
             type: "well_plate_holder",
-            name: "Legacy Plate Holder",
+            name: "Current Plate Holder",
             location: { x: 100, y: 100, z: 10 },
             well_plate: {
-              name: "Legacy Plate",
-              model_name: "legacy_plate",
+              name: "Current Plate",
+              model_name: "current_plate",
               rows: 2,
               columns: 2,
               calibration: {
@@ -222,11 +222,11 @@ describe("DeckVisualization", () => {
           key: "vial_holder",
           config: {
             type: "vial_holder",
-            name: "Legacy Vials",
+            name: "Current Vials",
             location: { x: 30, y: 60, z: 8 },
             vials: {
               vial_1: {
-                name: "Legacy Vial",
+                name: "Current Vial",
                 model_name: "20ml_vial",
                 height: 57,
                 diameter: 28,
@@ -256,8 +256,8 @@ describe("DeckVisualization", () => {
       />,
     );
 
-    expect(screen.getByText("Legacy Plate")).toBeInTheDocument();
-    expect(screen.getByText("Legacy Vial")).toBeInTheDocument();
+    expect(screen.getByText("Current Plate")).toBeInTheDocument();
+    expect(screen.getByText("Current Vial")).toBeInTheDocument();
     expect(screen.getByTestId("deck-visualization").outerHTML).not.toContain("NaN");
   });
 });
