@@ -3,7 +3,16 @@
 import tempfile
 from pathlib import Path
 
-from zoo.services.yaml_io import classify_config, read_yaml, resolve_config_path, write_yaml
+import pytest
+
+from zoo.services.yaml_io import (
+    YamlConfigError,
+    classify_config,
+    list_configs,
+    read_yaml,
+    resolve_config_path,
+    write_yaml,
+)
 
 
 def test_read_write_roundtrip():
@@ -51,3 +60,42 @@ def test_resolve_config_path_prefers_kind_subdirectory():
         protocol_dir = configs_dir / "protocol"
         protocol_dir.mkdir(parents=True)
         assert resolve_config_path(configs_dir, "protocol", "move.yaml") == protocol_dir / "move.yaml"
+
+
+def test_resolve_config_path_uses_flat_configs_when_kind_subdirectory_is_missing(tmp_path):
+    configs_dir = tmp_path / "configs"
+    configs_dir.mkdir()
+
+    assert resolve_config_path(configs_dir, "deck", "deck.yaml") == configs_dir / "deck.yaml"
+
+
+def test_read_yaml_raises_clear_error_for_invalid_yaml(tmp_path):
+    path = tmp_path / "bad.yaml"
+    path.write_text("labware: [\n")
+
+    with pytest.raises(YamlConfigError, match="Invalid YAML in bad.yaml"):
+        read_yaml(path)
+
+
+def test_list_configs_prefers_kind_subdirectory(tmp_path):
+    deck_dir = tmp_path / "configs" / "deck"
+    deck_dir.mkdir(parents=True)
+    (deck_dir / "b.yaml").write_text("labware: {}\n")
+    (deck_dir / "a.yaml").write_text("labware: {}\n")
+    (deck_dir / "ignored.txt").write_text("not yaml\n")
+
+    assert list_configs(tmp_path / "configs", "deck") == ["a.yaml", "b.yaml"]
+
+
+def test_list_configs_returns_empty_for_missing_directory(tmp_path):
+    assert list_configs(tmp_path / "missing", "deck") == []
+
+
+def test_list_configs_falls_back_to_classification_and_skips_bad_yaml(tmp_path):
+    configs_dir = tmp_path / "configs"
+    configs_dir.mkdir()
+    (configs_dir / "deck.yaml").write_text("labware: {}\n")
+    (configs_dir / "gantry.yaml").write_text("working_volume: {}\n")
+    (configs_dir / "bad.yaml").write_text("labware: [\n")
+
+    assert list_configs(configs_dir, "deck") == ["deck.yaml"]
