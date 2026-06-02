@@ -115,4 +115,203 @@ describe("GantryPositionWidget manual move safety", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     fireEvent.mouseUp(screen.getByTitle("Z+"));
   });
+
+  it("shows connection failures and disconnect success through the bottom controls", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(typeof input === "string" ? input : input.toString(), "http://localhost");
+      if (url.pathname === "/api/gantry/connect") {
+        return new Response("port unavailable", { status: 500 });
+      }
+      return new Response(JSON.stringify(position()), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { rerender } = render(
+      <GantryPositionWidget
+        position={position({ connected: false })}
+        workingVolume={workingVolume}
+        gantryFile="cubos.yaml"
+        gantry={null}
+        onSaveCalibrated={async () => undefined}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+    expect(await screen.findByText(/Connection failed/)).toHaveTextContent("500: port unavailable");
+
+    rerender(
+      <GantryPositionWidget
+        position={position({ connected: true })}
+        workingVolume={workingVolume}
+        gantryFile="cubos.yaml"
+        gantry={null}
+        onSaveCalibrated={async () => undefined}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Disconnect" }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/disconnect",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("homes only after confirmation and sends valid manual moves", async () => {
+    const user = userEvent.setup();
+    const confirmMock = vi.fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    const alertMock = vi.fn();
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify(position({ x: 1, y: 2, z: 3 })), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("confirm", confirmMock);
+    vi.stubGlobal("alert", alertMock);
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <GantryPositionWidget
+        position={position({ x: 10, y: 20, z: 30, work_x: null, work_y: null, work_z: null })}
+        workingVolume={workingVolume}
+        gantryFile="cubos.yaml"
+        gantry={null}
+        onSaveCalibrated={async () => undefined}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Home" }));
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/gantry/home", expect.anything());
+    await user.click(screen.getByRole("button", { name: "Home" }));
+    expect(fetchMock).toHaveBeenCalledWith("/api/gantry/home", expect.objectContaining({ method: "POST" }));
+
+    await user.click(screen.getByRole("button", { name: "Go" }));
+    expect(alertMock).toHaveBeenCalledWith("Enter valid X, Y, and Z coordinates");
+    await user.type(screen.getAllByPlaceholderText("0")[0], "-1");
+    await user.type(screen.getAllByPlaceholderText("0")[1], "1");
+    await user.type(screen.getAllByPlaceholderText("0")[2], "1");
+    await user.click(screen.getByRole("button", { name: "Go" }));
+    expect(alertMock).toHaveBeenCalledWith("Coordinates must be positive (user space)");
+
+    await user.clear(screen.getAllByPlaceholderText("0")[0]);
+    await user.type(screen.getAllByPlaceholderText("0")[0], "10");
+    await user.clear(screen.getAllByPlaceholderText("0")[1]);
+    await user.type(screen.getAllByPlaceholderText("0")[1], "20");
+    await user.clear(screen.getAllByPlaceholderText("0")[2]);
+    await user.type(screen.getAllByPlaceholderText("0")[2], "30");
+    await user.click(screen.getByRole("button", { name: "Go" }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/move-to",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ x: 10, y: 20, z: 30 }),
+      }),
+    );
+  });
+
+  it("handles alarm unlock and advanced GRBL actions", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === "string" ? input : input.toString(), "http://localhost");
+      if (url.pathname === "/api/gantry/grbl-settings" && init?.method !== "POST") {
+        return new Response(JSON.stringify({ settings: { "$20": "1", "$132": "90" } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.pathname === "/api/gantry/grbl-settings" && init?.method === "POST") {
+        return new Response(JSON.stringify({ settings: { "$20": "0", "$132": "90" } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.pathname === "/api/gantry/feed-hold") {
+        return new Response("feed hold failed", { status: 500 });
+      }
+      return new Response(JSON.stringify(position()), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <GantryPositionWidget
+        position={position({ status: "ALARM:1", calibration_warning: "Soft limits disabled" })}
+        workingVolume={workingVolume}
+        gantryFile="cubos.yaml"
+        gantry={null}
+        onSaveCalibrated={async () => undefined}
+      />,
+    );
+
+    expect(screen.getByText("ALARM")).toBeInTheDocument();
+    expect(screen.getByText("CALIBRATION NEEDED")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Unlock ($X)" }));
+    expect(fetchMock).toHaveBeenCalledWith("/api/gantry/unlock", expect.objectContaining({ method: "POST" }));
+
+    await user.click(screen.getByRole("button", { name: "Advanced" }));
+    await user.click(screen.getByRole("button", { name: "Read GRBL Settings" }));
+    expect(await screen.findByText("$132")).toBeInTheDocument();
+    expect(screen.getByText("90")).toBeInTheDocument();
+
+    const settingValue = screen.getAllByPlaceholderText("0").at(-1)!;
+    await user.clear(settingValue);
+    await user.type(settingValue, "0");
+    await user.click(screen.getByRole("button", { name: "Send Setting" }));
+    expect(await screen.findByText("Sent $20=0.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Reset + Unlock" }));
+    expect(await screen.findByText("Reset and unlock sent.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Clear Alarm" }));
+    expect(await screen.findByText("Unlock sent.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel Jog" }));
+    expect(await screen.findByText("Jog cancel sent.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Feed Hold" }));
+    expect(await screen.findByText("500: feed hold failed")).toBeInTheDocument();
+  });
+
+  it("uses keyboard jog shortcuts while ignoring focused inputs", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ status: "ok" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <GantryPositionWidget
+        position={position()}
+        workingVolume={workingVolume}
+        gantryFile="cubos.yaml"
+        gantry={null}
+        onSaveCalibrated={async () => undefined}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/jog",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ x: 0.5, y: 0, z: 0 }) }),
+    );
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fireEvent.keyUp(window, { key: "ArrowRight" });
+
+    const stepInput = screen.getAllByDisplayValue("0.5")[0];
+    stepInput.focus();
+    fireEvent.keyDown(stepInput, { key: "ArrowLeft" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(200);
+  });
 });
