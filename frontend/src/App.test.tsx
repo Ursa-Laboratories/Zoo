@@ -213,6 +213,9 @@ function installFetchMock(state: ApiState) {
         output: "RESULT: PASS",
       });
     }
+    if (path === "/api/protocol/run" && method === "POST") {
+      return jsonResponse({ status: "ok", steps_executed: 1 });
+    }
     if (path === "/api/gantry/position") {
       return jsonResponse(gantryPosition());
     }
@@ -352,6 +355,31 @@ describe("Zoo editor interactions", () => {
     expect(screen.getByRole("button", { name: "Browse" })).toBeInTheDocument();
   });
 
+  it("handles a missing config directory and edits the campaign id", async () => {
+    const user = userEvent.setup();
+    const state = createState();
+    const fetchMock = installFetchMock(state);
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      if (url.pathname === "/api/settings" && (init?.method ?? "GET") === "GET") {
+        return jsonResponse({});
+      }
+      return baseFetch(input, init);
+    });
+
+    renderApp();
+
+    const configDir = await screen.findByPlaceholderText("Not set");
+    expect(configDir).toHaveValue("");
+    const campaign = screen.getByPlaceholderText("e.g. mofcat_001");
+    await user.type(campaign, "mofcat_002");
+    expect(campaign).toHaveValue("mofcat_002");
+  });
+
   it("updates the config directory from browse selection", async () => {
     const user = userEvent.setup();
     renderApp();
@@ -432,6 +460,40 @@ describe("Zoo editor interactions", () => {
     await user.click(screen.getByRole("button", { name: "Deck" }));
 
     await waitFor(() => expect(screen.getByDisplayValue("Renamed Plate")).toBeInTheDocument());
+  });
+
+  it("logs unexpected deck preview errors while editing locally", async () => {
+    const user = userEvent.setup();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const state = createState();
+    const fetchMock = installFetchMock(state);
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      if (url.pathname === "/api/deck/preview-wells" && init?.method === "POST") {
+        return new Response("preview failed", { status: 500 });
+      }
+      return baseFetch(input, init);
+    });
+
+    renderApp();
+    await waitForSettingsLoad();
+
+    await user.click(screen.getByRole("button", { name: "Deck" }));
+    await importConfig(user, "Import deck config", "deck.yaml");
+    const nameField = await screen.findByDisplayValue("Deck Plate");
+    await user.clear(nameField);
+    await user.type(nameField, "Preview Error Plate");
+
+    await waitFor(() => expect(consoleError).toHaveBeenCalledWith(
+      "Unexpected well preview error for",
+      "plate_1",
+      expect.any(Error),
+    ));
+    consoleError.mockRestore();
   });
 
   it("imports a deck config into panda-deck.yaml", async () => {
@@ -750,6 +812,52 @@ describe("Zoo editor interactions", () => {
     expect(fetchMock).not.toHaveBeenCalledWith(
       "/api/protocol/run",
       expect.anything(),
+    );
+  });
+
+  it("does not run without a selected protocol file even when connected", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+
+    renderApp();
+    await waitForSettingsLoad();
+    await importConfig(user, "Import gantry config", "cubos.yaml");
+    await user.click(await screen.findByRole("button", { name: "Connect" }));
+    await user.click(screen.getByRole("button", { name: "Deck" }));
+    await importConfig(user, "Import deck config", "deck.yaml");
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Add step" }), "move");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    const runButton = await screen.findByRole("button", { name: "Run Protocol" });
+    await waitFor(() => expect(runButton).not.toBeDisabled());
+    await user.click(runButton);
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/protocol/run",
+      expect.anything(),
+    );
+  });
+
+  it("shows protocol run success after the gantry connects", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+
+    renderApp();
+    await waitForSettingsLoad();
+    await importConfig(user, "Import gantry config", "cubos.yaml");
+    await user.click(await screen.findByRole("button", { name: "Connect" }));
+    await loadRequiredProtocolDependencies(user);
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+
+    const runButton = await screen.findByRole("button", { name: "Run Protocol" });
+    await waitFor(() => expect(runButton).not.toBeDisabled());
+    await user.click(runButton);
+
+    expect(await screen.findByText(/Protocol complete/)).toHaveTextContent("1 steps executed");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/protocol/run",
+      expect.objectContaining({ method: "POST" }),
     );
   });
 
