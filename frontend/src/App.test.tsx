@@ -362,6 +362,42 @@ describe("Zoo editor interactions", () => {
     await waitFor(() => expect(screen.getByDisplayValue("/mock/Zoo/selected-configs")).toBeInTheDocument());
   });
 
+  it("logs settings load and browse failures without blocking the editor", async () => {
+    const user = userEvent.setup();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const state = createState();
+    const fetchMock = installFetchMock(state);
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      const method = init?.method ?? "GET";
+      if (url.pathname === "/api/settings" && method === "GET") {
+        return new Response("settings missing", { status: 500 });
+      }
+      if (url.pathname === "/api/settings/browse" && method === "POST") {
+        return new Response("dialog failed", { status: 500 });
+      }
+      return baseFetch(input, init);
+    });
+
+    renderApp();
+
+    await waitFor(() => expect(consoleError).toHaveBeenCalledWith(
+      "Failed to load settings:",
+      expect.any(Error),
+    ));
+    await user.click(screen.getByRole("button", { name: "Browse" }));
+    await waitFor(() => expect(consoleError).toHaveBeenCalledWith(
+      "Browse/settings update failed:",
+      expect.any(Error),
+    ));
+    expect(screen.getByRole("button", { name: "Gantry" })).toBeInTheDocument();
+    consoleError.mockRestore();
+  });
+
   it("loads and saves a gantry config across tab switches", async () => {
     const user = userEvent.setup();
     renderApp();
@@ -411,6 +447,30 @@ describe("Zoo editor interactions", () => {
     expect(await screen.findByDisplayValue("Deck Plate")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByPlaceholderText("panda-deck.yaml")).toBeInTheDocument());
     expect(state.decks["panda-deck.yaml"]?.labware).toEqual(state.decks["deck.yaml"]?.labware);
+  });
+
+  it("shows an import error when deck import fails", async () => {
+    const user = userEvent.setup();
+    const state = createState();
+    const fetchMock = installFetchMock(state);
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      if (url.pathname === "/api/deck/deck.yaml" && (init?.method ?? "GET") === "GET") {
+        return new Response("bad deck", { status: 500 });
+      }
+      return baseFetch(input, init);
+    });
+
+    renderApp();
+    await waitForSettingsLoad();
+    await user.click(screen.getByRole("button", { name: "Deck" }));
+    await importConfig(user, "Import deck config", "deck.yaml");
+
+    expect(await screen.findByText("Import failed: 500: bad deck")).toBeInTheDocument();
   });
 
   it("loads and saves gantry instruments across tab switches", async () => {
@@ -658,6 +718,21 @@ describe("Zoo editor interactions", () => {
     );
   });
 
+  it("reports setup validation requirements before a protocol file is selected", async () => {
+    const user = userEvent.setup();
+
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Add step" }), "move");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.click(await screen.findByRole("button", { name: "Validate" }));
+
+    expect(await screen.findByText("Select gantry, deck, and protocol files before setup validation.")).toBeInTheDocument();
+  });
+
   it("keeps Run Protocol disabled while the gantry is disconnected", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.mocked(fetch);
@@ -675,6 +750,48 @@ describe("Zoo editor interactions", () => {
     expect(fetchMock).not.toHaveBeenCalledWith(
       "/api/protocol/run",
       expect.anything(),
+    );
+  });
+
+  it("surfaces protocol run errors after the gantry connects", async () => {
+    const user = userEvent.setup();
+    const state = createState();
+    const fetchMock = installFetchMock(state);
+    const baseFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      if (url.pathname === "/api/protocol/run" && init?.method === "POST") {
+        return new Response("run failed", { status: 500 });
+      }
+      return baseFetch(input, init);
+    });
+
+    renderApp();
+    await waitForSettingsLoad();
+    await importConfig(user, "Import gantry config", "cubos.yaml");
+    await user.click(await screen.findByRole("button", { name: "Connect" }));
+    await loadRequiredProtocolDependencies(user);
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+
+    const runButton = await screen.findByRole("button", { name: "Run Protocol" });
+    await waitFor(() => expect(runButton).not.toBeDisabled());
+    await user.click(runButton);
+
+    expect(await screen.findByText("500: run failed")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/protocol/run",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          gantry_file: "cubos.yaml",
+          deck_file: "panda-deck.yaml",
+          protocol_file: "move.yaml",
+        }),
+      }),
     );
   });
 
