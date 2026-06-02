@@ -1,5 +1,6 @@
 """Test gantry API endpoints delegate to CubOS ``Gantry`` methods."""
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -1394,3 +1395,781 @@ def test_disconnect_reports_both_failures_when_restore_and_disconnect_fail(monke
     assert "port closed" in response.text
     assert gantry_router._gantry is None
     assert gantry_router._calibration_restore_soft_limits is False
+
+
+def test_gantry_helper_serialization_and_schema_introspection(monkeypatch):
+    class FakeInstrument:
+        def __init__(
+            self,
+            port: str,
+            speed: float = 1.5,
+            enabled: bool | None = None,
+            metadata: dict | None = None,
+            pipette_model: str = "p20_single",
+        ):
+            pass
+
+    monkeypatch.setattr(gantry_router, "get_instrument_class", lambda _type: FakeInstrument)
+
+    fields = gantry_router._build_instrument_fields("fake")
+
+    assert gantry_router._type_name(str) == "str"
+    assert gantry_router._type_name(list[str]).startswith("list")
+    assert gantry_router._is_primitive(bool | None) is True
+    assert gantry_router._is_primitive(dict | None) is False
+    assert gantry_router._float_or("not numeric", 12.5) == 12.5
+    assert [field.name for field in fields] == ["port", "speed", "enabled", "pipette_model"]
+    assert fields[0].required is True
+    assert fields[1].default == 1.5
+    assert fields[-1].choices is not None
+
+
+def test_normalize_gantry_yaml_fills_current_schema_defaults(monkeypatch):
+    monkeypatch.setattr(
+        gantry_router,
+        "_gantry_schema_fields",
+        lambda: {"gantry_type", "grbl_settings", "instruments"},
+    )
+    monkeypatch.setattr(
+        gantry_router,
+        "_cnc_schema_fields",
+        lambda: {
+            "homing_strategy",
+            "factory_z_travel_mm",
+            "total_z_range",
+            "structure_clearance_z",
+            "y_axis_motion",
+        },
+    )
+
+    normalized = gantry_router._normalize_gantry_yaml(
+        {
+            "cnc": {"legacy_field": 1, "y_axis_motion": "invalid"},
+            "working_volume": {
+                "x_max": 400,
+                "y_max": 250,
+                "z_min": 10,
+                "z_max": -1,
+            },
+            "instruments": ["not", "a", "mapping"],
+        }
+    )
+
+    assert normalized["gantry_type"] == "cub_xl"
+    assert normalized["cnc"] == {
+        "homing_strategy": "standard",
+        "y_axis_motion": "head",
+        "factory_z_travel_mm": 70.0,
+        "total_z_range": 80.0,
+        "structure_clearance_z": 70.0,
+    }
+    assert normalized["grbl_settings"] == {}
+    assert normalized["instruments"] == {}
+
+
+def test_connected_state_helpers_refresh_runtime_config(monkeypatch):
+    mock_gantry = MagicMock()
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(gantry_router, "_connected_gantry_filename", "active.yaml")
+
+    config = {
+        "serial_port": "/dev/ttyUSB0",
+        "grbl_settings": {"soft_limits": True},
+        "working_volume": {"x_min": 0},
+    }
+    gantry_router._refresh_connected_config("other.yaml", config)
+    assert gantry_router._connected_gantry_config is None
+
+    gantry_router._refresh_connected_config("active.yaml", config)
+
+    assert gantry_router._connected_gantry_config == config
+    assert mock_gantry.config == {"serial_port": "/dev/ttyUSB0", "working_volume": {"x_min": 0}}
+
+    monkeypatch.setattr(gantry_router, "_last_position", gantry_router.GantryPosition(connected=True))
+    monkeypatch.setattr(gantry_router, "_calibration_warning", "warning")
+    monkeypatch.setattr(gantry_router, "_calibration_restore_soft_limits", True)
+    gantry_router._clear_connected_gantry_state()
+    assert gantry_router._gantry is None
+    assert gantry_router._last_position is None
+    assert gantry_router._calibration_warning is None
+    assert gantry_router._calibration_restore_soft_limits is False
+
+
+def test_connected_grbl_setting_handles_missing_and_invalid_values(monkeypatch):
+    monkeypatch.setattr(gantry_router, "_connected_gantry_config", None)
+    assert gantry_router._connected_grbl_setting("homing_pull_off") is None
+
+    monkeypatch.setattr(gantry_router, "_connected_gantry_config", {"grbl_settings": []})
+    assert gantry_router._connected_grbl_setting("homing_pull_off") is None
+
+    monkeypatch.setattr(
+        gantry_router,
+        "_connected_gantry_config",
+        {"grbl_settings": {"homing_pull_off": float("inf")}},
+    )
+    with pytest.raises(gantry_router.HTTPException, match="finite"):
+        gantry_router._connected_grbl_setting("homing_pull_off")
+
+
+def test_calibration_mismatch_warning_handles_read_errors_and_bad_values():
+    mock_gantry = MagicMock()
+    config = {"grbl_settings": {"soft_limits": True, "max_travel_x": 300.0}}
+
+    mock_gantry.read_grbl_settings.side_effect = RuntimeError("serial read failed")
+    assert "Calibration status unknown" in gantry_router._calibration_mismatch_warning(mock_gantry, config)
+
+    mock_gantry.read_grbl_settings.side_effect = None
+    mock_gantry.read_grbl_settings.return_value = {"$20": "not numeric"}
+    warning = gantry_router._calibration_mismatch_warning(mock_gantry, config)
+    assert "$20: expected 1, got not numeric" in warning
+    assert "$130: expected 300, got missing" in warning
+
+    mock_gantry.read_grbl_settings.return_value = {"$20": "1", "$130": "300.0004"}
+    assert gantry_router._calibration_mismatch_warning(mock_gantry, config) is None
+
+
+def test_connected_working_volume_supports_object_config_and_invalid_shapes(monkeypatch):
+    monkeypatch.setattr(gantry_router, "_gantry", None)
+    assert gantry_router._connected_working_volume() is None
+
+    mock_gantry = MagicMock()
+    mock_gantry.config = SimpleNamespace(
+        working_volume=SimpleNamespace(
+            x_min=0,
+            x_max=300,
+            y_min=0,
+            y_max=200,
+            z_min=0,
+            z_max=80,
+        )
+    )
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    assert gantry_router._connected_working_volume()["x_max"] == 300.0
+
+    mock_gantry.config = {"working_volume": {"x_min": 0}}
+    assert gantry_router._connected_working_volume() is None
+
+
+def test_move_and_jog_target_helpers_reject_bad_inputs(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.config = {
+        "working_volume": {
+            "x_min": 0,
+            "x_max": 10,
+            "y_min": 0,
+            "y_max": 10,
+            "z_min": 0,
+            "z_max": 10,
+        }
+    }
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    with pytest.raises(gantry_router.HTTPException, match="finite"):
+        gantry_router._validate_manual_move_target(
+            gantry_router.MoveToRequest(x=float("nan"), y=1, z=1)
+        )
+
+    with pytest.raises(gantry_router.HTTPException, match="finite"):
+        gantry_router._validate_jog_target_locked(
+            gantry_router.JogRequest(x=0, y=float("inf"), z=0)
+        )
+
+    mock_gantry.get_position_info.return_value = {"work_pos": None, "coords": None}
+    with pytest.raises(gantry_router.HTTPException, match="current gantry position"):
+        gantry_router._current_work_position_locked()
+
+    mock_gantry.get_position_info.return_value = {"work_pos": {"x": "bad", "y": 0, "z": 0}}
+    with pytest.raises(gantry_router.HTTPException, match="finite current gantry position"):
+        gantry_router._current_work_position_locked()
+
+
+def test_wait_until_idle_handles_status_errors_and_timeout(monkeypatch):
+    mock_gantry = MagicMock()
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(gantry_router.time, "sleep", lambda _seconds: None)
+
+    mock_gantry.get_status.side_effect = RuntimeError("ALARM:1")
+    with pytest.raises(gantry_router.HTTPException, match="alarm state"):
+        gantry_router._wait_until_idle(timeout_s=1)
+
+    mock_gantry.get_status.side_effect = RuntimeError("serial read failed")
+    with pytest.raises(gantry_router.HTTPException, match="Status wait failed"):
+        gantry_router._wait_until_idle(timeout_s=1)
+
+    mock_gantry.get_status.side_effect = None
+    mock_gantry.get_status.return_value = "error"
+    with pytest.raises(gantry_router.HTTPException, match="Gantry entered"):
+        gantry_router._wait_until_idle(timeout_s=1)
+
+    times = iter([0.0, 0.2])
+    monkeypatch.setattr(gantry_router.time, "monotonic", lambda: next(times))
+    mock_gantry.get_status.return_value = "Run"
+    with pytest.raises(gantry_router.HTTPException, match="Timed out"):
+        gantry_router._wait_until_idle(timeout_s=0.1)
+
+
+def test_grbl_setting_parsing_helpers_accept_and_reject_expected_shapes():
+    assert gantry_router._normalize_grbl_setting_code("20") == "$20"
+    assert gantry_router._normalize_grbl_setting_code("$21") == "$21"
+
+    with pytest.raises(ValueError, match="numeric code"):
+        gantry_router._normalize_grbl_setting_code("$X")
+    with pytest.raises(ValueError, match="cannot be empty"):
+        gantry_router._parse_grbl_setting_value(" ")
+    with pytest.raises(ValueError, match="cannot contain newlines"):
+        gantry_router._parse_grbl_setting_value("1\n2")
+    with pytest.raises(ValueError, match="must be numeric"):
+        gantry_router._parse_grbl_setting_value("fast")
+
+
+def test_get_position_returns_not_connected_and_lock_busy_states(monkeypatch):
+    assert api_request(create_app(), "GET", "/api/gantry/position").json() == {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "work_x": None,
+        "work_y": None,
+        "work_z": None,
+        "status": "Not connected",
+        "connected": False,
+        "calibration_warning": None,
+        "move_error": None,
+    }
+
+    mock_gantry = MagicMock()
+    mock_gantry._extract_status.return_value = "Run"
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(
+        gantry_router,
+        "_last_position",
+        gantry_router.GantryPosition(x=1, y=2, z=3, connected=True, status="Idle"),
+    )
+    gantry_router._serial_lock.acquire()
+    try:
+        response = api_request(create_app(), "GET", "/api/gantry/position")
+    finally:
+        gantry_router._serial_lock.release()
+
+    body = response.json()
+    assert body["status"] == "Run"
+    assert body["x"] == 1
+
+    monkeypatch.setattr(gantry_router, "_last_position", None)
+    gantry_router._serial_lock.acquire()
+    try:
+        response = api_request(create_app(), "GET", "/api/gantry/position")
+    finally:
+        gantry_router._serial_lock.release()
+    assert response.json()["status"] == "Run"
+
+
+def test_position_query_failure_during_calibration_uses_explicit_failed_status(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.get_position_info.side_effect = RuntimeError("serial read failed")
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(
+        gantry_router,
+        "_last_position",
+        gantry_router.GantryPosition(x=1, y=2, z=3, connected=True, status="Idle"),
+    )
+    monkeypatch.setattr(gantry_router, "_calibration_jog_bypass_working_volume", True)
+
+    response = api_request(create_app(), "GET", "/api/gantry/position")
+
+    assert response.json()["status"] == "Query failed"
+
+
+def test_position_returns_move_error_when_background_move_failed(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.get_position_info.return_value = idle_position_info(x=1, y=2, z=3)
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(gantry_router, "_move_error", "move failed")
+
+    response = api_request(create_app(), "GET", "/api/gantry/position")
+
+    assert response.json()["move_error"] == "move failed"
+
+
+def test_move_to_starts_background_worker(monkeypatch):
+    mock_gantry = configure_joggable_gantry(MagicMock())
+    created_threads = []
+
+    class FakeThread:
+        def __init__(self, target, args, daemon):
+            created_threads.append((target, args, daemon))
+
+        def start(self):
+            created_threads.append("started")
+
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(gantry_router.threading, "Thread", FakeThread)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/move-to",
+        json={"x": 10, "y": 20, "z": 30},
+    )
+
+    assert response.status_code == 200
+    assert created_threads[0] == (gantry_router._move_worker, (10.0, 20.0, 30.0), True)
+    assert created_threads[1] == "started"
+
+
+def test_move_worker_records_errors(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.move_to.side_effect = RuntimeError("blocked")
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    gantry_router._move_worker(1, 2, 3)
+
+    assert gantry_router._move_error == "blocked"
+
+
+def test_zero_jog_and_zero_blocking_jog_return_without_motion(monkeypatch):
+    mock_gantry = configure_joggable_gantry(MagicMock())
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(create_app(), "POST", "/api/gantry/jog", json={})
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    mock_gantry.jog.assert_not_called()
+
+    response = api_request(create_app(), "POST", "/api/gantry/jog-blocking", json={})
+    assert response.status_code == 200
+    mock_gantry.jog.assert_not_called()
+
+
+def test_set_work_coordinates_rejects_empty_payload_and_hardware_errors(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.set_work_coordinates.side_effect = RuntimeError("setter failed")
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(create_app(), "POST", "/api/gantry/work-coordinates", json={})
+    assert response.status_code == 422
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/work-coordinates",
+        json={"x": 1},
+    )
+    assert response.status_code == 500
+    assert "setter failed" in response.text
+
+
+def test_soft_limit_and_calibration_routes_handle_basic_error_paths(monkeypatch):
+    assert api_request(create_app(), "POST", "/api/gantry/soft-limits", json={
+        "max_travel_x": 1,
+        "max_travel_y": 1,
+        "max_travel_z": 1,
+    }).status_code == 400
+    assert api_request(create_app(), "POST", "/api/gantry/calibration/prepare-origin").status_code == 400
+    assert api_request(create_app(), "POST", "/api/gantry/calibration/home-and-center").status_code == 400
+    assert api_request(create_app(), "POST", "/api/gantry/calibration/restore-soft-limits").status_code == 400
+    assert api_request(create_app(), "POST", "/api/gantry/calibration/finalize-origin", json={
+        "home_z": 1,
+        "block_touch_z": 0,
+        "block_height": 1,
+        "factory_z_travel": 1,
+    }).status_code == 400
+    assert api_request(create_app(), "POST", "/api/gantry/calibration/recover-limit", json={
+        "x": 1,
+        "y": 0,
+        "z": 0,
+    }).status_code == 400
+
+    mock_gantry = MagicMock()
+    mock_gantry.configure_soft_limits_from_spans.side_effect = RuntimeError("soft failed")
+    mock_gantry.home.side_effect = RuntimeError("home failed")
+    mock_gantry.get_coordinates.side_effect = RuntimeError("bounds failed")
+    mock_gantry.set_soft_limits_enabled.side_effect = RuntimeError("restore failed")
+    mock_gantry.finalize_deck_origin_calibration.side_effect = RuntimeError("finalize failed")
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(gantry_router, "_calibration_restore_soft_limits", True)
+
+    assert api_request(create_app(), "POST", "/api/gantry/soft-limits", json={
+        "max_travel_x": 1,
+        "max_travel_y": 1,
+        "max_travel_z": 1,
+    }).status_code == 500
+    assert api_request(create_app(), "POST", "/api/gantry/calibration/prepare-origin").status_code == 500
+    assert api_request(create_app(), "POST", "/api/gantry/calibration/home-and-center").status_code == 500
+    assert api_request(create_app(), "POST", "/api/gantry/calibration/restore-soft-limits").status_code == 500
+    assert api_request(create_app(), "POST", "/api/gantry/calibration/finalize-origin", json={
+        "home_z": 1,
+        "block_touch_z": 0,
+        "block_height": 1,
+        "factory_z_travel": 1,
+    }).status_code == 500
+
+
+def test_finalize_origin_alarm_error_is_recoverable(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.finalize_deck_origin_calibration.side_effect = RuntimeError("ALARM:1")
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(gantry_router, "_calibration_restore_soft_limits", True)
+    monkeypatch.setattr(gantry_router, "_calibration_jog_bypass_working_volume", True)
+
+    response = api_request(create_app(), "POST", "/api/gantry/calibration/finalize-origin", json={
+        "home_z": 1,
+        "block_touch_z": 0,
+        "block_height": 1,
+        "factory_z_travel": 1,
+    })
+
+    assert response.status_code == 409
+    assert gantry_router._calibration_restore_soft_limits is False
+    assert gantry_router._calibration_jog_bypass_working_volume is False
+
+
+def test_simple_controller_routes_cover_not_connected_and_failure_paths(monkeypatch):
+    for method, path in (
+        ("POST", "/api/gantry/reset-unlock"),
+        ("POST", "/api/gantry/feed-hold"),
+        ("POST", "/api/gantry/jog-cancel"),
+        ("GET", "/api/gantry/grbl-settings"),
+        ("POST", "/api/gantry/grbl-settings"),
+    ):
+        kwargs = {}
+        if method == "POST" and path.endswith("grbl-settings"):
+            kwargs["json"] = {"setting": "$20", "value": "1"}
+        response = api_request(create_app(), method, path, **kwargs)
+        assert response.status_code == 400
+
+    mock_gantry = MagicMock()
+    mock_gantry.reset_and_unlock.side_effect = RuntimeError("reset failed")
+    mock_gantry.stop.side_effect = RuntimeError("stop failed")
+    mock_gantry.jog_cancel.side_effect = RuntimeError("cancel failed")
+    mock_gantry.read_grbl_settings.side_effect = RuntimeError("read failed")
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    assert api_request(create_app(), "POST", "/api/gantry/reset-unlock").status_code == 500
+    assert api_request(create_app(), "POST", "/api/gantry/feed-hold").status_code == 500
+    assert api_request(create_app(), "POST", "/api/gantry/jog-cancel").status_code == 500
+    assert api_request(create_app(), "GET", "/api/gantry/grbl-settings").status_code == 500
+
+    mock_gantry.read_grbl_settings.side_effect = None
+    mock_gantry.set_grbl_setting.side_effect = RuntimeError("write failed")
+    assert api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/grbl-settings",
+        json={"setting": "$20", "value": "1"},
+    ).status_code == 500
+
+
+def test_connect_handles_default_missing_and_wco_seed_paths(monkeypatch, tmp_path):
+    from zoo.config import get_settings
+    from zoo.services.yaml_io import write_yaml
+
+    config_dir = tmp_path / "configs"
+    gantry_dir = config_dir / "gantry"
+    gantry_dir.mkdir(parents=True)
+    write_yaml(
+        gantry_dir / "first.yaml",
+        {
+            "serial_port": "/dev/first",
+            "gantry_type": "cub",
+            "cnc": {"homing_strategy": "standard", "factory_z_travel_mm": 80.0},
+            "working_volume": {
+                "x_min": 0,
+                "x_max": 10,
+                "y_min": 0,
+                "y_max": 10,
+                "z_min": 0,
+                "z_max": 10,
+            },
+            "instruments": {},
+        },
+    )
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+
+    observed = []
+
+    class FakeGantry:
+        def __init__(self, config=None):
+            observed.append(config)
+            self.calls = 0
+
+        def connect(self):
+            pass
+
+        def read_grbl_settings(self):
+            return {}
+
+        def get_position_info(self):
+            self.calls += 1
+            work_pos = None if self.calls == 1 else {"x": 0, "y": 0, "z": 0}
+            return {
+                "coords": {"x": 0, "y": 0, "z": 0},
+                "work_pos": work_pos,
+                "status": "Idle",
+            }
+
+    monkeypatch.setattr(gantry_router, "Gantry", FakeGantry)
+
+    response = api_request(create_app(), "POST", "/api/gantry/connect")
+
+    assert response.status_code == 200
+    assert observed[0]["serial_port"] == "/dev/first"
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/connect",
+        json={"filename": "missing.yaml"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_get_and_put_gantry_error_and_refresh_paths(monkeypatch, tmp_path):
+    from zoo.config import get_settings
+    from zoo.services.yaml_io import read_yaml, write_yaml
+
+    config_dir = tmp_path / "configs"
+    gantry_dir = config_dir / "gantry"
+    gantry_dir.mkdir(parents=True)
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+
+    assert api_request(create_app(), "GET", "/api/gantry/missing.yaml").status_code == 404
+    assert api_request(create_app(), "PUT", "/api/gantry/bad.yaml", json={"cnc": {}}).status_code == 400
+
+    write_yaml(
+        gantry_dir / "active.yaml",
+        {
+            "serial_port": "/dev/ttyUSB0",
+            "gantry_type": "cub",
+            "cnc": {"homing_strategy": "standard", "factory_z_travel_mm": 80.0},
+            "working_volume": {
+                "x_min": 0,
+                "x_max": 10,
+                "y_min": 0,
+                "y_max": 10,
+                "z_min": 0,
+                "z_max": 10,
+            },
+            "instruments": {},
+        },
+    )
+    mock_gantry = MagicMock()
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(gantry_router, "_connected_gantry_filename", "active.yaml")
+
+    payload = read_yaml(gantry_dir / "active.yaml")
+    payload["serial_port"] = "/dev/updated"
+    response = api_request(create_app(), "PUT", "/api/gantry/active.yaml", json=payload)
+
+    assert response.status_code == 200
+    assert gantry_router._connected_gantry_config["serial_port"] == "/dev/updated"
+    assert mock_gantry.config["serial_port"] == "/dev/updated"
+
+
+def test_disconnect_noop_and_disconnect_only_failure(monkeypatch):
+    response = api_request(create_app(), "POST", "/api/gantry/disconnect")
+    assert response.status_code == 200
+    assert response.json()["status"] == "Disconnected"
+
+    mock_gantry = MagicMock()
+    mock_gantry.disconnect.side_effect = RuntimeError("port closed")
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(create_app(), "POST", "/api/gantry/disconnect")
+
+    assert response.status_code == 500
+    assert "Disconnect failed" in response.text
+
+
+def test_remaining_simple_gantry_helpers(monkeypatch):
+    assert gantry_router._alarm_status_from_error(RuntimeError("")) == "Alarm"
+    assert gantry_router._is_primitive(list) is False
+
+    monkeypatch.setattr(
+        gantry_router,
+        "_gantry_schema_fields",
+        lambda: set(),
+    )
+    monkeypatch.setattr(
+        gantry_router,
+        "_cnc_schema_fields",
+        lambda: {"homing_strategy", "total_z_height", "y_axis_motion"},
+    )
+    normalized = gantry_router._normalize_gantry_yaml(
+        {
+            "cnc": {"total_z_height": 40},
+            "working_volume": {"z_min": 0, "z_max": 40},
+            "grbl_settings": {"soft_limits": True},
+            "instruments": {"tool": {}},
+        }
+    )
+    assert normalized["cnc"]["total_z_height"] == 40.0
+    assert "grbl_settings" not in normalized
+    assert "instruments" not in normalized
+
+    class FakeConfig:
+        def model_dump(self, **_kwargs):
+            return {
+                "cnc": {},
+                "working_volume": {"z_min": 5.0, "z_max": 25.0},
+            }
+
+    payload = gantry_router._api_gantry_config(
+        FakeConfig(),
+        {"cnc": {"total_z_height": 18.0, "calibration_block_height_mm": 7.5}},
+    )
+    assert payload["cnc"]["factory_z_travel_mm"] == 20.0
+    assert payload["cnc"]["calibration_block_height_mm"] == 7.5
+
+    monkeypatch.setattr(
+        gantry_router,
+        "_connected_gantry_config",
+        {"grbl_settings": "not a mapping"},
+    )
+    assert gantry_router._connected_grbl_setting("homing_pull_off") is None
+
+    monkeypatch.setattr(gantry_router, "_gantry", None)
+    with pytest.raises(gantry_router.HTTPException, match="Gantry not connected"):
+        gantry_router._apply_calibration_grbl_baseline()
+    with pytest.raises(gantry_router.HTTPException, match="Gantry not connected"):
+        gantry_router._current_work_position_locked()
+    with pytest.raises(gantry_router.HTTPException, match="Gantry not connected"):
+        gantry_router._wait_until_idle(timeout_s=0.1)
+
+    mock_gantry = MagicMock()
+    mock_gantry.config = SimpleNamespace(working_volume=None)
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    assert gantry_router._connected_working_volume() is None
+
+    mock_gantry.config = SimpleNamespace(
+        working_volume=SimpleNamespace(
+            x_min=0,
+            x_max="bad",
+            y_min=0,
+            y_max=1,
+            z_min=0,
+            z_max=1,
+        )
+    )
+    assert gantry_router._connected_working_volume() is None
+
+    mock_gantry.config = {}
+    with pytest.raises(gantry_router.HTTPException, match="Manual jogs require"):
+        gantry_router._validate_jog_target_locked(gantry_router.JogRequest(x=1, y=0, z=0))
+
+
+def test_remaining_gantry_metadata_endpoints(monkeypatch, tmp_path):
+    from zoo.config import get_settings
+    from zoo.services.yaml_io import write_yaml
+
+    config_dir = tmp_path / "configs"
+    gantry_dir = config_dir / "gantry"
+    gantry_dir.mkdir(parents=True)
+    write_yaml(gantry_dir / "b.yaml", {"working_volume": {}})
+    write_yaml(gantry_dir / "a.yaml", {"working_volume": {}})
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+
+    assert api_request(create_app(), "GET", "/api/gantry/configs").json() == ["a.yaml", "b.yaml"]
+
+    pipette_models = api_request(create_app(), "GET", "/api/gantry/pipette-models").json()
+    assert pipette_models
+    assert {"name", "family", "channels", "max_volume", "min_volume"} <= set(pipette_models[0])
+
+    schemas = api_request(create_app(), "GET", "/api/gantry/instrument-schemas").json()
+    assert isinstance(schemas, dict)
+    assert schemas
+
+
+def test_remaining_gantry_endpoint_error_paths(monkeypatch):
+    response = api_request(create_app(), "GET", "/api/gantry/position")
+    assert response.status_code == 200
+
+    assert api_request(create_app(), "POST", "/api/gantry/jog", json={"x": 1}).status_code == 400
+    assert api_request(create_app(), "POST", "/api/gantry/move-to", json={"x": 1, "y": 1, "z": 1}).status_code == 400
+    assert api_request(create_app(), "POST", "/api/gantry/move-to-blocking", json={"x": 1, "y": 1, "z": 1}).status_code == 400
+    assert api_request(create_app(), "POST", "/api/gantry/jog-blocking", json={"x": 1}).status_code == 400
+    assert api_request(create_app(), "POST", "/api/gantry/work-coordinates", json={"x": 1}).status_code == 400
+
+    mock_gantry = configure_joggable_gantry(MagicMock())
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    mock_gantry.get_position_info.side_effect = RuntimeError("serial failed")
+    monkeypatch.setattr(gantry_router, "_last_position", None)
+    assert api_request(create_app(), "GET", "/api/gantry/position").json()["status"] == "Query failed"
+
+    mock_gantry.get_position_info.side_effect = None
+    mock_gantry.home.side_effect = RuntimeError("home failed")
+    assert api_request(create_app(), "POST", "/api/gantry/home").status_code == 500
+
+    mock_gantry.move_to.side_effect = RuntimeError("move failed")
+    assert api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/move-to-blocking",
+        json={"x": 1, "y": 1, "z": 1},
+    ).status_code == 500
+
+    mock_gantry.jog.side_effect = RuntimeError("motor stalled")
+    assert api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/jog-blocking",
+        json={"x": 1, "y": 0, "z": 0},
+    ).status_code == 500
+
+
+def test_remaining_soft_limit_and_finalize_branches(monkeypatch):
+    mock_gantry = MagicMock()
+    mock_gantry.read_grbl_settings.return_value = {
+        "$10": "0",
+        "$20": "1",
+        "$21": "0",
+        "$22": "1",
+        "$27": "5",
+        "$130": "10",
+        "$131": "10",
+        "$132": "10",
+    }
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(
+        gantry_router,
+        "_connected_gantry_config",
+        {"grbl_settings": {"soft_limits": True, "homing_enable": True}},
+    )
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/soft-limits",
+        json={
+            "max_travel_x": 10,
+            "max_travel_y": 10,
+            "max_travel_z": 10,
+            "status_report": 0,
+            "homing_pull_off": 5,
+        },
+    )
+
+    assert response.status_code == 200
+    settings = gantry_router._connected_gantry_config["grbl_settings"]
+    assert settings["status_report"] == 0.0
+    assert settings["homing_pull_off"] == 5.0
+
+    monkeypatch.setattr(gantry_router, "_calibration_restore_soft_limits", True)
+    monkeypatch.setattr(gantry_router, "_calibration_jog_bypass_working_volume", True)
+    monkeypatch.setattr(
+        gantry_router,
+        "_connected_gantry_config",
+        {"grbl_settings": {"homing_pull_off": float("inf")}},
+    )
+
+    response = api_request(create_app(), "POST", "/api/gantry/calibration/finalize-origin", json={
+        "home_z": 1,
+        "block_touch_z": 0,
+        "block_height": 1,
+        "factory_z_travel": 1,
+    })
+
+    assert response.status_code == 400
+    assert gantry_router._calibration_restore_soft_limits is False
+    assert gantry_router._calibration_jog_bypass_working_volume is False
