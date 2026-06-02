@@ -49,7 +49,7 @@ connection.
 | `frontend/src/` | `zoo-frontend` React + TypeScript application |
 | `frontend/src/components/gantry/` | Gantry jog/readout controls and calibration wizard |
 | `configs/` | Default local config store, empty by default in this checkout |
-| `tests/` | Backend tests |
+| `backend/tests/` | Backend tests for the `zoo-backend` distribution |
 
 ## Main Entrypoints
 
@@ -74,7 +74,7 @@ python -m zoo
 Backend:
 
 ```bash
-pytest tests/
+pytest
 ```
 
 Frontend:

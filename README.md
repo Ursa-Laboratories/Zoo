@@ -72,7 +72,7 @@ Defaults:
 
 ## Test And Build
 
-- Backend tests: `pytest tests/`
+- Backend tests with coverage floor: `pytest`
 - Frontend lint: `cd frontend && npm run lint`
 - Frontend tests: `cd frontend && npm run test`
 - Frontend build: `cd frontend && npm run build`

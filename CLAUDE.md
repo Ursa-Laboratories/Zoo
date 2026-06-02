@@ -47,7 +47,7 @@ frontend/
 
 - **Frontend build:** `cd frontend && npm run build`
 - **Run server:** `python -m zoo` (or `uvicorn zoo.app:create_app --factory`)
-- **Backend tests:** `pytest tests/`
+- **Backend tests:** `pytest`
 
 In **TDD Mode** (planning sessions, new features, CubOS interface changes): write tests alongside implementation and update docs as you go. In **Hardware Iteration Mode** (iterative UI/config changes under active lab testing): defer tests and docs to close-out, mark deferred work `# TODO(iter)`. See root `AGENTS.md` for full mode definitions.
 

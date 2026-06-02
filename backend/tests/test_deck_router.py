@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.api_client import api_request
+from backend.tests.api_client import api_request
 from zoo.app import create_app
 from zoo.config import get_settings
 

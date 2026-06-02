@@ -6,7 +6,7 @@ import pytest
 
 from gantry.gantry_driver.exceptions import StatusReturnError
 from gantry.limit_recovery import LimitRecoveryResult
-from tests.api_client import api_request
+from backend.tests.api_client import api_request
 from zoo.app import create_app
 from zoo.routers import gantry as gantry_router
 
