@@ -118,3 +118,23 @@ def test_browse_directory_uses_tk_picker_on_non_macos(monkeypatch, tmp_path):
     assert response.status_code == 200
     assert response.json() == {"config_dir": str(tmp_path)}
     assert calls == ["withdraw", "destroy"]
+
+
+def test_browse_directory_rejects_cancelled_tk_selection(monkeypatch):
+    class FakeRoot:
+        def withdraw(self):
+            pass
+
+        def destroy(self):
+            pass
+
+    filedialog = types.SimpleNamespace(askdirectory=lambda title: "")
+    tkinter = types.SimpleNamespace(Tk=FakeRoot, filedialog=filedialog)
+    monkeypatch.setattr(settings_router.sys, "platform", "linux")
+    monkeypatch.setitem(python_sys.modules, "tkinter", tkinter)
+    monkeypatch.setitem(python_sys.modules, "tkinter.filedialog", filedialog)
+
+    response = api_request(create_app(), "POST", "/api/settings/browse")
+
+    assert response.status_code == 400
+    assert "No directory selected" in response.text

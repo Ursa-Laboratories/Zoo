@@ -29,7 +29,7 @@ packages = ["zoo"]
 
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
-addopts = "--cov=zoo --cov-report=term-missing --cov-fail-under=84"
+addopts = "--cov=zoo --cov-report=term-missing --cov-fail-under=87"
 
 [tool.coverage.run]
 source = ["zoo"]
