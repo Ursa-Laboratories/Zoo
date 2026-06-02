@@ -460,4 +460,199 @@ describe("ProtocolEditor", () => {
     expect(screen.getByLabelText(/^Measurement \*$/)).toHaveValue("indentation");
     expect(screen.getByLabelText("Force limit (N)")).toHaveValue("10");
   });
+
+  it("reorders and removes steps before saving with a new filename", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    const onSelectFile = vi.fn();
+    const onLocalChange = vi.fn();
+    render(
+      <ProtocolEditor
+        configs={["protocol.yaml"]}
+        selectedFile="protocol.yaml"
+        onSelectFile={onSelectFile}
+        commands={commands}
+        deck={deckFixture()}
+        gantry={gantryFixture()}
+        steps={[
+          { command: "wait", args: { seconds: 1, comment: "first" } },
+          { command: "move", args: { instrument: "asmi_1", position: "plate_1.A1", travel_z: 3 } },
+        ]}
+        positions={null}
+        onSave={onSave}
+        onLocalChange={onLocalChange}
+        onValidate={vi.fn()}
+        validationErrors={null}
+        isValidating={false}
+        onRun={vi.fn()}
+        canRun
+        isRunning={false}
+        runResult={null}
+        runError={null}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByTitle("Move up")[0]).toBeDisabled();
+    await user.click(screen.getAllByTitle("Move down")[0]);
+    expect(onLocalChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ command: "move" }),
+      expect.objectContaining({ command: "wait" }),
+    ]);
+    await user.click(screen.getAllByTitle("Move up")[1]);
+    await user.click(screen.getAllByRole("button", { name: "✕" })[1]);
+    await user.type(screen.getByPlaceholderText("protocol.yaml"), "renamed_protocol");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(
+      "renamed_protocol.yaml",
+      { protocol: [expect.objectContaining({ command: "wait" })] },
+    ));
+    expect(onSelectFile).toHaveBeenCalledWith("renamed_protocol.yaml");
+  });
+
+  it("keeps current large-position choices searchable and editable", async () => {
+    const user = userEvent.setup();
+    const largeDeck = deckFixture();
+    largeDeck.labware[0] = {
+      ...largeDeck.labware[0],
+      key: "large_plate",
+      config: {
+        ...largeDeck.labware[0].config,
+        type: "well_plate",
+        rows: 4,
+        columns: 8,
+      },
+      wells: null,
+      positions: {
+        "custom.2": { x: 2, y: 2, z: 2 },
+        "custom.10": { x: 10, y: 10, z: 10 },
+      },
+    };
+    const onLocalChange = vi.fn();
+    render(
+      <ProtocolEditor
+        configs={[]}
+        selectedFile="protocol.yaml"
+        onSelectFile={vi.fn()}
+        commands={commands}
+        deck={largeDeck}
+        gantry={gantryFixture()}
+        steps={[{ command: "move", args: { instrument: "asmi_1", position: "kept_external_position", travel_z: 0 } }]}
+        positions={null}
+        onSave={vi.fn()}
+        onLocalChange={onLocalChange}
+        onValidate={vi.fn()}
+        validationErrors={null}
+        isValidating={false}
+        onRun={vi.fn()}
+        canRun={false}
+        isRunning={false}
+        runResult={null}
+        runError={null}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    const positionInput = screen.getByPlaceholderText("Search or select...");
+    expect(positionInput).toHaveValue("kept_external_position");
+    await user.clear(positionInput);
+    await user.type(positionInput, "large_plate.custom.10");
+
+    expect(onLocalChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        args: expect.objectContaining({ position: "large_plate.custom.10" }),
+      }),
+    ]);
+  });
+
+  it("edits ASMI indentation method options", async () => {
+    const user = userEvent.setup();
+    const onLocalChange = vi.fn();
+    render(
+      <ProtocolEditor
+        configs={[]}
+        selectedFile="protocol.yaml"
+        onSelectFile={vi.fn()}
+        commands={commands}
+        deck={deckFixture()}
+        gantry={gantryFixture()}
+        steps={[{
+          command: "scan",
+          args: {
+            plate: "plate_1",
+            instrument: "asmi_1",
+            method: "indentation",
+            measurement_height: 4,
+            method_kwargs: "not an object",
+          },
+        }]}
+        positions={null}
+        onSave={vi.fn()}
+        onLocalChange={onLocalChange}
+        onValidate={vi.fn()}
+        validationErrors={null}
+        isValidating={false}
+        onRun={vi.fn()}
+        canRun={false}
+        isRunning={false}
+        runResult={null}
+        runError={null}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.clear(screen.getByLabelText("Force limit (N)"));
+    await user.type(screen.getByLabelText("Force limit (N)"), "12.5");
+    await user.clear(screen.getByLabelText("Step size (mm)"));
+    await user.type(screen.getByLabelText("Step size (mm)"), "0.25");
+    await user.clear(screen.getByLabelText("Baseline samples"));
+    await user.type(screen.getByLabelText("Baseline samples"), "2.2");
+    await user.selectOptions(screen.getByLabelText("Measure with return"), "true");
+
+    const latest = onLocalChange.mock.calls.at(-1)?.[0][0];
+    expect(latest.args.method_kwargs).toMatchObject({
+      force_limit: 12.5,
+      step_size: 0.25,
+      baseline_samples: 2,
+      measure_with_return: true,
+    });
+  });
+
+  it("reports save failures without changing the selected filename", async () => {
+    const user = userEvent.setup();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const onSave = vi.fn(async () => {
+      throw new Error("disk full");
+    });
+    const onSelectFile = vi.fn();
+    render(
+      <ProtocolEditor
+        configs={[]}
+        selectedFile="protocol.yaml"
+        onSelectFile={onSelectFile}
+        commands={commands}
+        deck={deckFixture()}
+        gantry={gantryFixture()}
+        steps={[{ command: "wait", args: { seconds: 1, comment: "pause" } }]}
+        positions={null}
+        onSave={onSave}
+        onValidate={vi.fn()}
+        validationErrors={null}
+        isValidating={false}
+        onRun={vi.fn()}
+        canRun={false}
+        isRunning={false}
+        runResult={null}
+        runError={null}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(consoleError).toHaveBeenCalledWith("Protocol save failed:", expect.any(Error)));
+    expect(onSelectFile).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
 });
