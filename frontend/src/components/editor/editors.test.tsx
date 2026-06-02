@@ -228,6 +228,115 @@ describe("DeckEditor", () => {
 
     expect(onSave).not.toHaveBeenCalled();
   });
+
+  it("creates a deck from scratch and edits generated labware fields", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    const onLocalChange = vi.fn();
+    const onSelectFile = vi.fn();
+    render(
+      <DeckEditor
+        configs={[]}
+        selectedFile={null}
+        onSelectFile={onSelectFile}
+        onImportFile={vi.fn()}
+        deck={null}
+        onSave={onSave}
+        onLocalChange={onLocalChange}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "+ Well Plate" }));
+    await user.click(screen.getByRole("button", { name: "+ Vial" }));
+    await user.clear(screen.getAllByLabelText("Model")[0]);
+    await user.type(screen.getAllByLabelText("Model")[0], "plate-model-new");
+    await user.clear(screen.getAllByLabelText("Model")[1]);
+    await user.type(screen.getAllByLabelText("Model")[1], "vial-model-new");
+    await user.clear(screen.getByLabelText(/^Columns/));
+    await user.type(screen.getByLabelText(/^Columns/), "6");
+    await user.clear(screen.getByLabelText("Length (mm)"));
+    await user.type(screen.getByLabelText("Length (mm)"), "120");
+    await user.clear(screen.getByLabelText("Width (mm)"));
+    await user.type(screen.getByLabelText("Width (mm)"), "80");
+    await user.clear(screen.getAllByLabelText("Height (mm)")[0]);
+    await user.type(screen.getAllByLabelText("Height (mm)")[0], "15");
+    await user.clear(screen.getByLabelText("Calibration A2 Y"));
+    await user.type(screen.getByLabelText("Calibration A2 Y"), "55");
+    await user.clear(screen.getByLabelText(/^Well pitch X/));
+    await user.type(screen.getByLabelText(/^Well pitch X/), "8");
+    await user.clear(screen.getByLabelText(/^Well pitch Y/));
+    await user.type(screen.getByLabelText(/^Well pitch Y/), "7");
+    await user.clear(screen.getAllByLabelText("Capacity (uL)")[0]);
+    await user.type(screen.getAllByLabelText("Capacity (uL)")[0], "300");
+    await user.clear(screen.getAllByLabelText("Working vol (uL)")[0]);
+    await user.type(screen.getAllByLabelText("Working vol (uL)")[0], "250");
+    await user.clear(screen.getAllByLabelText("Height (mm)")[1]);
+    await user.type(screen.getAllByLabelText("Height (mm)")[1], "70");
+    await user.clear(screen.getByLabelText("Location Z"));
+    await user.type(screen.getByLabelText("Location Z"), "25");
+    await user.clear(screen.getAllByLabelText("Capacity (uL)")[1]);
+    await user.type(screen.getAllByLabelText("Capacity (uL)")[1], "1800");
+    await user.clear(screen.getAllByLabelText("Working vol (uL)")[1]);
+    await user.type(screen.getAllByLabelText("Working vol (uL)")[1], "1600");
+    await user.type(screen.getByPlaceholderText("my_deck.yaml"), "scratch_deck");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(
+      "scratch_deck.yaml",
+      expect.objectContaining({
+        labware: expect.objectContaining({
+          wellplate_1: expect.objectContaining({
+            model_name: "plate-model-new",
+            columns: 6,
+            length: 120,
+            width: 80,
+            height: 15,
+            x_offset: 8,
+            y_offset: 7,
+            capacity_ul: 300,
+            working_volume_ul: 250,
+          }),
+          vial_2: expect.objectContaining({
+            model_name: "vial-model-new",
+            height: 70,
+            location: expect.objectContaining({ z: 25 }),
+            capacity_ul: 1800,
+            working_volume_ul: 1600,
+          }),
+        }),
+      }),
+    ));
+    expect(onSelectFile).toHaveBeenCalledWith("scratch_deck.yaml");
+    expect(onLocalChange).toHaveBeenCalledWith(expect.objectContaining({ filename: "unsaved" }));
+  });
+
+  it("reports deck save failures without changing the selected filename", async () => {
+    const user = userEvent.setup();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const onSave = vi.fn(async () => {
+      throw new Error("disk full");
+    });
+    const onSelectFile = vi.fn();
+    render(
+      <DeckEditor
+        configs={[]}
+        selectedFile="deck.yaml"
+        onSelectFile={onSelectFile}
+        onImportFile={vi.fn()}
+        deck={deckFixture()}
+        onSave={onSave}
+        onLocalChange={vi.fn()}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(consoleError).toHaveBeenCalledWith("Deck save failed:", expect.any(Error)));
+    expect(onSelectFile).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
 });
 
 describe("GantryEditor", () => {
@@ -353,6 +462,131 @@ describe("GantryEditor", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("edits gantry validation edges and no-vendor instruments", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    const onLocalChange = vi.fn();
+    const config = gantryConfig();
+    config.instruments = {
+      custom_tool_2: {
+        type: "custom_tool",
+        vendor: "manual",
+        offset_x: 0,
+        offset_y: 0,
+        depth: 0,
+        measurement_height: 0,
+        safe_approach_height: 0,
+      },
+    };
+    render(
+      <GantryEditor
+        configs={[]}
+        selectedFile="gantry.yaml"
+        onSelectFile={vi.fn()}
+        gantry={{ filename: "gantry.yaml", config }}
+        baseline={null}
+        instrumentTypes={instrumentTypes}
+        instrumentSchemas={instrumentSchemas}
+        onSave={onSave}
+        onLocalChange={onLocalChange}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    const saveButton = screen.getByRole("button", { name: "Save" });
+    await user.clear(screen.getByLabelText("X min"));
+    await user.type(screen.getByLabelText("X min"), "350");
+    expect(saveButton).toBeDisabled();
+    await user.clear(screen.getByLabelText("X min"));
+    await user.type(screen.getByLabelText("X min"), "0");
+    await user.clear(screen.getByLabelText("Y min"));
+    await user.type(screen.getByLabelText("Y min"), "5");
+    await user.clear(screen.getByLabelText("Y max"));
+    await user.type(screen.getByLabelText("Y max"), "205");
+    await user.clear(screen.getByLabelText("Z min"));
+    await user.type(screen.getByLabelText("Z min"), "1");
+    await user.clear(screen.getByLabelText(/^Block height/));
+    await user.type(screen.getByLabelText(/^Block height/), "0");
+    expect(saveButton).toBeDisabled();
+    await user.clear(screen.getByLabelText(/^Block height/));
+    await user.type(screen.getByLabelText(/^Block height/), "36");
+    await user.clear(screen.getByLabelText("Safe Z"));
+    await user.type(screen.getByLabelText("Safe Z"), "75");
+    await user.selectOptions(screen.getByLabelText("Homing strategy"), "standard");
+    await user.selectOptions(screen.getByLabelText("Soft limits"), "");
+
+    const addTypeSelect = screen.getAllByRole("combobox").find((select) => (
+      within(select).queryByRole("option", { name: "Custom Tool (mock)" })
+    ));
+    expect(addTypeSelect).toBeDefined();
+    await user.selectOptions(addTypeSelect!, "custom_tool");
+    await user.click(screen.getByRole("button", { name: "+ Add" }));
+    expect(saveButton).toBeDisabled();
+
+    const customCard = screen.getByText(/custom_tool_3/).closest("div")!.parentElement!;
+    const typeInput = within(customCard).getByLabelText(/^Type/);
+    await user.clear(typeInput);
+    expect(saveButton).toBeDisabled();
+    await user.type(typeInput, "custom_tool");
+    await user.type(within(customCard).getByLabelText(/^Vendor/), "manual");
+    await user.clear(within(customCard).getByLabelText("Offset X"));
+    await user.type(within(customCard).getByLabelText("Offset X"), "1.5");
+    await user.clear(within(customCard).getByLabelText("Offset Y"));
+    await user.type(within(customCard).getByLabelText("Offset Y"), "-2.5");
+    await user.clear(within(customCard).getByLabelText("Depth"));
+    await user.type(within(customCard).getByLabelText("Depth"), "8");
+    await user.clear(within(customCard).getByLabelText("Measurement height"));
+    await user.type(within(customCard).getByLabelText("Measurement height"), "5");
+    expect(saveButton).toBeDisabled();
+    await user.clear(within(customCard).getByLabelText("Safe approach"));
+    await user.type(within(customCard).getByLabelText("Safe approach"), "6");
+    await user.click(saveButton);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    const saved = onSave.mock.calls[0][1] as GantryConfig;
+    expect(saved.working_volume).toMatchObject({ x_min: 0, y_min: 5, y_max: 205, z_min: 1 });
+    expect(saved.cnc).toMatchObject({ calibration_block_height_mm: 36, safe_z: 75 });
+    expect(saved.grbl_settings?.soft_limits).toBeUndefined();
+    expect(saved.instruments.custom_tool_3).toMatchObject({
+      type: "custom_tool",
+      vendor: "manual",
+      offset_x: 1.5,
+      offset_y: -2.5,
+      depth: 8,
+      measurement_height: 5,
+      safe_approach_height: 6,
+    });
+    expect(onLocalChange).toHaveBeenCalled();
+  });
+
+  it("reports gantry save failures without changing the selected filename", async () => {
+    const user = userEvent.setup();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const onSave = vi.fn(async () => {
+      throw new Error("disk full");
+    });
+    const onSelectFile = vi.fn();
+    render(
+      <GantryEditor
+        configs={[]}
+        selectedFile="gantry.yaml"
+        onSelectFile={onSelectFile}
+        gantry={gantryFixture()}
+        baseline={null}
+        instrumentTypes={instrumentTypes}
+        instrumentSchemas={instrumentSchemas}
+        onSave={onSave}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(consoleError).toHaveBeenCalledWith("Gantry save failed:", expect.any(Error)));
+    expect(onSelectFile).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 });
 
