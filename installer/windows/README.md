@@ -2,7 +2,7 @@
 
 This directory builds a Windows installer for an operator-facing Zoo runtime.
 The installer is intentionally local and self-contained: it installs a private
-Python runtime, installs Zoo/CubOS packages from an offline wheelhouse, copies
+Python runtime, installs Zoo backend/CubOS packages from an offline wheelhouse, copies
 the checked-out Zoo and CubOS `main` sources into the app directory, launches
 Zoo from the copied Zoo source so the prebuilt frontend is available, and seeds
 the operator config folder from CubOS configs on first launch.
