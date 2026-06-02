@@ -1,9 +1,9 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import DeckVisualization from "./DeckVisualization";
-import HolderRenderer from "./HolderRenderer";
-import TipRackRenderer from "./TipRackRenderer";
-import type { DeckResponse } from "../../types";
+import DeckVisualization from "../../../src/components/deck/DeckVisualization";
+import HolderRenderer from "../../../src/components/deck/HolderRenderer";
+import TipRackRenderer from "../../../src/components/deck/TipRackRenderer";
+import type { DeckResponse } from "../../../src/types";
 
 const deck: DeckResponse = {
   filename: "panda_deck.yaml",

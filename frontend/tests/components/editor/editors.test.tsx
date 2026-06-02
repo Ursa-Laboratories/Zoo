@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import DeckEditor from "./DeckEditor";
-import EditorTabs from "./EditorTabs";
-import GantryEditor from "./GantryEditor";
-import ProtocolEditor from "./ProtocolEditor";
+import DeckEditor from "../../../src/components/editor/DeckEditor";
+import EditorTabs from "../../../src/components/editor/EditorTabs";
+import GantryEditor from "../../../src/components/editor/GantryEditor";
+import ProtocolEditor from "../../../src/components/editor/ProtocolEditor";
 import type {
   CommandInfo,
   DeckResponse,
@@ -13,7 +13,7 @@ import type {
   InstrumentSchemas,
   InstrumentTypeInfo,
   WellPlateConfig,
-} from "../../types";
+} from "../../../src/types";
 
 function deckFixture(): DeckResponse {
   return {

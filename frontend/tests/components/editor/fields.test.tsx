@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { CoordinateField, DirtyMarker, NumberField, SaveButton, SelectField, TextField } from "./fields";
+import { CoordinateField, DirtyMarker, NumberField, SaveButton, SelectField, TextField } from "../../../src/components/editor/fields";
 
 describe("editor fields", () => {
   it("parses numeric input without committing partial numbers", async () => {

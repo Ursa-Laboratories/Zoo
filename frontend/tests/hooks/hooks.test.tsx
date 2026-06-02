@@ -2,9 +2,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { usePipetteModels } from "./useGantryPosition";
-import { useSaveProtocol, useValidateProtocol, useValidateProtocolSetup } from "./useProtocol";
-import type { ProtocolConfig, ProtocolSetupValidationRequest } from "../types";
+import { usePipetteModels } from "../../src/hooks/useGantryPosition";
+import { useSaveProtocol, useValidateProtocol, useValidateProtocolSetup } from "../../src/hooks/useProtocol";
+import type { ProtocolConfig, ProtocolSetupValidationRequest } from "../../src/types";
 
 const apiMocks = vi.hoisted(() => ({
   gantryApi: {
@@ -17,7 +17,7 @@ const apiMocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("../api/client", () => ({
+vi.mock("../../src/api/client", () => ({
   gantryApi: apiMocks.gantryApi,
   protocolApi: apiMocks.protocolApi,
 }));

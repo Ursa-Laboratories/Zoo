@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import App from "./App";
+import App from "../src/App";
 import type {
   DeckConfig,
   DeckResponse,
@@ -10,7 +10,7 @@ import type {
   GantryResponse,
   ProtocolConfig,
   ProtocolResponse,
-} from "./types";
+} from "../src/types";
 
 type ApiState = {
   decks: Record<string, DeckResponse>;
