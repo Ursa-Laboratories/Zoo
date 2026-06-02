@@ -695,6 +695,150 @@ describe("ProtocolEditor", () => {
     expect(screen.getByLabelText("Force limit (N)")).toHaveValue("10");
   });
 
+  it("handles empty command maps and named-position validation edge cases", async () => {
+    const user = userEvent.setup();
+    const onLocalChange = vi.fn();
+    const onPositionsChange = vi.fn();
+    render(
+      <ProtocolEditor
+        configs={[]}
+        selectedFile={null}
+        onSelectFile={vi.fn()}
+        commands={[]}
+        deck={deckFixture()}
+        gantry={gantryFixture()}
+        steps={null}
+        positions={{ position_1: [1, 2, 3], bad: [Number.NaN, 2, 3] }}
+        onSave={vi.fn()}
+        onLocalChange={onLocalChange}
+        onPositionsChange={onPositionsChange}
+        onValidate={vi.fn()}
+        validationErrors={null}
+        isValidating={false}
+        onRun={vi.fn()}
+        canRun={false}
+        isRunning={false}
+        runResult={null}
+        runError={null}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    expect(onLocalChange).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Add Position" }));
+    expect(screen.getByLabelText("Position 3 name")).toHaveValue("position_2");
+    await user.click(screen.getByRole("button", { name: "Remove bad" }));
+
+    expect(onPositionsChange).toHaveBeenLastCalledWith(expect.not.objectContaining({ bad: expect.anything() }));
+  });
+
+  it("adds optional default args for wait steps", async () => {
+    const user = userEvent.setup();
+    const onLocalChange = vi.fn();
+    render(
+      <ProtocolEditor
+        configs={[]}
+        selectedFile="protocol.yaml"
+        onSelectFile={vi.fn()}
+        commands={commands}
+        deck={deckFixture()}
+        gantry={gantryFixture()}
+        steps={null}
+        positions={null}
+        onSave={vi.fn()}
+        onLocalChange={onLocalChange}
+        onValidate={vi.fn()}
+        validationErrors={null}
+        isValidating={false}
+        onRun={vi.fn()}
+        canRun={false}
+        isRunning={false}
+        runResult={null}
+        runError={null}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.selectOptions(screen.getByLabelText("Add step"), "wait");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(screen.getByLabelText("Seconds *")).toHaveValue("0");
+    expect(screen.getByLabelText("Comment")).toHaveValue("pause");
+    expect(onLocalChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ command: "wait", args: expect.objectContaining({ comment: "pause" }) }),
+    ]);
+  });
+
+  it("updates measurement methods when the instrument type changes", async () => {
+    const user = userEvent.setup();
+    const onLocalChange = vi.fn();
+    const gantry = gantryFixture();
+    gantry.config.instruments = {
+      asmi_1: {
+        type: "asmi",
+        vendor: "vernier",
+        offset_x: 0,
+        offset_y: 0,
+        depth: 0,
+      },
+      film_1: {
+        type: "filmetrics",
+        vendor: "filmetrics",
+        offset_x: 0,
+        offset_y: 0,
+        depth: 0,
+      },
+    };
+    render(
+      <ProtocolEditor
+        configs={[]}
+        selectedFile="protocol.yaml"
+        onSelectFile={vi.fn()}
+        commands={commands}
+        deck={deckFixture()}
+        gantry={gantry}
+        steps={[{
+          command: "scan",
+          args: {
+            plate: "plate_1",
+            instrument: "asmi_1",
+            method: "indentation",
+            measurement_height: 4,
+            method_kwargs: null,
+          },
+        }]}
+        positions={null}
+        onSave={vi.fn()}
+        onLocalChange={onLocalChange}
+        onValidate={vi.fn()}
+        validationErrors={null}
+        isValidating={false}
+        onRun={vi.fn()}
+        canRun={false}
+        isRunning={false}
+        runResult={null}
+        runError={null}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    await user.selectOptions(screen.getByLabelText(/Instrument/), "film_1");
+    expect(screen.getByLabelText(/^Measurement \*$/)).toHaveValue("measure");
+    expect(screen.queryByText("ASMI indentation options")).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText(/Instrument/), "asmi_1");
+    await user.selectOptions(screen.getByLabelText(/^Measurement \*$/), "indentation");
+
+    expect(screen.getByText("ASMI indentation options")).toBeInTheDocument();
+    expect(onLocalChange.mock.calls.at(-1)?.[0][0].args.method_kwargs).toMatchObject({
+      step_size: 0.1,
+      force_limit: 10,
+      baseline_samples: 10,
+      measure_with_return: false,
+    });
+  });
+
   it("reorders and removes steps before saving with a new filename", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
