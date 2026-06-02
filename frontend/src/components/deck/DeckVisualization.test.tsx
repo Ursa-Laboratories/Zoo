@@ -260,4 +260,97 @@ describe("DeckVisualization", () => {
     expect(screen.getByText("Current Vial")).toBeInTheDocument();
     expect(screen.getByTestId("deck-visualization").outerHTML).not.toContain("NaN");
   });
+
+  it("renders bed-mode motion, direct vials, and filtered rack positions", () => {
+    const bedDeck: DeckResponse = {
+      filename: "bed_deck.yaml",
+      labware: [
+        {
+          key: "loose_vial",
+          config: {
+            type: "vial",
+            name: "Loose Vial",
+            model_name: "loose_vial",
+            height: 20,
+            diameter: 10,
+            location: { x: 20, y: 30, z: 5 },
+            capacity_ul: 1000,
+            working_volume_ul: 800,
+          },
+          wells: null,
+        },
+        {
+          key: "empty_holder",
+          config: {
+            type: "well_plate_holder",
+            name: "Empty Holder",
+            location: { x: 250, y: 180, z: 0 },
+            well_plate: null,
+          },
+          wells: null,
+          location: { x: 250, y: 180, z: 0 },
+          geometry: { length: null, width: null, height: null },
+          positions: {},
+        },
+        {
+          key: "filtered_rack",
+          config: {
+            type: "tip_rack",
+            name: "Filtered Rack",
+            model_name: "filtered_tip_rack",
+            rows: 1,
+            columns: 1,
+            z_pickup: 30,
+            z_drop: 24,
+            tips: {
+              A1: { x: 40, y: 50, z: 0 },
+            },
+          },
+          wells: null,
+          positions: {
+            location: { x: 999, y: 999, z: 0 },
+            "tip.A1": { x: 998, y: 998, z: 0 },
+            A1: { x: 40, y: 50, z: 0 },
+          },
+        },
+      ],
+    };
+
+    render(
+      <DeckVisualization
+        deck={bedDeck}
+        instruments={{
+          probe: {
+            type: "mock_probe",
+            vendor: "mock",
+            offset_x: -25,
+            offset_y: 35,
+          },
+        }}
+        gantryPosition={{
+          connected: true,
+          status: "Idle",
+          x: 100,
+          y: 50,
+          z: 0,
+          work_x: 100,
+          work_y: 50,
+          work_z: 0,
+        }}
+        machineXRange={[0, 300]}
+        machineYRange={[0, 200]}
+        yAxisMotion="bed"
+      />,
+    );
+
+    const svg = screen.getByTestId("deck-visualization");
+    expect(screen.getByText("bed moves Y")).toBeInTheDocument();
+    expect(screen.getByText("Loose Vial")).toBeInTheDocument();
+    expect(screen.getByText("Empty Holder")).toBeInTheDocument();
+    expect(screen.getByText("Filtered Rack")).toBeInTheDocument();
+    expect(screen.getByText("probe")).toBeInTheDocument();
+    expect(svg.querySelector('g[transform^="translate"]')).toBeInTheDocument();
+    expect(svg.outerHTML).not.toContain("tip.A1");
+    expect(svg.outerHTML).not.toContain("998");
+  });
 });
