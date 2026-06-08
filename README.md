@@ -19,8 +19,13 @@ See also:
 
 - Zoo reads and writes YAML configs from `configs/` by default.
 - The active directory is exposed through `/api/settings` as `config_dir`.
-- Operators can point Zoo at another config directory through the settings UI or API.
+- Operators can point Zoo at another config directory through the settings UI,
+  API, or `ZOO_CONFIG_DIR`; use `../BU-Configs/configs` for the shared lab
+  config tree.
 - Deck YAML editing follows CubOS' current schema field names such as `length`, `width`, `height`, `x_offset`, `y_offset`, and `diameter`.
+- Gantry Connect honors the selected gantry YAML's `serial_port` when it is
+  non-empty; leave it blank to fall back to CubOS auto-scan. This is also the
+  path used to connect Zoo to a local `digital-sim grbl-sim` pseudo-serial port.
 - Gantry YAMLs are read back through CubOS validation before Zoo returns or saves them; missing current fields must be filled and saved in the gantry editor.
 - Malformed YAML returns a load error instead of a server traceback, and hardware controls only enable after the selected gantry file has loaded through CubOS validation.
 - Deck and gantry save paths validate the converted CubOS YAML before overwriting the target file.

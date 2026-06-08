@@ -182,12 +182,14 @@ def test_connect_uses_selected_gantry_config(monkeypatch, tmp_path):
     monkeypatch.setattr(get_settings(), "config_dir", config_dir)
 
     observed_configs = []
+    observed_ports = []
 
     class FakeGantry:
         def __init__(self, config=None):
             observed_configs.append(config)
 
-        def connect(self):
+        def connect(self, port=None):
+            observed_ports.append(port)
             return None
 
         def get_position_info(self):
@@ -209,6 +211,57 @@ def test_connect_uses_selected_gantry_config(monkeypatch, tmp_path):
 
     assert response.status_code == 200
     assert observed_configs[0]["serial_port"] == "/dev/right"
+    assert observed_ports == ["/dev/right"]
+
+
+def test_connect_auto_scans_when_selected_gantry_has_no_serial_port(monkeypatch, tmp_path):
+    from zoo.config import get_settings
+    from zoo.services.yaml_io import write_yaml
+
+    config_dir = tmp_path / "configs"
+    gantry_dir = config_dir / "gantry"
+    gantry_dir.mkdir(parents=True)
+    write_yaml(
+        gantry_dir / "blank-port.yaml",
+        {
+            "serial_port": "",
+            "cnc": {"homing_strategy": "standard", "total_z_height": 80.0},
+            "working_volume": {
+                "x_min": 0.0,
+                "x_max": 300.0,
+                "y_min": 0.0,
+                "y_max": 200.0,
+                "z_min": 0.0,
+                "z_max": 80.0,
+            },
+            "instruments": {},
+        },
+    )
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+
+    observed_ports = []
+
+    class FakeGantry:
+        def __init__(self, config=None):
+            self.config = config
+
+        def connect(self, port=None):
+            observed_ports.append(port)
+
+        def get_position_info(self):
+            return idle_position_info()
+
+    monkeypatch.setattr(gantry_router, "Gantry", FakeGantry)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/connect",
+        json={"filename": "blank-port.yaml"},
+    )
+
+    assert response.status_code == 200
+    assert observed_ports == [None]
 
 
 def test_position_surfaces_alarm_readback_errors_with_cached_coordinates(monkeypatch):
@@ -289,12 +342,14 @@ def test_connect_warns_but_does_not_fail_on_grbl_setting_mismatch(monkeypatch, t
     monkeypatch.setattr(get_settings(), "config_dir", config_dir)
 
     observed_configs = []
+    observed_ports = []
 
     class FakeGantry:
         def __init__(self, config=None):
             observed_configs.append(config)
 
-        def connect(self):
+        def connect(self, port=None):
+            observed_ports.append(port)
             return None
 
         def read_grbl_settings(self):
@@ -328,6 +383,7 @@ def test_connect_warns_but_does_not_fail_on_grbl_setting_mismatch(monkeypatch, t
     assert "$20: expected 1" in body["calibration_warning"]
     assert "$130: expected 306" in body["calibration_warning"]
     assert "grbl_settings" not in observed_configs[0]
+    assert observed_ports == ["/dev/ttyUSB0"]
 
 
 def test_get_gantry_normalizes_legacy_config_for_editing(monkeypatch, tmp_path):
@@ -608,6 +664,7 @@ def test_configure_soft_limits_delegates_to_gantry(monkeypatch):
         max_travel_z=80.0,
         status_report=0.0,
         homing_pull_off=10.0,
+        hard_limits=None,
         tolerance_mm=0.1,
     )
     assert gantry_router._calibration_restore_soft_limits is False
@@ -798,6 +855,7 @@ def test_finalize_origin_returns_controller_span_and_refreshes_connected_config(
         total_z_range=100.0,
         status_report=0,
         homing_pull_off=10.0,
+        hard_limits=None,
         tolerance_mm=0.25,
     )
     assert gantry_router._calibration_restore_soft_limits is False

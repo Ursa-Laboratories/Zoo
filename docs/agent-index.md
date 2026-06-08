@@ -68,5 +68,7 @@ For docs-only changes, direct inspection and grep are acceptable, but PRs should
 
 - Do not duplicate CubOS Pydantic schemas in Zoo models.
 - Do not move validation/business logic from CubOS into Zoo routers.
-- Keep local config directory behavior explicit (`configs/` by default, settings API can redirect it).
+- Keep local config directory behavior explicit (`configs/` by default, settings API or `ZOO_CONFIG_DIR` can redirect it; use `../BU-Configs/configs` for shared lab configs).
+- Keep gantry connection behavior explicit: selected YAML `serial_port` is passed
+  to CubOS when non-empty; blank values use CubOS auto-scan.
 - If a change affects hardware-touching routes, say what can move and what physical validation remains.

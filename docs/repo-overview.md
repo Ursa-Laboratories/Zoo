@@ -48,7 +48,7 @@ connection.
 | `zoo/services/` | YAML file helpers |
 | `frontend/src/` | React + TypeScript application |
 | `frontend/src/components/gantry/` | Gantry jog/readout controls and calibration wizard |
-| `configs/` | Default local config store, empty by default in this checkout |
+| `configs/` | Default local config store, empty by default in this checkout; use `../BU-Configs/configs` for the shared lab tree |
 | `tests/` | Backend tests |
 
 ## Main Entrypoints
@@ -106,13 +106,17 @@ npm run build
 - Requires Node.js for frontend development and build
 - Deck editing and visualization use CubOS' current deck YAML field names (`length`, `width`, `height`, `x_offset`, `y_offset`, `diameter`).
 - Talks directly to local gantry hardware through CubOS when operators use motion endpoints
+- Gantry Connect passes the selected gantry YAML's non-empty `serial_port` to
+  CubOS; blank values fall back to CubOS auto-scan. This lets Zoo connect to a
+  local `digital-sim grbl-sim` pseudo-serial port through the normal hardware
+  path.
 - Manual absolute `Move To` commands are validated against the connected gantry's loaded `working_volume` before Zoo starts motion.
 - Gantry calibration delegates work-coordinate, soft-limit, and limit-recovery operations to CubOS `Gantry`/recovery methods; Zoo only sequences the operator UI and YAML save. During XY origining, Zoo may temporarily disable stale soft limits and restores them on cancel, single-instrument XY completion, disconnect, or successful soft-limit programming. Zoo preserves `cnc.factory_z_travel_mm` as the out-of-box safety bound, reads `cnc.calibration_block_height_mm`, and writes calibrated Z bounds from home-to-block travel plus the final homed readback. `working_volume` is the usable deck/WPos range; saved GRBL `max_travel_*` values are controller soft-limit spans that include the `$27` homing pull-off reserve. Calibration sets `$10=0` for WPos reports and writes the machine's configured `homing_pull_off` before homing so MPos/WCO reporting does not leak into deck-origin math. If an interactive calibration jog or automatic blocking retract trips a GRBL alarm, Zoo stops repeated jogs, locks calibration controls, tells the operator a limit was hit, and calls CubOS limit recovery before allowing calibration to continue. Disconnect surfaces soft-limit restore failures instead of silently reporting success.
 - Advanced gantry recovery endpoints still route through CubOS `Gantry`; Zoo does not expose arbitrary raw serial command entry.
 
 ## Known Pitfalls
 
-- The repo currently has an empty default `configs/` directory; first-time users need to populate or redirect it.
+- The repo currently has an empty default `configs/` directory; first-time users need to populate it or redirect to `../BU-Configs/configs`.
 - `python -m zoo` may build the frontend automatically if `frontend/dist/` is absent.
 - The shared gantry instance is process-local and serial access is deliberately locked.
 - `raw` endpoints bypass schema-aware editing and can write malformed YAML if used carelessly.

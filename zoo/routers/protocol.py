@@ -6,8 +6,11 @@ so any new @protocol_command in CubOS is automatically available.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import logging
-from typing import Any, Dict, List
+from pathlib import Path
+import tempfile
+from typing import Any, Dict, Iterator, List
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -67,6 +70,26 @@ def _build_command_info(name: str) -> CommandInfo:
         description=(cmd.handler.__doc__ or "").strip(),
         args=args,
     )
+
+
+@contextmanager
+def _normalized_gantry_config_path(gantry_path: Path) -> Iterator[Path]:
+    """Yield a temp gantry YAML normalized through Zoo's CubOS schema shim."""
+    from zoo.routers import gantry as gantry_router
+
+    try:
+        data = read_yaml(gantry_path)
+        normalized = gantry_router._validated_gantry_config(data).model_dump(
+            mode="json",
+            exclude_none=True,
+        )
+    except Exception as exc:
+        raise HTTPException(400, f"Invalid gantry config: {exc}") from exc
+
+    with tempfile.TemporaryDirectory(prefix="zoo-gantry-") as tmp_dir:
+        normalized_path = Path(tmp_dir) / gantry_path.name
+        write_yaml(normalized_path, normalized)
+        yield normalized_path
 
 
 # ---------------------------------------------------------------------------
@@ -170,11 +193,14 @@ def validate_protocol_setup(
     protocol_path = resolve_config_path(settings.configs_dir, "protocol", body.protocol_file)
 
     try:
-        result = run_setup_validation(
-            str(gantry_path),
-            str(deck_path),
-            str(protocol_path),
-        )
+        with _normalized_gantry_config_path(gantry_path) as normalized_gantry_path:
+            result = run_setup_validation(
+                str(normalized_gantry_path),
+                str(deck_path),
+                str(protocol_path),
+            )
+    except HTTPException:
+        raise
     except Exception as exc:
         logging.exception("Setup validation failed unexpectedly")
         raise HTTPException(500, f"Setup validation failed: {exc}") from exc
@@ -234,10 +260,13 @@ def run_protocol_endpoint(body: RunProtocolRequest) -> dict:
                 )
             if not gantry_router._gantry.is_healthy():
                 raise HTTPException(400, "Gantry is not connected")
-            results = run_protocol(
-                str(gantry_path), str(deck_path), str(protocol_path),
-                gantry=gantry_router._gantry,
-            )
+            with _normalized_gantry_config_path(gantry_path) as normalized_gantry_path:
+                results = run_protocol(
+                    str(normalized_gantry_path),
+                    str(deck_path),
+                    str(protocol_path),
+                    gantry=gantry_router._gantry,
+                )
     except HTTPException:
         raise
     except SetupValidationError as exc:

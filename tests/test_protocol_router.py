@@ -11,6 +11,31 @@ from zoo.config import get_settings
 from zoo.services.yaml_io import read_yaml, write_yaml
 
 
+def write_legacy_gantry(path: Path) -> None:
+    write_yaml(
+        path,
+        {
+            "serial_port": "/dev/null",
+            "gantry_type": "cub",
+            "cnc": {
+                "homing_strategy": "standard",
+                "total_z_range": 80.0,
+                "y_axis_motion": "head",
+                "safe_z": 70.0,
+            },
+            "working_volume": {
+                "x_min": 0.0,
+                "x_max": 300.0,
+                "y_min": 0.0,
+                "y_max": 200.0,
+                "z_min": 0.0,
+                "z_max": 80.0,
+            },
+            "instruments": {},
+        },
+    )
+
+
 @pytest.fixture()
 def tmp_configs(monkeypatch):
     """Create a temp configs dir with a sample protocol."""
@@ -160,8 +185,9 @@ def test_validate_setup_endpoint_calls_cubos_validation(monkeypatch, tmp_path):
 
     for subdir in ("gantry", "deck", "protocol"):
         (tmp_path / subdir).mkdir()
+    write_legacy_gantry(tmp_path / "gantry" / "gantry.yaml")
 
-    observed: dict[str, tuple[str, str, str]] = {}
+    observed: dict[str, object] = {}
 
     class FakeResult:
         passed = True
@@ -170,6 +196,7 @@ def test_validate_setup_endpoint_calls_cubos_validation(monkeypatch, tmp_path):
 
     def fake_run_setup_validation(gantry_path: str, deck_path: str, protocol_path: str):
         observed["paths"] = (gantry_path, deck_path, protocol_path)
+        observed["gantry"] = read_yaml(Path(gantry_path))
         return FakeResult()
 
     monkeypatch.setattr(protocol_router, "run_setup_validation", fake_run_setup_validation)
@@ -196,11 +223,15 @@ def test_validate_setup_endpoint_calls_cubos_validation(monkeypatch, tmp_path):
         "errors": [],
         "output": "RESULT: PASS",
     }
-    assert observed["paths"] == (
-        str(tmp_path / "gantry" / "gantry.yaml"),
+    assert observed["paths"][0] != str(tmp_path / "gantry" / "gantry.yaml")
+    assert observed["paths"][0].endswith("gantry.yaml")
+    assert observed["paths"][1:] == (
         str(tmp_path / "deck" / "deck.yaml"),
         str(tmp_path / "protocol" / "protocol.yaml"),
     )
+    normalized = observed["gantry"]
+    assert normalized["cnc"]["factory_z_travel_mm"] == 80.0
+    assert "total_z_range" not in normalized["cnc"]
 
 
 def test_validate_setup_endpoint_returns_validation_errors(monkeypatch, tmp_path):
@@ -208,6 +239,7 @@ def test_validate_setup_endpoint_returns_validation_errors(monkeypatch, tmp_path
 
     for subdir in ("gantry", "deck", "protocol"):
         (tmp_path / subdir).mkdir()
+    write_legacy_gantry(tmp_path / "gantry" / "gantry.yaml")
 
     class FakeResult:
         passed = False
@@ -260,6 +292,7 @@ def test_run_endpoint_holds_serial_lock_for_duration(monkeypatch, tmp_configs):
     from zoo.routers import protocol as protocol_router
 
     observations: list[tuple[str, bool]] = []
+    observed_gantry: dict[str, object] = {}
 
     mock_gantry = MagicMock()
 
@@ -269,11 +302,13 @@ def test_run_endpoint_holds_serial_lock_for_duration(monkeypatch, tmp_configs):
 
     mock_gantry.is_healthy.side_effect = observe_is_healthy
 
-    def fake_run(*_a, gantry=None, **_kw):
+    def fake_run(gantry_path, *_a, gantry=None, **_kw):
         observations.append(("run_lock_held", gantry_router._serial_lock.locked()))
+        observed_gantry.update(read_yaml(pathlib.Path(gantry_path)))
         return []
 
     monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+    monkeypatch.setattr(gantry_router, "_calibration_warning", None)
     monkeypatch.setattr(protocol_router, "run_protocol", fake_run)
 
     # Minimal viable path resolution: create the YAMLs /run checks
@@ -284,9 +319,12 @@ def test_run_endpoint_holds_serial_lock_for_duration(monkeypatch, tmp_configs):
         d_path = pathlib.Path(d)
         for sub in ("gantry", "deck", "protocol"):
             (d_path / sub).mkdir()
-            wy(d_path / sub / "test.yaml", {})
+        write_legacy_gantry(d_path / "gantry" / "test.yaml")
+        wy(d_path / "deck" / "test.yaml", {})
+        wy(d_path / "protocol" / "test.yaml", {})
         monkeypatch.setattr(
-            "zoo.config.get_settings",
+            protocol_router,
+            "get_settings",
             lambda: type("S", (), {"configs_dir": d_path})(),
         )
 
@@ -304,6 +342,8 @@ def test_run_endpoint_holds_serial_lock_for_duration(monkeypatch, tmp_configs):
     assert response.status_code == 200
     assert ("is_healthy_lock_held", True) in observations
     assert ("run_lock_held", True) in observations
+    assert observed_gantry["cnc"]["factory_z_travel_mm"] == 80.0
+    assert "total_z_range" not in observed_gantry["cnc"]
     # Lock released after the endpoint returns — no leak.
     assert gantry_router._serial_lock.locked() is False
 

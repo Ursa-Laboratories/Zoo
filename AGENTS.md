@@ -64,6 +64,9 @@ Do not assign the pull-off reserve as usable WPos. Normal gantry jogs are guarde
 ## Local State
 
 - Default config directory: `configs/`
+- Shared lab config directory: `../BU-Configs/configs` via `ZOO_CONFIG_DIR` or settings
+- Gantry Connect passes a non-empty selected YAML `serial_port` through to
+  CubOS; blank values still use CubOS auto-scan.
 - Settings are exposed through `/api/settings`
 - Frontend build output lives in `frontend/dist/`
 

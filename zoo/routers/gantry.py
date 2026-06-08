@@ -368,6 +368,16 @@ def _apply_calibration_grbl_baseline() -> tuple[float, Optional[float]]:
     return status_report, homing_pull_off
 
 
+def _configured_serial_port(config: Dict[str, Any]) -> Optional[str]:
+    """Return the selected gantry YAML serial port, if it is usable."""
+    serial_port = config.get("serial_port")
+    if isinstance(serial_port, str):
+        serial_port = serial_port.strip()
+        if serial_port:
+            return serial_port
+    return None
+
+
 def _calibration_mismatch_warning(
     gantry: Gantry,
     config: Dict[str, Any],
@@ -1246,8 +1256,13 @@ def connect(body: Optional[ConnectRequest] = None) -> GantryPosition:
             # success so /position sees _gantry=None until we're ready, and
             # so a transient failure on reconnect doesn't clobber a prior
             # working connection.
-            staged = Gantry(config=_runtime_connect_config(config))
-            staged.connect()
+            runtime_config = _runtime_connect_config(config)
+            staged = Gantry(config=runtime_config)
+            configured_port = _configured_serial_port(runtime_config)
+            if configured_port:
+                staged.connect(port=configured_port)
+            else:
+                staged.connect()
             calibration_warning = _calibration_mismatch_warning(staged, config)
             # Seed WCO cache — GRBL sends WCO in one of the first few status reports.
             for _ in range(10):
