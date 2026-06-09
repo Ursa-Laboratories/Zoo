@@ -29,6 +29,10 @@ interface Props {
   isValidating: boolean;
   onRefresh: () => void;
   onRun: () => void;
+  /** Names of configs (Gantry/Deck/Protocol) with unsaved local edits.
+   * Run is blocked while non-empty because it executes the saved files,
+   * not these in-memory edits. */
+  unsavedConfigs: string[];
   canRun: boolean;
   isRunning: boolean;
   runResult: { status: string; steps_executed: number } | null;
@@ -100,6 +104,7 @@ export default function ProtocolEditor({
   validationErrors,
   isValidating,
   onRun,
+  unsavedConfigs,
   canRun,
   isRunning,
   runResult,
@@ -243,8 +248,10 @@ export default function ProtocolEditor({
   };
 
   const hasSteps = steps.length > 0;
+  const hasUnsaved = unsavedConfigs.length > 0;
+  const protocolDirty = unsavedConfigs.includes("Protocol");
   const canSave = hasSteps && (!!saveAs.trim() || !!selectedFile) && !saving && !hasPositionErrors;
-  const runDisabled = isRunning || !hasSteps || !canRun;
+  const runDisabled = isRunning || !hasSteps || !canRun || hasUnsaved;
 
   return (
     <div>
@@ -434,6 +441,13 @@ export default function ProtocolEditor({
 
       {hasSteps && (
         <div style={{ marginTop: 12 }}>
+          {hasUnsaved && (
+            <div role="alert" style={unsavedBannerStyle}>
+              <strong>Unsaved changes.</strong>{" "}
+              You've edited {unsavedConfigs.join(", ")} since loading. Run Protocol uses the
+              saved files, not your edits — save {unsavedConfigs.length > 1 ? "those configs" : "it"} before running.
+            </div>
+          )}
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <input
               value={saveAs}
@@ -446,8 +460,18 @@ export default function ProtocolEditor({
             </button>
             <button onClick={handleSave} disabled={!canSave} style={saveBtnStyle}>
               Save
+              {protocolDirty && (
+                // aria-hidden so the accessible name stays "Save"; the
+                // amber asterisk is a sighted-only unsaved-edit cue.
+                <span aria-hidden="true" title="Unsaved changes" style={{ marginLeft: 4, fontWeight: 700 }}>*</span>
+              )}
             </button>
-            <button onClick={onRun} disabled={runDisabled} style={runBtnStyle}>
+            <button
+              onClick={onRun}
+              disabled={runDisabled}
+              title={hasUnsaved ? "Save your changes before running" : undefined}
+              style={runDisabled ? { ...runBtnStyle, opacity: 0.5, cursor: "not-allowed" } : runBtnStyle}
+            >
               {isRunning ? "Running..." : "Run Protocol"}
             </button>
           </div>
@@ -990,6 +1014,16 @@ const saveBtnStyle: React.CSSProperties = {
   cursor: "pointer",
   fontSize: 13,
   fontWeight: 600,
+};
+
+const unsavedBannerStyle: React.CSSProperties = {
+  background: "#fffbeb",
+  border: "1px solid #f59e0b",
+  borderRadius: 4,
+  color: "#92400e",
+  fontSize: 12,
+  padding: "8px 12px",
+  marginBottom: 10,
 };
 
 const runBtnStyle: React.CSSProperties = {

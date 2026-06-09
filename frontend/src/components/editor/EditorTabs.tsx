@@ -4,6 +4,10 @@ type TabName = (typeof TABS)[number];
 interface Props {
   activeTab: string;
   onTabChange: (tab: string) => void;
+  /** Tabs whose editor has unsaved local edits. Renders an amber dot
+   * next to the label so the user knows that tab changed but isn't
+   * persisted yet. */
+  dirtyTabs?: string[];
   disabledTabs?: string[];
   disabledMessage?: string | null;
   /**
@@ -19,6 +23,7 @@ interface Props {
 export default function EditorTabs({
   activeTab,
   onTabChange,
+  dirtyTabs = [],
   disabledTabs = [],
   disabledMessage,
   loadedFilenames,
@@ -28,6 +33,7 @@ export default function EditorTabs({
       <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #ddd", marginBottom: disabledMessage && activeTab === "Protocol" ? 0 : 16 }}>
         {TABS.map((tab) => {
           const disabled = disabledTabs.includes(tab);
+          const dirty = dirtyTabs.includes(tab);
           const filename = loadedFilenames?.[tab] || null;
           return (
             <button
@@ -55,7 +61,21 @@ export default function EditorTabs({
                 minWidth: 120,
               }}
             >
-              <span>{tab}</span>
+              <span>
+                {tab}
+                {dirty && (
+                  // aria-hidden so the button's accessible name stays the
+                  // bare section label ("Deck", ...) — the dot is a
+                  // sighted-only unsaved-changes cue.
+                  <span
+                    aria-hidden="true"
+                    title="Unsaved changes"
+                    style={{ color: "#d97706", marginLeft: 6, fontSize: 11, fontWeight: 700 }}
+                  >
+                    ●
+                  </span>
+                )}
+              </span>
               <span
                 // Hide the filename line from the accessibility tree so
                 // the button's accessible name stays exactly the section

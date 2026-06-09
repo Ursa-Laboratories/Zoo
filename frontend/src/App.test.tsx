@@ -206,6 +206,9 @@ function installFetchMock(state: ApiState) {
         },
       ]);
     }
+    if (path === "/api/protocol/run" && method === "POST") {
+      return jsonResponse({ status: "complete", steps_executed: 1 });
+    }
     if (path === "/api/protocol/validate-setup" && method === "POST") {
       return jsonResponse({
         valid: true,
@@ -333,6 +336,11 @@ async function loadRequiredProtocolDependencies(user: ReturnType<typeof userEven
   await importConfig(user, "Import gantry config", "cubos.yaml");
   await user.click(screen.getByRole("button", { name: "Deck" }));
   await importConfig(user, "Import deck config", "deck.yaml");
+}
+
+async function connectGantry(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: "Connect" }));
+  await screen.findByRole("button", { name: "Disconnect" });
 }
 
 describe("Zoo editor interactions", () => {
@@ -676,6 +684,84 @@ describe("Zoo editor interactions", () => {
       "/api/protocol/run",
       expect.anything(),
     );
+  });
+
+  it("blocks Run Protocol after editing a loaded protocol until the change is saved", async () => {
+    const user = userEvent.setup();
+    const state = createState();
+    const fetchMock = installFetchMock(state);
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+    await connectGantry(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+
+    // Gantry is connected and nothing edited yet: Run is allowed.
+    const runButton = await screen.findByRole("button", { name: "Run Protocol" });
+    await waitFor(() => expect(runButton).toBeEnabled());
+
+    // Editing a field marks the protocol dirty: Run must be blocked and
+    // the user warned, and clicking it must not hit the run endpoint.
+    const travelZField = await screen.findByLabelText("Travel Z");
+    await user.clear(travelZField);
+    await user.type(travelZField, "99");
+
+    expect(await screen.findByText(/Unsaved changes/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Run Protocol" })).toBeDisabled());
+    await user.click(screen.getByRole("button", { name: "Run Protocol" }));
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/protocol/run", expect.anything());
+
+    // Saving clears the dirty state and re-enables running.
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(state.protocols["move.yaml"]?.steps[0].args.travel_z).toBe(99));
+    await waitFor(() => expect(screen.queryByText(/Unsaved changes/i)).not.toBeInTheDocument());
+
+    const runAfterSave = screen.getByRole("button", { name: "Run Protocol" });
+    await waitFor(() => expect(runAfterSave).toBeEnabled());
+    await user.click(runAfterSave);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/protocol/run",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          gantry_file: "cubos.yaml",
+          deck_file: "panda-deck.yaml",
+          protocol_file: "move.yaml",
+        }),
+      }),
+    ));
+    expect(await screen.findByText(/Protocol complete/i)).toBeInTheDocument();
+  });
+
+  it("blocks Run Protocol when an unsaved edit lives in another tab (Deck)", async () => {
+    const user = userEvent.setup();
+    const state = createState();
+    const fetchMock = installFetchMock(state);
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+    await connectGantry(user);
+
+    // Edit the deck but do NOT save it.
+    await user.click(screen.getByRole("button", { name: "Deck" }));
+    const deckNameField = await screen.findByDisplayValue("Deck Plate");
+    await user.clear(deckNameField);
+    await user.type(deckNameField, "Edited Plate");
+
+    // The protocol itself is untouched, but Run executes the saved deck
+    // file, so the unsaved deck edit must still block running.
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveTextContent(/Unsaved changes/i);
+    expect(banner).toHaveTextContent("Deck");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Run Protocol" })).toBeDisabled());
+    await user.click(screen.getByRole("button", { name: "Run Protocol" }));
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/protocol/run", expect.anything());
   });
 
   it("adds protocol steps with deck, instrument, method, and ASMI force-limit choices", async () => {
