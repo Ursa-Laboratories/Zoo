@@ -363,6 +363,7 @@ export default function App() {
             onSelectFile={setDeckFile}
             onImportFile={handleImportDeck}
             deck={localDeck ?? deckQuery.data ?? null}
+            dirty={deckDirty}
             onSave={async (filename, body) => {
               await saveDeck.mutateAsync({ filename, body });
               setLocalDeck(null);
@@ -386,6 +387,7 @@ export default function App() {
             baseline={gantryQuery.data ?? null}
             instrumentTypes={instrumentTypes.data ?? []}
             instrumentSchemas={instrumentSchemas.data ?? {}}
+            dirty={gantryDirty}
             onSave={async (filename, body) => {
               await saveGantry.mutateAsync({ filename, body });
               setLocalGantry(null);

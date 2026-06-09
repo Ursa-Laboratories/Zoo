@@ -250,6 +250,10 @@ export default function ProtocolEditor({
   const hasSteps = steps.length > 0;
   const hasUnsaved = unsavedConfigs.length > 0;
   const protocolDirty = unsavedConfigs.includes("Protocol");
+  // Deck/Gantry edits are saved in their own tabs, so the protocol-tab
+  // banner only points the user there rather than asking them to save
+  // those configs from here.
+  const otherDirty = unsavedConfigs.filter((name) => name !== "Protocol");
   const canSave = hasSteps && (!!saveAs.trim() || !!selectedFile) && !saving && !hasPositionErrors;
   const runDisabled = isRunning || !hasSteps || !canRun || hasUnsaved;
 
@@ -444,8 +448,12 @@ export default function ProtocolEditor({
           {hasUnsaved && (
             <div role="alert" style={unsavedBannerStyle}>
               <strong>Unsaved changes.</strong>{" "}
-              You've edited {unsavedConfigs.join(", ")} since loading. Run Protocol uses the
-              saved files, not your edits — save {unsavedConfigs.length > 1 ? "those configs" : "it"} before running.
+              {protocolDirty && "Save this protocol before running. "}
+              {otherDirty.length > 0 && (
+                `${otherDirty.join(" and ")} ${otherDirty.length > 1 ? "have" : "has"} unsaved edits — `
+                  + `save ${otherDirty.length > 1 ? "them in their tabs" : `it in the ${otherDirty[0]} tab`}. `
+              )}
+              Run Protocol uses the saved files, not your edits.
             </div>
           )}
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>

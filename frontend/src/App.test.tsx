@@ -764,6 +764,48 @@ describe("Zoo editor interactions", () => {
     expect(fetchMock).not.toHaveBeenCalledWith("/api/protocol/run", expect.anything());
   });
 
+  it("prompts to save deck edits in the Deck tab", async () => {
+    const user = userEvent.setup();
+    installFetchMock(createState());
+    renderApp();
+    await waitForSettingsLoad();
+
+    await user.click(screen.getByRole("button", { name: "Deck" }));
+    await importConfig(user, "Import deck config", "deck.yaml");
+    const nameField = await screen.findByDisplayValue("Deck Plate");
+
+    // No prompt before editing.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    await user.clear(nameField);
+    await user.type(nameField, "Renamed Plate");
+
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveTextContent(/Unsaved changes/i);
+    expect(banner).toHaveTextContent(/save this deck/i);
+  });
+
+  it("prompts to save gantry edits and keeps GRBL under an Advanced settings expander", async () => {
+    const user = userEvent.setup();
+    installFetchMock(createState());
+    renderApp();
+    await waitForSettingsLoad();
+
+    await importConfig(user, "Import gantry config", "cubos.yaml");
+    await screen.findByLabelText("Serial port");
+
+    // GRBL fields are hidden until Advanced settings is expanded.
+    expect(screen.queryByLabelText("Steps/mm X")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Advanced settings/ }));
+    expect(await screen.findByLabelText("Steps/mm X")).toBeInTheDocument();
+
+    // Editing prompts to save in this (Gantry) tab.
+    await user.type(screen.getByLabelText("Serial port"), "/dev/ttyUSB9");
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveTextContent(/Unsaved changes/i);
+    expect(banner).toHaveTextContent(/save this gantry/i);
+  });
+
   it("adds protocol steps with deck, instrument, method, and ASMI force-limit choices", async () => {
     const user = userEvent.setup();
     const state = createState();
