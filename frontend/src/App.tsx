@@ -7,6 +7,7 @@ import EditorTabs from "./components/editor/EditorTabs";
 import DeckEditor from "./components/editor/DeckEditor";
 import GantryEditor from "./components/editor/GantryEditor";
 import ProtocolEditor from "./components/editor/ProtocolEditor";
+import DataOutputPanel from "./components/data/DataOutputPanel";
 import { settingsApi, deckApi, protocolApi } from "./api/client";
 import { useDeckConfigs, useDeck, useSaveDeck } from "./hooks/useDeck";
 import {
@@ -18,6 +19,7 @@ import {
   useInstrumentSchemas,
 } from "./hooks/useGantryPosition";
 import { useProtocolCommands, useProtocolConfigs, useProtocol, useSaveProtocol, useValidateProtocolSetup } from "./hooks/useProtocol";
+import { useExperimentData } from "./hooks/useExperimentData";
 import type {
   DeckResponse,
   WellPosition,
@@ -41,6 +43,7 @@ const WORKING_DECK_FILENAME = "panda-deck.yaml";
 
 export default function App() {
   const qc = useQueryClient();
+  const [activeView, setActiveView] = useState<"Workflow" | "Results">("Workflow");
   const [activeTab, setActiveTab] = useState("Gantry");
   const [campaignId, setCampaignId] = useState("");
   const [configDir, setConfigDir] = useState<string | null>(null);
@@ -96,6 +99,7 @@ export default function App() {
   const protocolQuery = useProtocol(protocolFile);
   const saveProtocol = useSaveProtocol();
   const validateProtocolSetup = useValidateProtocolSetup();
+  const experimentData = useExperimentData();
 
   // Local working copies of each editor's edits, kept in App state so
   // they survive tab switches (each editor unmounts on tab-away, which
@@ -203,6 +207,7 @@ export default function App() {
     qc.invalidateQueries({ queryKey: ["deck"] });
     qc.invalidateQueries({ queryKey: ["gantry"] });
     qc.invalidateQueries({ queryKey: ["protocol"] });
+    qc.invalidateQueries({ queryKey: ["data"] });
     setLocalDeck(null);
     setLocalGantry(null);
     setLocalProtocolSteps(null);
@@ -298,7 +303,26 @@ export default function App() {
           </div>
         </label>
       </div>
-      <EditorTabs
+      <div style={viewToggleStyle} aria-label="Workspace view">
+        {(["Workflow", "Results"] as const).map((view) => (
+          <button
+            key={view}
+            type="button"
+            onClick={() => setActiveView(view)}
+            style={{
+              ...viewToggleButtonStyle,
+              background: activeView === view ? "#1f2937" : "transparent",
+              color: activeView === view ? "#fff" : "#4b5563",
+              borderColor: activeView === view ? "#1f2937" : "transparent",
+            }}
+          >
+            {view}
+          </button>
+        ))}
+      </div>
+      {activeView === "Workflow" && (
+        <>
+          <EditorTabs
           activeTab={activeTab}
           onTabChange={setActiveTab}
           dirtyTabs={unsavedConfigs}
@@ -324,7 +348,7 @@ export default function App() {
             Protocol: protocolQuery.data?.filename ?? null,
           }}
         />
-      {activeTab === "Deck" && (
+          {activeTab === "Deck" && (
         <>
           {importError && (
             <div style={importErrorStyle}>Import failed: {importError}</div>
@@ -347,8 +371,8 @@ export default function App() {
             onRefresh={refreshAll}
           />
         </>
-      )}
-      {activeTab === "Gantry" && (
+          )}
+          {activeTab === "Gantry" && (
         <>
           {gantryQuery.isError && gantryFile && (
             <div style={importErrorStyle}>Gantry load failed: {errorMessage(gantryQuery.error)}</div>
@@ -370,8 +394,8 @@ export default function App() {
             onRefresh={refreshAll}
           />
         </>
-      )}
-      {activeTab === "Protocol" && deckQuery.data && gantryQuery.data && (
+          )}
+          {activeTab === "Protocol" && deckQuery.data && gantryQuery.data && (
         <>
           {protocolQuery.isError && protocolFile && (
             <div style={importErrorStyle}>Protocol load failed: {errorMessage(protocolQuery.error)}</div>
@@ -420,6 +444,16 @@ export default function App() {
             runError={runError}
           />
         </>
+          )}
+        </>
+      )}
+      {activeView === "Results" && (
+        <DataOutputPanel
+          campaigns={experimentData.data ?? []}
+          isLoading={experimentData.isLoading}
+          error={experimentData.error}
+          onRefresh={() => experimentData.refetch()}
+        />
       )}
     </div>
   );
@@ -485,6 +519,25 @@ const browseButtonStyle: React.CSSProperties = {
   cursor: "pointer",
   fontSize: 12,
   whiteSpace: "nowrap",
+};
+
+const viewToggleStyle: React.CSSProperties = {
+  display: "inline-flex",
+  gap: 2,
+  padding: 2,
+  marginBottom: 12,
+  border: "1px solid #d1d5db",
+  borderRadius: 4,
+  background: "#f9fafb",
+};
+
+const viewToggleButtonStyle: React.CSSProperties = {
+  border: "1px solid transparent",
+  borderRadius: 3,
+  padding: "5px 12px",
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: "pointer",
 };
 
 const deckVisualizationFrameStyle: React.CSSProperties = {

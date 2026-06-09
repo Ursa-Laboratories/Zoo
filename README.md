@@ -20,6 +20,8 @@ See also:
 - Zoo reads and writes YAML configs from `configs/` by default.
 - The active directory is exposed through `/api/settings` as `config_dir`.
 - Operators can point Zoo at another config directory through the settings UI or API.
+- Stored experiment output is read from `ZOO_DATA_DB_PATH`, defaulting to
+  `data/databases/panda_data.db`.
 - Deck YAML editing follows CubOS' current schema field names such as `length`, `width`, `height`, `x_offset`, `y_offset`, and `diameter`.
 - Gantry YAMLs are read back through CubOS validation before Zoo returns or saves them; missing current fields must be filled and saved in the gantry editor.
 - Malformed YAML returns a load error instead of a server traceback, and hardware controls only enable after the selected gantry file has loaded through CubOS validation.
@@ -49,6 +51,15 @@ See also:
 - Top-level protocol `positions` such as `park_position` are edited in a separate Named Positions panel above the step list; they remain CubOS protocol targets, not protocol steps.
 - Protocol execution is only enabled when the gantry position poll reports an active connection.
 - ASMI indentation steps expose first-class method options, including `force_limit`, `step_size`, `baseline_samples`, and `measure_with_return`, which are saved into `method_kwargs`.
+
+## Results Output
+
+- The Results view lists stored campaign rows with run time, experiment count,
+  well count, and campaign description.
+- ASMI campaign rows can be exported as a ZIP containing raw per-well CSV files
+  and a `metadata.csv` file for per-well run settings.
+- The API surface is `/api/data/campaigns` and
+  `/api/data/campaigns/{campaign_id}/asmi.zip`.
 
 ## Run
 
