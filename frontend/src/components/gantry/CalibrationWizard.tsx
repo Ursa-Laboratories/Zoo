@@ -5,7 +5,6 @@ import type { GantryConfig, GantryPosition, GantryResponse } from "../../types";
 import {
   buildCalibratedConfig,
   calculateSingleInstrumentZCalibration,
-  getCalibrationBlockHeight,
   getConfiguredHomingPullOff,
   getFactoryZTravel,
   type ZCalibrationResult,
@@ -342,6 +341,20 @@ export default function CalibrationWizard({
     setStep(3);
   };
 
+  // Multi-instrument: block height is its own step between XY origin and
+  // Z reference. Validate the entered height, then advance to Z reference.
+  const continueToMultiZReference = () => {
+    setError(null);
+    try {
+      parseBlockHeight(blockHeight);
+    } catch (err) {
+      setError(errorMessage(err));
+      return;
+    }
+    setStatusNote(`Jog ${selectedLowest || "the lowest instrument"} to the shared block point.`);
+    setStep(4);
+  };
+
   const setSingleInstrumentOrigin = () => runAction("Setting origin", async () => {
     if (!config) throw new Error("No gantry config is loaded.");
     const height = parseBlockHeight(blockHeight);
@@ -364,7 +377,7 @@ export default function CalibrationWizard({
       : "Setting Z reference",
     async () => {
     if (!config) throw new Error("No gantry config is loaded.");
-    const height = getCalibrationBlockHeight(config);
+    const height = parseBlockHeight(blockHeight);
     const factoryZTravel = getFactoryZTravel(config);
     const blockTouch = requirePosition(await gantryApi.getPosition());
     const homeZ = isMulti
@@ -394,7 +407,7 @@ export default function CalibrationWizard({
         `${formatCaptured("Z reference set", captured)}; home-to-block travel=${calibration.homeToBlockTravel.toFixed(3)} mm; z min=${calibration.zMin.toFixed(3)} mm; expected home Z=${calibration.zMax.toFixed(3)} mm.`,
       );
     }
-    setStep(isMulti ? 4 : 3);
+    setStep(isMulti ? 5 : 3);
   });
 
   const recordCurrentInstrument = (name: string) => runAction(`Recording ${name} and retracting Z`, async () => {
@@ -409,7 +422,7 @@ export default function CalibrationWizard({
         : formatCaptured(`Recorded ${name} and retracted Z`, captured),
     );
     if (allInstrumentPositionsReady(instruments, nextPositions, selectedReference, selectedLowest)) {
-      setStep(5);
+      setStep(6);
     }
   });
 
@@ -731,23 +744,36 @@ export default function CalibrationWizard({
 
             {isMulti && step === 3 && (
               <div>
+                <h3 style={sectionTitleStyle}>Calibration Block Height</h3>
+                <p style={instructionStyle}>
+                  Enter the height of the calibration block you are using. This sets the Z reference and the saved calibration block height.
+                </p>
+                <div style={fieldRowStyle}>
+                  <label style={fieldStyle}>
+                    <span style={labelStyle}>Block height (mm)</span>
+                    <input
+                      value={blockHeight}
+                      onChange={(event) => setBlockHeight(event.target.value)}
+                      style={inputStyle}
+                      inputMode="decimal"
+                      autoFocus
+                    />
+                  </label>
+                </div>
+                <div style={actionRowStyle}>
+                  <button onClick={continueToMultiZReference} disabled={controlsLocked} style={buttonStateStyle(primaryButtonStyle, controlsLocked)}>Continue</button>
+                </div>
+              </div>
+            )}
+
+            {isMulti && step === 4 && (
+              <div>
                 <h3 style={sectionTitleStyle}>Set Z Reference</h3>
                 <p style={instructionStyle}>
                   The gantry has been re-homed and moved to deck center. Jog {selectedLowest || "the lowest instrument"} to the shared block point, then set Z to the block height there.
                 </p>
-                <div style={fieldRowStyle}>
-                  <label style={fieldStyle}>
-                    <span style={labelStyle}>Calibration block height mm</span>
-                    <input
-                      value={blockHeight}
-                      readOnly
-                      disabled
-                      style={buttonStateStyle(inputStyle, true)}
-                      inputMode="decimal"
-                    />
-                  </label>
-                </div>
                 <div style={summaryGridStyle}>
+                  <Readout label="Block height" value={`${blockHeight || "—"} mm`} />
                   {xyBounds && <Readout label="XY bounds" value={`${xyBounds.x.toFixed(3)}, ${xyBounds.y.toFixed(3)}, ${xyBounds.z.toFixed(3)}`} />}
                   {centerPosition && <Readout label="Deck center" value={`${centerPosition.x.toFixed(3)}, ${centerPosition.y.toFixed(3)}, ${centerPosition.z.toFixed(3)}`} />}
                   <Readout label="Lowest instrument" value={selectedLowest || "Unset"} />
@@ -773,7 +799,7 @@ export default function CalibrationWizard({
               </div>
             )}
 
-            {isMulti && step === 4 && (
+            {isMulti && step === 5 && (
               <div>
                 <h3 style={sectionTitleStyle}>Record Instruments</h3>
                 <p style={instructionStyle}>
@@ -825,7 +851,7 @@ export default function CalibrationWizard({
               </div>
             )}
 
-            {((!isMulti && step === 4) || (isMulti && step === 5)) && (
+            {((!isMulti && step === 4) || (isMulti && step === 6)) && (
               <div>
                 <h3 style={sectionTitleStyle}>Measure And Save</h3>
                 <p style={instructionStyle}>
@@ -1071,7 +1097,7 @@ function allInstrumentPositionsReady(
 
 function stepLabels(isMulti: boolean): string[] {
   return isMulti
-    ? ["Prepare", "Home", "XY origin", "Z reference", "Instruments", "Save"]
+    ? ["Prepare", "Home", "XY origin", "Block height", "Z reference", "Instruments", "Save"]
     : ["Prepare", "Home", "Block height", "Set origin", "Save"];
 }
 
