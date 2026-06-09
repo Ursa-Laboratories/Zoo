@@ -7,6 +7,7 @@ import io
 import json
 import re
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -36,8 +37,8 @@ def list_experiments() -> list[ExperimentSummary]:
     if not db_path.is_file():
         return []
 
-    with _connect(db_path) as conn:
-        _ensure_tables(conn, ("campaigns", "experiments"))
+    with closing(_connect(db_path)) as conn:
+        _ensure_tables(conn, ("campaigns", "experiments", "asmi_measurements"))
         rows = conn.execute(
             """
             SELECT
@@ -67,9 +68,9 @@ def export_asmi_csv(experiment_id: int) -> Response:
     if not db_path.is_file():
         raise HTTPException(404, f"Data database not found: {db_path}")
 
-    with _connect(db_path) as conn:
+    with closing(_connect(db_path)) as conn:
         _ensure_tables(conn, ("experiments", "asmi_measurements"))
-        row = conn.execute(
+        rows = conn.execute(
             """
             SELECT
                 m.id AS measurement_id,
@@ -91,17 +92,16 @@ def export_asmi_csv(experiment_id: int) -> Response:
             JOIN experiments e ON e.id = m.experiment_id
             WHERE e.id = ?
             ORDER BY m.id
-            LIMIT 1
             """,
             (experiment_id,),
-        ).fetchone()
+        ).fetchall()
 
-    if row is None:
+    if not rows:
         raise HTTPException(404, f"No ASMI measurement found for experiment {experiment_id}")
 
-    filename = _filename_for_row(row)
+    filename = _filename_for_row(rows[0])
     return Response(
-        content=_asmi_new_csv(row),
+        content="\n".join(_asmi_new_csv(row) for row in rows),
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
