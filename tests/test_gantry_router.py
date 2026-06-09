@@ -608,6 +608,7 @@ def test_configure_soft_limits_delegates_to_gantry(monkeypatch):
         max_travel_z=80.0,
         status_report=0.0,
         homing_pull_off=10.0,
+        hard_limits=None,
         tolerance_mm=0.1,
     )
     assert gantry_router._calibration_restore_soft_limits is False
@@ -798,6 +799,7 @@ def test_finalize_origin_returns_controller_span_and_refreshes_connected_config(
         total_z_range=100.0,
         status_report=0,
         homing_pull_off=10.0,
+        hard_limits=None,
         tolerance_mm=0.25,
     )
     assert gantry_router._calibration_restore_soft_limits is False

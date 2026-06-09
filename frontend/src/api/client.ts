@@ -16,6 +16,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+async function download(path: string): Promise<Blob> {
+  const res = await fetch(`${BASE}${path}`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`${res.status}: ${text}`);
+  }
+  return res.blob();
+}
+
 // Deck
 export const deckApi = {
   listConfigs: () => request<string[]>("/deck/configs"),
@@ -219,6 +228,14 @@ export const settingsApi = {
     request<SettingsResponse>("/settings/browse", {
       method: "POST",
     }),
+};
+
+// Experiment data
+export const dataApi = {
+  listExperiments: () =>
+    request<import("../types").ExperimentSummary[]>("/data/experiments"),
+  exportAsmiCsv: (experimentId: number) =>
+    download(`/data/experiments/${experimentId}/asmi.csv`),
 };
 
 // Raw YAML

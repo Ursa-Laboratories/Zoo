@@ -17,6 +17,7 @@ class ZooSettings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8742
     open_browser: bool = True
+    data_db_path: Path = Path("data/databases/panda_data.db")
 
     def __init__(self, **data):
         super().__init__(**data)
