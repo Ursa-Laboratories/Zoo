@@ -258,6 +258,16 @@ export interface GrblSettingsResponse {
   settings: Record<string, string>;
 }
 
+export interface CampaignSummary {
+  campaign_id: number;
+  campaign_description: string;
+  created_at: string;
+  latest_measurement_at: string | null;
+  experiment_count: number;
+  well_count: number;
+  asmi_measurement_count: number;
+}
+
 // Gantry-mounted instrument introspection (from CubOS)
 
 export interface InstrumentTypeInfo {
