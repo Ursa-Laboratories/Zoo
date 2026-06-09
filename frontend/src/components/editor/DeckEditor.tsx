@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { DeckResponse, LabwareConfig, WellPlateConfig, VialConfig, DeckConfig } from "../../types";
-import { CoordinateField, NumberField, SaveButton, TextField } from "./fields";
+import { CoordinateField, NumberField, SaveButton, TextField, UnsavedNotice } from "./fields";
 import ImportFromFile from "./ImportFromFile";
 
 interface Props {
@@ -11,6 +11,10 @@ interface Props {
   deck: DeckResponse | null;
   onSave: (filename: string, body: DeckConfig) => Promise<void> | void;
   onLocalChange: (deck: DeckResponse) => void;
+  /** True when this deck has local edits not yet saved to disk. The
+   * prompt to save lives here (not in the Protocol tab) because this is
+   * where the deck is written. */
+  dirty?: boolean;
   onRefresh: () => void;
 }
 
@@ -83,7 +87,7 @@ function labwareFromDeck(deck: DeckResponse | null): Record<string, LabwareConfi
   return obj;
 }
 
-export default function DeckEditor({ configs, selectedFile, onSelectFile, onImportFile, deck, onSave, onLocalChange }: Props) {
+export default function DeckEditor({ configs, selectedFile, onSelectFile, onImportFile, deck, onSave, onLocalChange, dirty }: Props) {
   const [labware, setLabware] = useState<Record<string, LabwareConfig>>(() => labwareFromDeck(deck));
   const [saveAs, setSaveAs] = useState("");
   const [saving, setSaving] = useState(false);
@@ -174,17 +178,25 @@ export default function DeckEditor({ configs, selectedFile, onSelectFile, onImpo
       ))}
 
       {hasItems && (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12 }}>
-          <input
-            value={saveAs}
-            onChange={(e) => setSaveAs(e.target.value)}
-            placeholder={selectedFile ?? "my_deck.yaml"}
-            style={filenameInputStyle}
-          />
-          <SaveButton
-            disabled={!canSave}
-            onClick={handleSave}
-          />
+        <div style={{ marginTop: 12 }}>
+          {dirty && (
+            <UnsavedNotice>
+              <strong>Unsaved changes.</strong>{" "}
+              Save this deck before running a protocol — runs use the saved file, not your edits.
+            </UnsavedNotice>
+          )}
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              value={saveAs}
+              onChange={(e) => setSaveAs(e.target.value)}
+              placeholder={selectedFile ?? "my_deck.yaml"}
+              style={filenameInputStyle}
+            />
+            <SaveButton
+              disabled={!canSave}
+              onClick={handleSave}
+            />
+          </div>
         </div>
       )}
     </div>

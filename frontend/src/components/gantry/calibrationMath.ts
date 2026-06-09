@@ -39,15 +39,20 @@ export function getCalculatedZRange(config: GantryConfig): number {
   return getFactoryZTravel(config);
 }
 
+// GRBL's standard $27 homing pull-off default (mm). Used when the seed
+// YAML doesn't specify one so calibration isn't blocked — the calibrated
+// config we write back includes this value, so it self-heals on save.
+export const DEFAULT_HOMING_PULL_OFF_MM = 1;
+
 export function getConfiguredHomingPullOff(config: GantryConfig): number {
   const raw = config.grbl_settings?.homing_pull_off;
   if (raw == null) {
-    throw new Error(
-      "grbl_settings.homing_pull_off is not set. Add a non-negative value to the gantry YAML and save before calibrating.",
-    );
+    return DEFAULT_HOMING_PULL_OFF_MM;
   }
   const value = Number(raw);
   if (!Number.isFinite(value) || value < 0) {
+    // Present but garbage (negative/NaN) is a real config error worth
+    // surfacing rather than silently overriding.
     throw new Error(
       `grbl_settings.homing_pull_off must be a non-negative finite number (got ${raw}). Fix the gantry YAML and save.`,
     );

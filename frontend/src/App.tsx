@@ -188,6 +188,21 @@ export default function App() {
     ? [workingVolume.y_min, workingVolume.y_max]
     : [0, 200];
 
+  // Unsaved-edit tracking. Each editor reports edits up into the local
+  // working copies above; a non-null/defined working copy means the user
+  // has changes that are NOT yet written to disk. handleRunProtocol below
+  // posts only filenames, so CubOS re-reads the saved YAML — any unsaved
+  // edit would silently run stale config. We surface the dirty state and
+  // block Run until the user saves, like saving a document.
+  const deckDirty = localDeck !== null;
+  const gantryDirty = localGantry !== null;
+  const protocolDirty = localProtocolSteps !== null || localProtocolPositions !== undefined;
+  const unsavedConfigs = [
+    gantryDirty ? "Gantry" : null,
+    deckDirty ? "Deck" : null,
+    protocolDirty ? "Protocol" : null,
+  ].filter((name): name is string => name !== null);
+
   const refreshAll = () => {
     qc.invalidateQueries({ queryKey: ["deck"] });
     qc.invalidateQueries({ queryKey: ["gantry"] });
@@ -221,6 +236,16 @@ export default function App() {
 
   const handleRunProtocol = async () => {
     if (!gantryFile || !deckFile || !protocolFile) return;
+    if (unsavedConfigs.length > 0) {
+      // Defensive gate behind the disabled Run button: never run stale
+      // saved config when the user has unsaved edits in any tab.
+      setRunResult(null);
+      setRunError(
+        `Save your changes to ${unsavedConfigs.join(", ")} before running — `
+          + "Run Protocol uses the saved files, not your unsaved edits.",
+      );
+      return;
+    }
     if (!gantryConnected) {
       setRunResult(null);
       setRunError("Connect gantry before running a protocol.");
@@ -300,6 +325,7 @@ export default function App() {
           <EditorTabs
           activeTab={activeTab}
           onTabChange={setActiveTab}
+          dirtyTabs={unsavedConfigs}
           disabledTabs={!deckQuery.data || !gantryQuery.data ? ["Protocol"] : []}
           disabledMessage={(() => {
             const missing = [
@@ -337,6 +363,7 @@ export default function App() {
             onSelectFile={setDeckFile}
             onImportFile={handleImportDeck}
             deck={localDeck ?? deckQuery.data ?? null}
+            dirty={deckDirty}
             onSave={async (filename, body) => {
               await saveDeck.mutateAsync({ filename, body });
               setLocalDeck(null);
@@ -360,6 +387,7 @@ export default function App() {
             baseline={gantryQuery.data ?? null}
             instrumentTypes={instrumentTypes.data ?? []}
             instrumentSchemas={instrumentSchemas.data ?? {}}
+            dirty={gantryDirty}
             onSave={async (filename, body) => {
               await saveGantry.mutateAsync({ filename, body });
               setLocalGantry(null);
@@ -411,6 +439,7 @@ export default function App() {
             isValidating={validateProtocolSetup.isPending}
             onRefresh={refreshAll}
             onRun={handleRunProtocol}
+            unsavedConfigs={unsavedConfigs}
             canRun={gantryConnected}
             isRunning={isRunning}
             runResult={runResult}

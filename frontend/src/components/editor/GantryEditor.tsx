@@ -7,7 +7,7 @@ import type {
   InstrumentSchemas,
   InstrumentTypeInfo,
 } from "../../types";
-import { DirtyMarker, NumberField, SaveButton, TextField } from "./fields";
+import { DirtyMarker, NumberField, SaveButton, TextField, UnsavedNotice } from "./fields";
 import { isFieldEqual } from "./field-utils";
 import ImportFromFile from "./ImportFromFile";
 
@@ -27,6 +27,10 @@ interface Props {
    * copy across tab switches (the editor unmounts on tab-away and would
    * otherwise lose its useState). */
   onLocalChange?: (gantry: GantryResponse) => void;
+  /** True when this gantry has local edits not yet saved to disk. The
+   * prompt to save lives here (not in the Protocol tab) because this is
+   * where the gantry is written. */
+  dirty?: boolean;
   onRefresh: () => void;
 }
 
@@ -92,6 +96,7 @@ export default function GantryEditor({
   instrumentSchemas,
   onSave,
   onLocalChange,
+  dirty,
 }: Props) {
   const [config, setConfig] = useState<GantryConfig | null>(() => (
     gantry ? structuredClone(gantry.config) : null
@@ -99,6 +104,12 @@ export default function GantryEditor({
   const [addType, setAddType] = useState<string>("");
   const [saveAs, setSaveAs] = useState("");
   const [saving, setSaving] = useState(false);
+  // GRBL lives under a collapsed "Advanced settings" panel. Start it
+  // open only when GRBL already has unsaved edits (e.g. coming back to
+  // this tab) so hidden changes are never silently buried.
+  const [advancedOpen, setAdvancedOpen] = useState(() => (
+    grblFieldsDiffer(gantry?.config.grbl_settings, baseline?.config.grbl_settings, baseline != null)
+  ));
 
   const selectedAddType = addType || instrumentTypes[0]?.type || "";
 
@@ -169,6 +180,9 @@ export default function GantryEditor({
   // baseline means there's nothing saved yet (brand-new config).
   const base = baseline?.config;
   const notDirty = (a: unknown, b: unknown) => !base || isFieldEqual(a, b);
+  // Aggregate GRBL dirtiness (drives the Advanced-settings dirty marker);
+  // same helper as the auto-expand initializer so the two never disagree.
+  const grblDirty = !!config && grblFieldsDiffer(config.grbl_settings, base?.grbl_settings, !!base);
   const wv = config?.working_volume;
   const bwv = base?.working_volume;
   const cnc = config?.cnc;
@@ -296,34 +310,6 @@ export default function GantryEditor({
               <NumberField id="wv-ymax" name="y_max" label="Y max" value={config.working_volume.y_max} onChange={(v) => commit({ ...config, working_volume: { ...config.working_volume, y_max: v } })} dirty={d.y_max} />
               <NumberField id="wv-zmin" name="z_min" label="Z min" value={config.working_volume.z_min} onChange={(v) => commit({ ...config, working_volume: { ...config.working_volume, z_min: v } })} dirty={d.z_min} />
               <NumberField id="wv-zmax" name="z_max" label="Z max" value={config.working_volume.z_max} onChange={(v) => commit({ ...config, working_volume: { ...config.working_volume, z_max: v } })} dirty={d.z_max} />
-            </div>
-          </div>
-
-          <div style={cardStyle}>
-            <h4 style={{ margin: "0 0 8px", color: "#16a34a", fontSize: 13 }}>GRBL Settings</h4>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              {GRBL_BOOLEAN_FIELDS.map(({ key, label }) => (
-                <OptionalBooleanField
-                  key={key}
-                  id={`grbl-${key}`}
-                  name={key}
-                  label={label}
-                  value={config.grbl_settings?.[key] as boolean | null | undefined}
-                  onChange={(v) => updateGrblSetting(key, v)}
-                  dirty={!!config && !notDirty(config.grbl_settings?.[key], base?.grbl_settings?.[key])}
-                />
-              ))}
-              {GRBL_NUMBER_FIELDS.map(({ key, label }) => (
-                <OptionalNumberField
-                  key={key}
-                  id={`grbl-${key}`}
-                  name={key}
-                  label={label}
-                  value={config.grbl_settings?.[key] as number | null | undefined}
-                  onChange={(v) => updateGrblSetting(key, v)}
-                  dirty={!!config && !notDirty(config.grbl_settings?.[key], base?.grbl_settings?.[key])}
-                />
-              ))}
             </div>
           </div>
 
@@ -457,6 +443,62 @@ export default function GantryEditor({
             })}
           </div>
 
+          <div style={cardStyle}>
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen((open) => !open)}
+              aria-expanded={advancedOpen}
+              style={advancedHeaderStyle}
+            >
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ color: "#6b7280", fontSize: 12, width: 12, display: "inline-block" }}>
+                  {advancedOpen ? "▾" : "▸"}
+                </span>
+                Advanced settings
+                {grblDirty && <DirtyMarker />}
+              </span>
+              <span style={{ color: "#9ca3af", fontSize: 11, fontWeight: 400 }}>GRBL Settings</span>
+            </button>
+            {advancedOpen && (
+              <div style={{ marginTop: 12 }}>
+                <h4 style={{ margin: "0 0 8px", color: "#16a34a", fontSize: 13 }}>GRBL Settings</h4>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {GRBL_BOOLEAN_FIELDS.map(({ key, label }) => (
+                    <OptionalBooleanField
+                      key={key}
+                      id={`grbl-${key}`}
+                      name={key}
+                      label={label}
+                      value={config.grbl_settings?.[key] as boolean | null | undefined}
+                      onChange={(v) => updateGrblSetting(key, v)}
+                      dirty={!notDirty(config.grbl_settings?.[key], base?.grbl_settings?.[key])}
+                    />
+                  ))}
+                  {GRBL_NUMBER_FIELDS.map(({ key, label }) => (
+                    <OptionalNumberField
+                      key={key}
+                      id={`grbl-${key}`}
+                      name={key}
+                      label={label}
+                      value={config.grbl_settings?.[key] as number | null | undefined}
+                      onChange={(v) => updateGrblSetting(key, v)}
+                      dirty={!notDirty(config.grbl_settings?.[key], base?.grbl_settings?.[key])}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {dirty && (
+            <div style={{ marginTop: 12 }}>
+              <UnsavedNotice>
+                <strong>Unsaved changes.</strong>{" "}
+                Save this gantry before running a protocol — runs use the saved file, not your edits.
+              </UnsavedNotice>
+            </div>
+          )}
+
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12 }}>
             <input
               value={saveAs}
@@ -485,6 +527,20 @@ function isValidGantry(config: GantryConfig): boolean {
     if (safe < measurement) return false;
   }
   return true;
+}
+
+// True when any GRBL field in `current` differs from `saved`. A missing
+// baseline (hasBaseline false) means nothing is saved yet, so there is
+// nothing to be dirty against — matches the per-field `notDirty` rule.
+function grblFieldsDiffer(
+  current: GrblSettingsConfig | null | undefined,
+  saved: GrblSettingsConfig | null | undefined,
+  hasBaseline: boolean,
+): boolean {
+  if (!hasBaseline) return false;
+  const c = (current ?? {}) as Record<string, unknown>;
+  const s = (saved ?? {}) as Record<string, unknown>;
+  return [...GRBL_BOOLEAN_FIELDS, ...GRBL_NUMBER_FIELDS].some(({ key }) => !isFieldEqual(c[key], s[key]));
 }
 
 function isInstrumentFieldDirty(
@@ -620,6 +676,21 @@ const cardStyle: React.CSSProperties = {
   borderRadius: 6,
   padding: 12,
   marginTop: 8,
+};
+
+const advancedHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  width: "100%",
+  background: "transparent",
+  border: "none",
+  padding: 0,
+  margin: 0,
+  cursor: "pointer",
+  color: "#374151",
+  fontSize: 13,
+  fontWeight: 700,
 };
 
 const instrumentCardStyle: React.CSSProperties = {

@@ -27,6 +27,28 @@ export function DirtyMarker() {
   );
 }
 
+/** Amber "unsaved changes" banner shown inside an editor when that
+ * editor's config has local edits not yet written to disk. Each tab
+ * owns the prompt for its own config (that's where Save lives), so the
+ * user is told to save where the change happened. */
+export function UnsavedNotice({ children }: { children: React.ReactNode }) {
+  return (
+    <div role="alert" style={unsavedNoticeStyle}>
+      {children}
+    </div>
+  );
+}
+
+const unsavedNoticeStyle: React.CSSProperties = {
+  background: "#fffbeb",
+  border: "1px solid #f59e0b",
+  borderRadius: 4,
+  color: "#92400e",
+  fontSize: 12,
+  padding: "8px 12px",
+  marginBottom: 10,
+};
+
 interface NumberFieldProps {
   id?: string;
   name?: string;
