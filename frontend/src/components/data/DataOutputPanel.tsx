@@ -1,17 +1,17 @@
 import { useState } from "react";
 import type { CSSProperties } from "react";
 import { dataApi } from "../../api/client";
-import type { ExperimentSummary } from "../../types";
+import type { CampaignSummary } from "../../types";
 
 interface Props {
-  experiments: ExperimentSummary[];
+  campaigns: CampaignSummary[];
   isLoading: boolean;
   error: unknown;
   onRefresh: () => void;
 }
 
 export default function DataOutputPanel({
-  experiments,
+  campaigns,
   isLoading,
   error,
   onRefresh,
@@ -19,15 +19,15 @@ export default function DataOutputPanel({
   const [exportingId, setExportingId] = useState<number | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
-  const handleExport = async (experiment: ExperimentSummary) => {
-    setExportingId(experiment.experiment_id);
+  const handleExport = async (campaign: CampaignSummary) => {
+    setExportingId(campaign.campaign_id);
     setExportError(null);
     try {
-      const blob = await dataApi.exportAsmiCsv(experiment.experiment_id);
+      const blob = await dataApi.exportCampaignAsmiZip(campaign.campaign_id);
       const href = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = href;
-      link.download = `experiment_${experiment.experiment_id}_asmi.csv`;
+      link.download = `campaign_${campaign.campaign_id}_asmi_raw_csvs.zip`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -40,11 +40,11 @@ export default function DataOutputPanel({
   };
 
   return (
-    <section style={panelStyle} aria-label="Experiment data output">
+    <section style={panelStyle} aria-label="Campaign results output">
       <div style={headerStyle}>
         <div>
-          <h3 style={titleStyle}>Experiment Data</h3>
-          <div style={subtitleStyle}>Stored experiment output</div>
+          <h3 style={titleStyle}>Campaign Results</h3>
+          <div style={subtitleStyle}>Stored ASMI campaign output</div>
         </div>
         <button onClick={onRefresh} style={secondaryButtonStyle}>
           Refresh
@@ -55,37 +55,39 @@ export default function DataOutputPanel({
         <div style={errorStyle}>Data load failed: {error instanceof Error ? error.message : String(error)}</div>
       )}
       {exportError && (
-        <div style={errorStyle}>CSV export failed: {exportError}</div>
+        <div style={errorStyle}>Export failed: {exportError}</div>
       )}
-      {isLoading && <div style={emptyStyle}>Loading experiments...</div>}
-      {!isLoading && experiments.length === 0 && (
-        <div style={emptyStyle}>No experiments found.</div>
+      {isLoading && <div style={emptyStyle}>Loading campaigns...</div>}
+      {!isLoading && campaigns.length === 0 && (
+        <div style={emptyStyle}>No campaigns found.</div>
       )}
-      {!isLoading && experiments.length > 0 && (
+      {!isLoading && campaigns.length > 0 && (
         <div style={tableFrameStyle}>
           <table style={tableStyle}>
             <thead>
               <tr>
-                <th style={thStyle}>Experiment</th>
+                <th style={thStyle}>Campaign</th>
                 <th style={thStyle}>Run time</th>
-                <th style={thStyle}>Well</th>
+                <th style={thStyle}>Experiments</th>
+                <th style={thStyle}>Wells</th>
                 <th style={thStyle}>Export</th>
               </tr>
             </thead>
             <tbody>
-              {experiments.map((experiment) => {
-                const exportDisabled = experiment.asmi_measurement_count === 0 || exportingId !== null;
+              {campaigns.map((campaign) => {
+                const exportDisabled = campaign.asmi_measurement_count === 0 || exportingId !== null;
                 return (
-                  <tr key={experiment.experiment_id}>
+                  <tr key={campaign.campaign_id}>
                     <td style={tdStyle}>
-                      <div style={strongTextStyle}>Experiment #{experiment.experiment_id}</div>
-                      <div style={metaTextStyle}>{experiment.campaign_description}</div>
+                      <div style={strongTextStyle}>Campaign #{campaign.campaign_id}</div>
+                      <div style={metaTextStyle}>{campaign.campaign_description}</div>
                     </td>
-                    <td style={tdStyle}>{experiment.latest_measurement_at ?? experiment.created_at}</td>
-                    <td style={tdStyle}>{experiment.well_id ?? "-"}</td>
+                    <td style={tdStyle}>{campaign.latest_measurement_at ?? campaign.created_at}</td>
+                    <td style={tdStyle}>{campaign.experiment_count}</td>
+                    <td style={tdStyle}>{campaign.well_count}</td>
                     <td style={tdStyle}>
                       <button
-                        onClick={() => void handleExport(experiment)}
+                        onClick={() => void handleExport(campaign)}
                         disabled={exportDisabled}
                         style={{
                           ...primaryButtonStyle,
@@ -93,7 +95,7 @@ export default function DataOutputPanel({
                           cursor: exportDisabled ? "default" : "pointer",
                         }}
                       >
-                        {exportingId === experiment.experiment_id ? "Exporting..." : "Export CSV"}
+                        {exportingId === campaign.campaign_id ? "Exporting..." : "Export ZIP"}
                       </button>
                     </td>
                   </tr>

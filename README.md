@@ -54,12 +54,12 @@ See also:
 
 ## Results Output
 
-- The Results view lists stored experiment rows with the experiment ID, run time,
-  well, and campaign description.
-- ASMI experiment rows can be exported as raw per-well CSV files matching the
-  `projects/ASMI_new` measurement format.
-- The API surface is `/api/data/experiments` and
-  `/api/data/experiments/{experiment_id}/asmi.csv`.
+- The Results view lists stored campaign rows with run time, experiment count,
+  well count, and campaign description.
+- ASMI campaign rows can be exported as a ZIP of raw per-well CSV files matching
+  the `projects/ASMI_new` measurement format.
+- The API surface is `/api/data/campaigns` and
+  `/api/data/campaigns/{campaign_id}/asmi.zip`.
 
 ## Run
 

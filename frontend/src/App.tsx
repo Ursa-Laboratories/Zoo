@@ -422,7 +422,7 @@ export default function App() {
       )}
       {activeView === "Results" && (
         <DataOutputPanel
-          experiments={experimentData.data ?? []}
+          campaigns={experimentData.data ?? []}
           isLoading={experimentData.isLoading}
           error={experimentData.error}
           onRefresh={() => experimentData.refetch()}

@@ -37,8 +37,8 @@ measure-with-return controls.
 Protocol execution is gated on the gantry position poll reporting an active
 connection.
 The Results view reads CubOS-style SQLite experiment output from `ZOO_DATA_DB_PATH`
-and lets operators export ASMI experiment rows as raw per-well CSV files for
-the `projects/ASMI_new` analysis workflow.
+and lets operators export ASMI campaign rows as ZIPs of raw per-well CSV files
+for the `projects/ASMI_new` analysis workflow.
 
 ## Key Directories
 

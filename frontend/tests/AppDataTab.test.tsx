@@ -11,10 +11,10 @@ function jsonResponse(body: unknown): Response {
   });
 }
 
-function csvResponse(body: string): Response {
+function zipResponse(body: string): Response {
   return new Response(body, {
     status: 200,
-    headers: { "Content-Type": "text/csv" },
+    headers: { "Content-Type": "application/zip" },
   });
 }
 
@@ -70,29 +70,21 @@ function installFetchMock() {
         connected: false,
       });
     }
-    if (path === "/api/data/experiments") {
+    if (path === "/api/data/campaigns") {
       return jsonResponse([
         {
-          experiment_id: 7,
           campaign_id: 1,
           campaign_description: "ASMI sample campaign",
-          labware_name: "asmi_96_well_deck_origin",
-          well_id: "E5",
-          created_at: "2025-10-30 12:21:07",
-          latest_measurement_at: "2025-10-30 12:21:07",
-          asmi_measurement_count: 1,
+          created_at: "2025-10-30 12:20:00",
+          latest_measurement_at: "2025-10-30 12:22:07",
+          experiment_count: 2,
+          well_count: 2,
+          asmi_measurement_count: 2,
         },
       ]);
     }
-    if (path === "/api/data/experiments/7/asmi.csv") {
-      return csvResponse(
-        [
-          "Test_Time,2025-10-30 12:21:07",
-          "Well,E5",
-          "Timestamp(s),Z_Position(mm),Raw_Force(N),Corrected_Force(N),Direction",
-          "1761841220.199,-74.010,0.463,0.004,down",
-        ].join("\n"),
-      );
+    if (path === "/api/data/campaigns/1/asmi.zip") {
+      return zipResponse("mock zip bytes");
     }
 
     return new Response("Not found", { status: 404 });
@@ -120,7 +112,7 @@ describe("Results view", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows experiment output and exports ASMI CSV", async () => {
+  it("shows campaign output and exports ASMI CSV zip", async () => {
     const user = userEvent.setup();
     const fetchMock = installFetchMock();
 
@@ -129,13 +121,14 @@ describe("Results view", () => {
     await screen.findByDisplayValue("/mock/Zoo/configs");
     await user.click(screen.getByRole("button", { name: "Results" }));
 
-    expect(await screen.findByText("Experiment #7")).toBeInTheDocument();
-    expect(screen.getByText("2025-10-30 12:21:07")).toBeInTheDocument();
-    expect(screen.getByText("E5")).toBeInTheDocument();
+    expect(await screen.findByText("Campaign #1")).toBeInTheDocument();
+    expect(screen.getByText("ASMI sample campaign")).toBeInTheDocument();
+    expect(screen.getByText("2025-10-30 12:22:07")).toBeInTheDocument();
+    expect(screen.getAllByText("2")).toHaveLength(2);
 
-    await user.click(screen.getByRole("button", { name: "Export CSV" }));
+    await user.click(screen.getByRole("button", { name: "Export ZIP" }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/data/experiments/7/asmi.csv"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/data/campaigns/1/asmi.zip"));
     expect(URL.createObjectURL).toHaveBeenCalled();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:zoo-asmi-csv");
   });

@@ -230,12 +230,12 @@ export const settingsApi = {
     }),
 };
 
-// Experiment data
+// Result data
 export const dataApi = {
-  listExperiments: () =>
-    request<import("../types").ExperimentSummary[]>("/data/experiments"),
-  exportAsmiCsv: (experimentId: number) =>
-    download(`/data/experiments/${experimentId}/asmi.csv`),
+  listCampaigns: () =>
+    request<import("../types").CampaignSummary[]>("/data/campaigns"),
+  exportCampaignAsmiZip: (campaignId: number) =>
+    download(`/data/campaigns/${campaignId}/asmi.zip`),
 };
 
 // Raw YAML

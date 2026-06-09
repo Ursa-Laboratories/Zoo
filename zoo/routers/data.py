@@ -1,4 +1,4 @@
-"""Data router: browse stored experiment outputs and export raw CSV."""
+"""Data router: browse stored campaign outputs and export raw CSV archives."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import io
 import json
 import re
 import sqlite3
+import zipfile
 from contextlib import closing
 from pathlib import Path
 from typing import Any
@@ -19,20 +20,19 @@ from zoo.config import get_settings
 router = APIRouter(prefix="/api/data", tags=["data"])
 
 
-class ExperimentSummary(BaseModel):
-    experiment_id: int
+class CampaignSummary(BaseModel):
     campaign_id: int
     campaign_description: str
-    labware_name: str
-    well_id: str | None
     created_at: str
     latest_measurement_at: str | None
+    experiment_count: int
+    well_count: int
     asmi_measurement_count: int
 
 
-@router.get("/experiments")
-def list_experiments() -> list[ExperimentSummary]:
-    """Return experiment rows with simple measurement metadata."""
+@router.get("/campaigns")
+def list_campaigns() -> list[CampaignSummary]:
+    """Return campaign rows with simple measurement metadata."""
     db_path = _data_db_path()
     if not db_path.is_file():
         return []
@@ -42,28 +42,27 @@ def list_experiments() -> list[ExperimentSummary]:
         rows = conn.execute(
             """
             SELECT
-                e.id AS experiment_id,
-                e.campaign_id,
+                c.id AS campaign_id,
                 c.description AS campaign_description,
-                e.labware_name,
-                e.well_id,
-                e.created_at,
+                c.created_at,
                 MAX(m.timestamp) AS latest_measurement_at,
+                COUNT(DISTINCT e.id) AS experiment_count,
+                COUNT(DISTINCT e.well_id) AS well_count,
                 COUNT(m.id) AS asmi_measurement_count
-            FROM experiments e
-            JOIN campaigns c ON c.id = e.campaign_id
+            FROM campaigns c
+            LEFT JOIN experiments e ON e.campaign_id = c.id
             LEFT JOIN asmi_measurements m ON m.experiment_id = e.id
-            GROUP BY e.id, e.campaign_id, c.description, e.labware_name, e.well_id, e.created_at
-            ORDER BY e.created_at DESC, e.id DESC
+            GROUP BY c.id, c.description, c.created_at
+            ORDER BY COALESCE(MAX(m.timestamp), c.created_at) DESC, c.id DESC
             """
         ).fetchall()
 
-    return [ExperimentSummary(**dict(row)) for row in rows]
+    return [CampaignSummary(**dict(row)) for row in rows]
 
 
-@router.get("/experiments/{experiment_id}/asmi.csv")
-def export_asmi_csv(experiment_id: int) -> Response:
-    """Export one experiment's ASMI measurements in ASMI_new raw CSV format."""
+@router.get("/campaigns/{campaign_id}/asmi.zip")
+def export_campaign_asmi_zip(campaign_id: int) -> Response:
+    """Export a campaign's ASMI measurements as ASMI_new raw CSV files."""
     db_path = _data_db_path()
     if not db_path.is_file():
         raise HTTPException(404, f"Data database not found: {db_path}")
@@ -90,21 +89,32 @@ def export_asmi_csv(experiment_id: int) -> Response:
                 e.well_id
             FROM asmi_measurements m
             JOIN experiments e ON e.id = m.experiment_id
-            WHERE e.id = ?
+            WHERE e.campaign_id = ?
             ORDER BY m.id
             """,
-            (experiment_id,),
+            (campaign_id,),
         ).fetchall()
 
     if not rows:
-        raise HTTPException(404, f"No ASMI measurement found for experiment {experiment_id}")
+        raise HTTPException(404, f"No ASMI measurement found for campaign {campaign_id}")
 
-    filename = _filename_for_row(rows[0])
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, mode="w", compression=zipfile.ZIP_DEFLATED) as zip_handle:
+        for row in rows:
+            zip_handle.writestr(_filename_for_row(row), _asmi_new_csv(row))
+
+    filename = f"campaign_{campaign_id}_asmi_raw_csvs.zip"
     return Response(
-        content="\n".join(_asmi_new_csv(row) for row in rows),
-        media_type="text/csv",
+        content=archive.getvalue(),
+        media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/experiments")
+def list_experiments() -> list[CampaignSummary]:
+    """Backward-compatible alias for campaign results."""
+    return list_campaigns()
 
 
 def _data_db_path() -> Path:

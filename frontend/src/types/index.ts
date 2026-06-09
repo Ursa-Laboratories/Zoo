@@ -258,14 +258,13 @@ export interface GrblSettingsResponse {
   settings: Record<string, string>;
 }
 
-export interface ExperimentSummary {
-  experiment_id: number;
+export interface CampaignSummary {
   campaign_id: number;
   campaign_description: string;
-  labware_name: string;
-  well_id: string | null;
   created_at: string;
   latest_measurement_at: string | null;
+  experiment_count: number;
+  well_count: number;
   asmi_measurement_count: number;
 }
 
