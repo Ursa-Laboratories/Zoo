@@ -62,7 +62,7 @@ def list_campaigns() -> list[CampaignSummary]:
 
 @router.get("/campaigns/{campaign_id}/asmi.zip")
 def export_campaign_asmi_zip(campaign_id: int) -> Response:
-    """Export a campaign's ASMI measurements as ASMI_new raw CSV files."""
+    """Export a campaign's ASMI measurements as raw CSV files plus metadata."""
     db_path = _data_db_path()
     if not db_path.is_file():
         raise HTTPException(404, f"Data database not found: {db_path}")
@@ -100,8 +100,9 @@ def export_campaign_asmi_zip(campaign_id: int) -> Response:
 
     archive = io.BytesIO()
     with zipfile.ZipFile(archive, mode="w", compression=zipfile.ZIP_DEFLATED) as zip_handle:
+        zip_handle.writestr("metadata.csv", _metadata_csv(rows))
         for row in rows:
-            zip_handle.writestr(_filename_for_row(row), _asmi_new_csv(row))
+            zip_handle.writestr(_filename_for_row(row), _raw_samples_csv(row))
 
     filename = f"campaign_{campaign_id}_asmi_raw_csvs.zip"
     return Response(
@@ -142,40 +143,11 @@ def _ensure_tables(conn: sqlite3.Connection, tables: tuple[str, ...]) -> None:
         )
 
 
-def _asmi_new_csv(row: sqlite3.Row) -> str:
-    z_positions = _json_array(row["z_positions"], "z_positions")
-    raw_forces = _json_array(row["raw_forces"], "raw_forces")
-    corrected_forces = _json_array(row["corrected_forces"], "corrected_forces")
-    timestamps = _json_array_or_default(
-        row["sample_timestamps"],
-        "sample_timestamps",
-        default=[None] * len(z_positions),
-    )
-    directions = _json_array_or_default(
-        row["directions"],
-        "directions",
-        default=[None] * len(z_positions),
-    )
-    _validate_equal_lengths(
-        z_positions=z_positions,
-        raw_forces=raw_forces,
-        corrected_forces=corrected_forces,
-        sample_timestamps=timestamps,
-        directions=directions,
-    )
-
+def _raw_samples_csv(row: sqlite3.Row) -> str:
+    timestamps, z_positions, raw_forces, corrected_forces, directions = _sample_arrays(row)
     has_directions = any(direction not in (None, "") for direction in directions)
     handle = io.StringIO()
     writer = csv.writer(handle, lineterminator="\n")
-    writer.writerow(["Test_Time", row["timestamp"]])
-    writer.writerow(["Well", row["well_id"] or ""])
-    writer.writerow(["Target_Z(mm)", _format_optional(row["z_target_mm"], 3)])
-    writer.writerow(["Step_Size(mm)", _format_optional(row["step_size_mm"], 3)])
-    writer.writerow(["Force_Limit(N)", _format_optional(row["force_limit_n"], 1)])
-    writer.writerow(["Baseline_Force(N)", _format_optional(row["baseline_avg"], 3)])
-    writer.writerow(["Baseline_Std(N)", _format_optional(row["baseline_std"], 3)])
-    writer.writerow(["Force_Exceeded", str(bool(row["force_exceeded"]))])
-    writer.writerow([])
     header = [
         "Timestamp(s)",
         "Z_Position(mm)",
@@ -203,6 +175,67 @@ def _asmi_new_csv(row: sqlite3.Row) -> str:
             sample_row.append("" if direction is None else str(direction))
         writer.writerow(sample_row)
     return handle.getvalue()
+
+
+def _metadata_csv(rows: list[sqlite3.Row]) -> str:
+    handle = io.StringIO()
+    writer = csv.writer(handle, lineterminator="\n")
+    writer.writerow(
+        [
+            "File",
+            "Measurement_ID",
+            "Test_Time",
+            "Well",
+            "Target_Z(mm)",
+            "Step_Size(mm)",
+            "Force_Limit(N)",
+            "Baseline_Force(N)",
+            "Baseline_Std(N)",
+            "Force_Exceeded",
+            "Data_Points",
+        ]
+    )
+    for row in rows:
+        writer.writerow(
+            [
+                _filename_for_row(row),
+                row["measurement_id"],
+                row["timestamp"],
+                row["well_id"] or "",
+                _format_optional(row["z_target_mm"], 3),
+                _format_optional(row["step_size_mm"], 3),
+                _format_optional(row["force_limit_n"], 1),
+                _format_optional(row["baseline_avg"], 3),
+                _format_optional(row["baseline_std"], 3),
+                str(bool(row["force_exceeded"])),
+                row["data_points"],
+            ]
+        )
+    return handle.getvalue()
+
+
+def _sample_arrays(row: sqlite3.Row) -> tuple[list[Any], list[Any], list[Any], list[Any], list[Any]]:
+    z_positions = _json_array(row["z_positions"], "z_positions")
+    raw_forces = _json_array(row["raw_forces"], "raw_forces")
+    corrected_forces = _json_array(row["corrected_forces"], "corrected_forces")
+    timestamps = _json_array_or_default(
+        row["sample_timestamps"],
+        "sample_timestamps",
+        default=[None] * len(z_positions),
+    )
+    directions = _json_array_or_default(
+        row["directions"],
+        "directions",
+        default=[None] * len(z_positions),
+    )
+    _validate_equal_lengths(
+        z_positions=z_positions,
+        raw_forces=raw_forces,
+        corrected_forces=corrected_forces,
+        sample_timestamps=timestamps,
+        directions=directions,
+    )
+    return timestamps, z_positions, raw_forces, corrected_forces, directions
 
 
 def _filename_for_row(row: sqlite3.Row) -> str:

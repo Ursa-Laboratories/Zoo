@@ -56,8 +56,8 @@ See also:
 
 - The Results view lists stored campaign rows with run time, experiment count,
   well count, and campaign description.
-- ASMI campaign rows can be exported as a ZIP of raw per-well CSV files matching
-  the `projects/ASMI_new` measurement format.
+- ASMI campaign rows can be exported as a ZIP containing raw per-well CSV files
+  and a `metadata.csv` file for per-well run settings.
 - The API surface is `/api/data/campaigns` and
   `/api/data/campaigns/{campaign_id}/asmi.zip`.
 

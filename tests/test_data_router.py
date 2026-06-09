@@ -139,7 +139,7 @@ def test_list_campaigns_returns_run_metadata(monkeypatch, tmp_path):
     ]
 
 
-def test_export_campaign_asmi_zip_matches_raw_per_well_format(monkeypatch, tmp_path):
+def test_export_campaign_asmi_zip_has_raw_rows_and_metadata(monkeypatch, tmp_path):
     db_path = tmp_path / "panda_data.db"
     _seed_asmi_database(db_path)
     monkeypatch.setattr(get_settings(), "data_db_path", db_path)
@@ -153,24 +153,27 @@ def test_export_campaign_asmi_zip_matches_raw_per_well_format(monkeypatch, tmp_p
     )
     with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
         assert archive.namelist() == [
+            "metadata.csv",
             "well_E5_20251030_122107.csv",
             "well_E6_20251030_122207.csv",
         ]
+        assert archive.read("metadata.csv").decode().splitlines() == [
+            "File,Measurement_ID,Test_Time,Well,Target_Z(mm),Step_Size(mm),"
+            "Force_Limit(N),Baseline_Force(N),Baseline_Std(N),Force_Exceeded,Data_Points",
+            "well_E5_20251030_122107.csv,11,2025-10-30 12:21:07,E5,"
+            "-80.000,0.010,10.0,0.459,0.003,True,2",
+            "well_E6_20251030_122207.csv,12,2025-10-30 12:22:07,E6,"
+            "-80.000,0.010,10.0,0.459,0.003,False,1",
+        ]
         assert archive.read("well_E5_20251030_122107.csv").decode().splitlines() == [
-            "Test_Time,2025-10-30 12:21:07",
-            "Well,E5",
-            "Target_Z(mm),-80.000",
-            "Step_Size(mm),0.010",
-            "Force_Limit(N),10.0",
-            "Baseline_Force(N),0.459",
-            "Baseline_Std(N),0.003",
-            "Force_Exceeded,True",
-            "",
             "Timestamp(s),Z_Position(mm),Raw_Force(N),Corrected_Force(N),Direction",
             "1761841220.199,-74.010,0.463,0.004,down",
             "1761841220.327,-74.020,0.457,-0.002,down",
         ]
-        assert "Well,E6" in archive.read("well_E6_20251030_122207.csv").decode()
+        assert archive.read("well_E6_20251030_122207.csv").decode().splitlines() == [
+            "Timestamp(s),Z_Position(mm),Raw_Force(N),Corrected_Force(N),Direction",
+            "1761841280.199,-74.030,0.461,0.002,down",
+        ]
 
 
 def test_missing_database_returns_empty_campaign_list(monkeypatch, tmp_path):
