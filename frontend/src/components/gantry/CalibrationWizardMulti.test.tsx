@@ -20,7 +20,8 @@ function multiConfig(): GantryConfig {
       safe_z: 110,
     },
     working_volume: { x_min: 0, x_max: 400, y_min: 0, y_max: 300, z_min: 0, z_max: 110 },
-    grbl_settings: { homing_pull_off: 10 },
+    // No homing_pull_off seeded — calibration should still proceed (defaulted).
+    grbl_settings: {},
     instruments: {
       asmi: { type: "asmi", vendor: "vernier", offset_x: 0, offset_y: 0, depth: 0 },
       pipette: { type: "pipette", vendor: "opentrons", offset_x: 0, offset_y: 0, depth: 0 },
@@ -67,6 +68,17 @@ describe("CalibrationWizard multi-instrument block height step", () => {
       />,
     );
   }
+
+  it("starts calibration even when the YAML omits homing_pull_off", async () => {
+    const user = userEvent.setup();
+    installFetch();
+    renderWizard();
+
+    await user.click(screen.getByRole("button", { name: "Continue" })); // Prepare -> Home
+    // No "requires grbl_settings.homing_pull_off" block — we reach the Home step.
+    expect(await screen.findByRole("button", { name: "Home gantry" })).toBeInTheDocument();
+    expect(screen.queryByText(/homing_pull_off/i)).not.toBeInTheDocument();
+  });
 
   it("lists Block height as its own step between XY origin and Z reference", () => {
     installFetch();

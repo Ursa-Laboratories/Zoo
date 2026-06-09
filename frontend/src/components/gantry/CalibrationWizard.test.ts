@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildCalibratedConfig,
   calculateSingleInstrumentZCalibration,
+  DEFAULT_HOMING_PULL_OFF_MM,
   getCalibrationBlockHeight,
   getConfiguredHomingPullOff,
   getFactoryZTravel,
@@ -79,11 +80,17 @@ describe("factory Z calibration inputs", () => {
     expect(() => getCalibrationBlockHeight(config)).toThrow("cnc.calibration_block_height_mm");
   });
 
-  it("requires an explicit homing pull-off for client-computed soft limits", () => {
+  it("defaults the homing pull-off when the YAML doesn't seed one", () => {
     const config = gantryConfig();
-    expect(() => getConfiguredHomingPullOff(config)).toThrow("grbl_settings.homing_pull_off");
+    expect(getConfiguredHomingPullOff(config)).toBe(DEFAULT_HOMING_PULL_OFF_MM);
     config.grbl_settings = { ...config.grbl_settings, homing_pull_off: 10 };
     expect(getConfiguredHomingPullOff(config)).toBe(10);
+  });
+
+  it("still rejects an explicitly invalid homing pull-off", () => {
+    const config = gantryConfig();
+    config.grbl_settings = { ...config.grbl_settings, homing_pull_off: -5 };
+    expect(() => getConfiguredHomingPullOff(config)).toThrow("non-negative");
   });
 });
 

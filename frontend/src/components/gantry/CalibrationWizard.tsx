@@ -277,11 +277,13 @@ export default function CalibrationWizard({
     if (!filename || instruments.length === 0) return;
     if (isMulti && config) {
       try {
+        // Missing homing_pull_off now falls back to a default; this only
+        // catches an explicitly invalid (negative/non-finite) value.
         getConfiguredHomingPullOff(config);
       } catch (err) {
         setError(
-          `Multi-instrument calibration requires grbl_settings.homing_pull_off in the gantry YAML. ` +
-          `Edit the config and save before calibrating. (${errorMessage(err)})`,
+          `grbl_settings.homing_pull_off in the gantry YAML is invalid. ` +
+          `Fix the config and save before calibrating. (${errorMessage(err)})`,
         );
         return;
       }
