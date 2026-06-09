@@ -7,7 +7,7 @@ import type {
   ProtocolStep,
   ProtocolConfig,
 } from "../../types";
-import { CoordinateField, NumberField, TextField } from "./fields";
+import { CoordinateField, NumberField, TextField, UnsavedNotice } from "./fields";
 import ImportFromFile from "./ImportFromFile";
 
 interface Props {
@@ -446,7 +446,7 @@ export default function ProtocolEditor({
       {hasSteps && (
         <div style={{ marginTop: 12 }}>
           {hasUnsaved && (
-            <div role="alert" style={unsavedBannerStyle}>
+            <UnsavedNotice>
               <strong>Unsaved changes.</strong>{" "}
               {protocolDirty && "Save this protocol before running. "}
               {otherDirty.length > 0 && (
@@ -454,7 +454,7 @@ export default function ProtocolEditor({
                   + `save ${otherDirty.length > 1 ? "them in their tabs" : `it in the ${otherDirty[0]} tab`}. `
               )}
               Run Protocol uses the saved files, not your edits.
-            </div>
+            </UnsavedNotice>
           )}
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <input
@@ -471,7 +471,7 @@ export default function ProtocolEditor({
               {protocolDirty && (
                 // aria-hidden so the accessible name stays "Save"; the
                 // amber asterisk is a sighted-only unsaved-edit cue.
-                <span aria-hidden="true" title="Unsaved changes" style={{ marginLeft: 4, fontWeight: 700 }}>*</span>
+                <span aria-hidden="true" title="Unsaved changes" style={{ marginLeft: 4, fontWeight: 700, color: "#d97706" }}>*</span>
               )}
             </button>
             <button
@@ -1022,16 +1022,6 @@ const saveBtnStyle: React.CSSProperties = {
   cursor: "pointer",
   fontSize: 13,
   fontWeight: 600,
-};
-
-const unsavedBannerStyle: React.CSSProperties = {
-  background: "#fffbeb",
-  border: "1px solid #f59e0b",
-  borderRadius: 4,
-  color: "#92400e",
-  fontSize: 12,
-  padding: "8px 12px",
-  marginBottom: 10,
 };
 
 const runBtnStyle: React.CSSProperties = {

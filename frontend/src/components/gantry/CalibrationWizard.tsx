@@ -331,7 +331,9 @@ export default function CalibrationWizard({
     }
   });
 
-  const continueToSingleInstrumentOrigin = () => {
+  // Shared "Block height" step handler for both flows: validate the
+  // entered height, then advance (single → Set origin, multi → Z ref).
+  const continueFromBlockHeight = (statusNote: string, nextStep: number) => {
     setError(null);
     try {
       parseBlockHeight(blockHeight);
@@ -339,22 +341,8 @@ export default function CalibrationWizard({
       setError(errorMessage(err));
       return;
     }
-    setStatusNote("Move to the calibration block.");
-    setStep(3);
-  };
-
-  // Multi-instrument: block height is its own step between XY origin and
-  // Z reference. Validate the entered height, then advance to Z reference.
-  const continueToMultiZReference = () => {
-    setError(null);
-    try {
-      parseBlockHeight(blockHeight);
-    } catch (err) {
-      setError(errorMessage(err));
-      return;
-    }
-    setStatusNote(`Jog ${selectedLowest || "the lowest instrument"} to the shared block point.`);
-    setStep(4);
+    setStatusNote(statusNote);
+    setStep(nextStep);
   };
 
   const setSingleInstrumentOrigin = () => runAction("Setting origin", async () => {
@@ -687,7 +675,7 @@ export default function CalibrationWizard({
                   </label>
                 </div>
                 <div style={actionRowStyle}>
-                  <button onClick={continueToSingleInstrumentOrigin} disabled={controlsLocked} style={buttonStateStyle(primaryButtonStyle, controlsLocked)}>Continue</button>
+                  <button onClick={() => continueFromBlockHeight("Move to the calibration block.", 3)} disabled={controlsLocked} style={buttonStateStyle(primaryButtonStyle, controlsLocked)}>Continue</button>
                 </div>
               </div>
             )}
@@ -763,7 +751,7 @@ export default function CalibrationWizard({
                   </label>
                 </div>
                 <div style={actionRowStyle}>
-                  <button onClick={continueToMultiZReference} disabled={controlsLocked} style={buttonStateStyle(primaryButtonStyle, controlsLocked)}>Continue</button>
+                  <button onClick={() => continueFromBlockHeight(`Jog ${selectedLowest || "the lowest instrument"} to the shared block point.`, 4)} disabled={controlsLocked} style={buttonStateStyle(primaryButtonStyle, controlsLocked)}>Continue</button>
                 </div>
               </div>
             )}

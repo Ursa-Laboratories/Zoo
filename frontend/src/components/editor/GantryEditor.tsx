@@ -107,13 +107,9 @@ export default function GantryEditor({
   // GRBL lives under a collapsed "Advanced settings" panel. Start it
   // open only when GRBL already has unsaved edits (e.g. coming back to
   // this tab) so hidden changes are never silently buried.
-  const [advancedOpen, setAdvancedOpen] = useState(() => {
-    const current = gantry?.config.grbl_settings ?? {};
-    const saved = baseline?.config.grbl_settings ?? {};
-    return [...GRBL_BOOLEAN_FIELDS, ...GRBL_NUMBER_FIELDS].some(
-      ({ key }) => !isFieldEqual((current as Record<string, unknown>)[key], (saved as Record<string, unknown>)[key]),
-    );
-  });
+  const [advancedOpen, setAdvancedOpen] = useState(() => (
+    grblFieldsDiffer(gantry?.config.grbl_settings, baseline?.config.grbl_settings, baseline != null)
+  ));
 
   const selectedAddType = addType || instrumentTypes[0]?.type || "";
 
@@ -184,6 +180,9 @@ export default function GantryEditor({
   // baseline means there's nothing saved yet (brand-new config).
   const base = baseline?.config;
   const notDirty = (a: unknown, b: unknown) => !base || isFieldEqual(a, b);
+  // Aggregate GRBL dirtiness (drives the Advanced-settings dirty marker);
+  // same helper as the auto-expand initializer so the two never disagree.
+  const grblDirty = !!config && grblFieldsDiffer(config.grbl_settings, base?.grbl_settings, !!base);
   const wv = config?.working_volume;
   const bwv = base?.working_volume;
   const cnc = config?.cnc;
@@ -444,59 +443,52 @@ export default function GantryEditor({
             })}
           </div>
 
-          {(() => {
-            const grblDirty = [...GRBL_BOOLEAN_FIELDS, ...GRBL_NUMBER_FIELDS].some(
-              ({ key }) => !notDirty(config.grbl_settings?.[key], base?.grbl_settings?.[key]),
-            );
-            return (
-              <div style={cardStyle}>
-                <button
-                  type="button"
-                  onClick={() => setAdvancedOpen((open) => !open)}
-                  aria-expanded={advancedOpen}
-                  style={advancedHeaderStyle}
-                >
-                  <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ color: "#6b7280", fontSize: 12, width: 12, display: "inline-block" }}>
-                      {advancedOpen ? "▾" : "▸"}
-                    </span>
-                    Advanced settings
-                    {grblDirty && <DirtyMarker />}
-                  </span>
-                  <span style={{ color: "#9ca3af", fontSize: 11, fontWeight: 400 }}>GRBL Settings</span>
-                </button>
-                {advancedOpen && (
-                  <div style={{ marginTop: 12 }}>
-                    <h4 style={{ margin: "0 0 8px", color: "#16a34a", fontSize: 13 }}>GRBL Settings</h4>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                      {GRBL_BOOLEAN_FIELDS.map(({ key, label }) => (
-                        <OptionalBooleanField
-                          key={key}
-                          id={`grbl-${key}`}
-                          name={key}
-                          label={label}
-                          value={config.grbl_settings?.[key] as boolean | null | undefined}
-                          onChange={(v) => updateGrblSetting(key, v)}
-                          dirty={!notDirty(config.grbl_settings?.[key], base?.grbl_settings?.[key])}
-                        />
-                      ))}
-                      {GRBL_NUMBER_FIELDS.map(({ key, label }) => (
-                        <OptionalNumberField
-                          key={key}
-                          id={`grbl-${key}`}
-                          name={key}
-                          label={label}
-                          value={config.grbl_settings?.[key] as number | null | undefined}
-                          onChange={(v) => updateGrblSetting(key, v)}
-                          dirty={!notDirty(config.grbl_settings?.[key], base?.grbl_settings?.[key])}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
+          <div style={cardStyle}>
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen((open) => !open)}
+              aria-expanded={advancedOpen}
+              style={advancedHeaderStyle}
+            >
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ color: "#6b7280", fontSize: 12, width: 12, display: "inline-block" }}>
+                  {advancedOpen ? "▾" : "▸"}
+                </span>
+                Advanced settings
+                {grblDirty && <DirtyMarker />}
+              </span>
+              <span style={{ color: "#9ca3af", fontSize: 11, fontWeight: 400 }}>GRBL Settings</span>
+            </button>
+            {advancedOpen && (
+              <div style={{ marginTop: 12 }}>
+                <h4 style={{ margin: "0 0 8px", color: "#16a34a", fontSize: 13 }}>GRBL Settings</h4>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {GRBL_BOOLEAN_FIELDS.map(({ key, label }) => (
+                    <OptionalBooleanField
+                      key={key}
+                      id={`grbl-${key}`}
+                      name={key}
+                      label={label}
+                      value={config.grbl_settings?.[key] as boolean | null | undefined}
+                      onChange={(v) => updateGrblSetting(key, v)}
+                      dirty={!notDirty(config.grbl_settings?.[key], base?.grbl_settings?.[key])}
+                    />
+                  ))}
+                  {GRBL_NUMBER_FIELDS.map(({ key, label }) => (
+                    <OptionalNumberField
+                      key={key}
+                      id={`grbl-${key}`}
+                      name={key}
+                      label={label}
+                      value={config.grbl_settings?.[key] as number | null | undefined}
+                      onChange={(v) => updateGrblSetting(key, v)}
+                      dirty={!notDirty(config.grbl_settings?.[key], base?.grbl_settings?.[key])}
+                    />
+                  ))}
+                </div>
               </div>
-            );
-          })()}
+            )}
+          </div>
 
           {dirty && (
             <div style={{ marginTop: 12 }}>
@@ -535,6 +527,20 @@ function isValidGantry(config: GantryConfig): boolean {
     if (safe < measurement) return false;
   }
   return true;
+}
+
+// True when any GRBL field in `current` differs from `saved`. A missing
+// baseline (hasBaseline false) means nothing is saved yet, so there is
+// nothing to be dirty against — matches the per-field `notDirty` rule.
+function grblFieldsDiffer(
+  current: GrblSettingsConfig | null | undefined,
+  saved: GrblSettingsConfig | null | undefined,
+  hasBaseline: boolean,
+): boolean {
+  if (!hasBaseline) return false;
+  const c = (current ?? {}) as Record<string, unknown>;
+  const s = (saved ?? {}) as Record<string, unknown>;
+  return [...GRBL_BOOLEAN_FIELDS, ...GRBL_NUMBER_FIELDS].some(({ key }) => !isFieldEqual(c[key], s[key]));
 }
 
 function isInstrumentFieldDirty(
