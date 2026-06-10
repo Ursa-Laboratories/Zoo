@@ -268,6 +268,12 @@ export interface CampaignSummary {
   asmi_measurement_count: number;
 }
 
+export interface ProtocolRunResponse {
+  status: string;
+  steps_executed: number;
+  campaign_id: number;
+}
+
 // Gantry-mounted instrument introspection (from CubOS)
 
 export interface InstrumentTypeInfo {

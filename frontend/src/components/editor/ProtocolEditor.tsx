@@ -6,6 +6,7 @@ import type {
   LabwareResponse,
   ProtocolStep,
   ProtocolConfig,
+  ProtocolRunResponse,
 } from "../../types";
 import { CoordinateField, NumberField, TextField, UnsavedNotice } from "./fields";
 import ImportFromFile from "./ImportFromFile";
@@ -35,7 +36,7 @@ interface Props {
   unsavedConfigs: string[];
   canRun: boolean;
   isRunning: boolean;
-  runResult: { status: string; steps_executed: number } | null;
+  runResult: ProtocolRunResponse | null;
   runError: string | null;
 }
 
@@ -496,7 +497,7 @@ export default function ProtocolEditor({
           )}
           {runResult && (
             <p style={{ color: "#059669", fontSize: 12, margin: "6px 0 0" }}>
-              Protocol complete — {runResult.steps_executed} steps executed.
+              Protocol complete — {runResult.steps_executed} steps executed; campaign #{runResult.campaign_id} created.
             </p>
           )}
           {runError && (

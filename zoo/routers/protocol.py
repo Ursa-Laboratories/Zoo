@@ -9,11 +9,15 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 
+from data import DataStore
+from deck.deck import Deck
+from deck.loader import load_deck_from_yaml_safe
 from fastapi import APIRouter, HTTPException
+from gantry.loader import load_gantry_from_yaml_safe
 from pydantic import BaseModel
 from protocol_engine.registry import CommandRegistry
 from protocol_engine.setup import run_protocol
-from protocol_engine.setup_validation import run_setup_validation
+from protocol_engine.setup_validator import run_setup_validation
 from validation.errors import SetupValidationError
 
 # Side-effect import: triggers @protocol_command registration.
@@ -67,6 +71,62 @@ def _build_command_info(name: str) -> CommandInfo:
         description=(cmd.handler.__doc__ or "").strip(),
         args=args,
     )
+
+
+def _register_campaign_labware(
+    data_store: DataStore,
+    campaign_id: int,
+    deck: Deck,
+) -> None:
+    for labware_key, labware in deck.labware.items():
+        _register_labware_path(data_store, campaign_id, labware_key, labware)
+
+
+def _register_labware_path(
+    data_store: DataStore,
+    campaign_id: int,
+    labware_key: str,
+    labware: Any,
+) -> None:
+    try:
+        data_store.register_labware(campaign_id, labware_key, labware)
+    except TypeError:
+        pass
+
+    for child_name, child in getattr(labware, "contained_labware", {}).items():
+        _register_labware_path(
+            data_store,
+            campaign_id,
+            f"{labware_key}.{child_name}",
+            child,
+        )
+
+
+def _create_campaign_for_run(
+    data_store: DataStore,
+    *,
+    gantry_path: str,
+    deck_path: str,
+    gantry_file: str,
+    deck_file: str,
+    protocol_file: str,
+) -> int:
+    campaign_id = data_store.create_campaign(
+        description=(
+            f"Zoo protocol run: gantry={gantry_file}, deck={deck_file}, "
+            f"protocol={protocol_file}"
+        ),
+        deck_config=deck_file,
+        gantry_config=gantry_file,
+        protocol_config=protocol_file,
+    )
+    gantry_config = load_gantry_from_yaml_safe(gantry_path)
+    deck = load_deck_from_yaml_safe(
+        deck_path,
+        factory_z_travel_mm=gantry_config.factory_z_travel_mm,
+    )
+    _register_campaign_labware(data_store, campaign_id, deck)
+    return campaign_id
 
 
 # ---------------------------------------------------------------------------
@@ -234,10 +294,24 @@ def run_protocol_endpoint(body: RunProtocolRequest) -> dict:
                 )
             if not gantry_router._gantry.is_healthy():
                 raise HTTPException(400, "Gantry is not connected")
-            results = run_protocol(
-                str(gantry_path), str(deck_path), str(protocol_path),
-                gantry=gantry_router._gantry,
-            )
+            data_store = DataStore()
+            try:
+                campaign_id = _create_campaign_for_run(
+                    data_store,
+                    gantry_path=str(gantry_path),
+                    deck_path=str(deck_path),
+                    gantry_file=body.gantry_file,
+                    deck_file=body.deck_file,
+                    protocol_file=body.protocol_file,
+                )
+                results = run_protocol(
+                    str(gantry_path), str(deck_path), str(protocol_path),
+                    gantry=gantry_router._gantry,
+                    data_store=data_store,
+                    campaign_id=campaign_id,
+                )
+            finally:
+                data_store.close()
     except HTTPException:
         raise
     except SetupValidationError as exc:
@@ -246,4 +320,8 @@ def run_protocol_endpoint(body: RunProtocolRequest) -> dict:
         logging.exception("Protocol execution failed")
         raise HTTPException(500, f"Execution failed: {exc}")
 
-    return {"status": "ok", "steps_executed": len(results)}
+    return {
+        "status": "ok",
+        "steps_executed": len(results),
+        "campaign_id": campaign_id,
+    }

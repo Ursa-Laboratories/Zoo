@@ -13,6 +13,7 @@ the operator config folder from CubOS configs on first launch.
 - CubOS repo: `https://github.com/Ursa-Laboratories/CubOS.git`, branch `main`
 - Runtime: app-local Python 3.11
 - User config directory: `%LOCALAPPDATA%\UrsaLabs\Zoo\configs`
+- User data database: `%LOCALAPPDATA%\UrsaLabs\Zoo\data\panda_data.db`
 - Logs: `%LOCALAPPDATA%\UrsaLabs\Zoo\logs`
 
 The generated installer does not require Python, Node.js, Git, or internet

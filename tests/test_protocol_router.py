@@ -271,10 +271,26 @@ def test_run_endpoint_holds_serial_lock_for_duration(monkeypatch, tmp_configs):
 
     def fake_run(*_a, gantry=None, **_kw):
         observations.append(("run_lock_held", gantry_router._serial_lock.locked()))
+        observations.append(("campaign_id", _kw["campaign_id"]))
+        observations.append(("data_store_closed_during_run", _kw["data_store"].closed))
         return []
+
+    class FakeDataStore:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+            observations.append(("data_store_closed", True))
 
     monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
     monkeypatch.setattr(protocol_router, "run_protocol", fake_run)
+    monkeypatch.setattr(protocol_router, "DataStore", FakeDataStore)
+    monkeypatch.setattr(
+        protocol_router,
+        "_create_campaign_for_run",
+        lambda *_args, **_kwargs: 123,
+    )
 
     # Minimal viable path resolution: create the YAMLs /run checks
     # for so path validation doesn't 404 us before the lock work.
@@ -302,8 +318,12 @@ def test_run_endpoint_holds_serial_lock_for_duration(monkeypatch, tmp_configs):
         )
 
     assert response.status_code == 200
+    assert response.json()["campaign_id"] == 123
     assert ("is_healthy_lock_held", True) in observations
     assert ("run_lock_held", True) in observations
+    assert ("campaign_id", 123) in observations
+    assert ("data_store_closed_during_run", False) in observations
+    assert ("data_store_closed", True) in observations
     # Lock released after the endpoint returns — no leak.
     assert gantry_router._serial_lock.locked() is False
 

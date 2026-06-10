@@ -35,10 +35,13 @@ positions, and measurement method fields use instrument-aware options. ASMI
 indentation method options expose force limit, step size, baseline samples, and
 measure-with-return controls.
 Protocol execution is gated on the gantry position poll reporting an active
-connection.
-The Results view reads CubOS-style SQLite experiment output from `ZOO_DATA_DB_PATH`
-and lets operators export ASMI campaign rows as ZIPs of raw per-well CSV files
-for the `projects/ASMI_new` analysis workflow.
+connection. Each Run Protocol request creates one CubOS `DataStore` campaign
+for the selected gantry, deck, and protocol files, then executes the saved
+protocol with that campaign context.
+The Results view reads the CubOS `DataStore` SQLite path by default, or
+`ZOO_DATA_DB_PATH` when explicitly set, and lets operators export ASMI campaign
+rows as ZIPs of raw per-well CSV files for the `projects/ASMI_new` analysis
+workflow.
 
 ## Key Directories
 

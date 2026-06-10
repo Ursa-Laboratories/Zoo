@@ -9,7 +9,9 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from data.data_store import DataStore
 from fastapi import HTTPException
+from protocol_engine.measurements import InstrumentMeasurement, MeasurementType
 
 from tests.api_client import api_request
 from zoo.app import create_app
@@ -180,40 +182,65 @@ def test_export_campaign_asmi_zip_has_raw_rows_and_metadata(monkeypatch, tmp_pat
         ]
 
 
-def test_export_campaign_asmi_zip_handles_missing_optional_arrays(monkeypatch, tmp_path):
+def test_export_campaign_asmi_zip_reads_cubos_datastore_schema(monkeypatch, tmp_path):
+    db_path = tmp_path / "panda_data.db"
+    store = DataStore(db_path=db_path)
+    campaign_id = store.create_campaign(
+        description="CubOS seeded ASMI",
+        deck_config="deck.yaml",
+        gantry_config="gantry.yaml",
+        protocol_config="protocol.yaml",
+    )
+    experiment_id = store.create_experiment(campaign_id, "plate", "A1", "[]")
+    store.log_measurement(
+        experiment_id,
+        InstrumentMeasurement(
+            measurement_type=MeasurementType.ASMI_INDENTATION,
+            payload={
+                "sample_timestamps": [1.0],
+                "z_positions_mm": [-74.0],
+                "raw_forces_n": [0.5],
+                "corrected_forces_n": [0.1],
+                "directions": ["down"],
+            },
+            metadata={
+                "baseline_avg": 0.4,
+                "baseline_std": 0.01,
+                "force_exceeded": False,
+                "data_points": 1,
+                "step_size_mm": 0.01,
+                "z_target_mm": -80.0,
+                "force_limit_n": 10.0,
+            },
+        ),
+    )
+    store.close()
+    monkeypatch.setattr(get_settings(), "data_db_path", db_path)
+
+    response = api_request(
+        create_app(), "GET", f"/api/data/campaigns/{campaign_id}/asmi.zip",
+    )
+
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert archive.read("metadata.csv").decode().splitlines()[1].endswith(
+            "A1,-80.000,0.010,10.0,0.400,0.010,False,1"
+        )
+
+
+def test_export_campaign_asmi_zip_rejects_missing_sample_arrays(monkeypatch, tmp_path):
     db_path = tmp_path / "panda_data.db"
     _seed_asmi_database(db_path)
     with sqlite3.connect(db_path) as conn:
-        conn.execute("UPDATE experiments SET well_id = NULL WHERE id = 7")
         conn.execute(
-            "UPDATE asmi_measurements SET "
-            "sample_timestamps = NULL, directions = NULL, step_size_mm = NULL, "
-            "z_target_mm = NULL, force_limit_n = NULL, timestamp = ? "
-            "WHERE id = 11",
-            ("not a normal timestamp",),
+            "UPDATE asmi_measurements SET sample_timestamps = NULL WHERE id = 11"
         )
-        conn.execute("DELETE FROM asmi_measurements WHERE id = 12")
     monkeypatch.setattr(get_settings(), "data_db_path", db_path)
 
     response = api_request(create_app(), "GET", "/api/data/campaigns/1/asmi.zip")
 
-    assert response.status_code == 200
-    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
-        assert archive.namelist() == [
-            "metadata.csv",
-            "well_experiment_11_not_a_normal_timestamp.csv",
-        ]
-        assert archive.read("metadata.csv").decode().splitlines() == [
-            "File,Measurement_ID,Test_Time,Well,Target_Z(mm),Step_Size(mm),"
-            "Force_Limit(N),Baseline_Force(N),Baseline_Std(N),Force_Exceeded,Data_Points",
-            "well_experiment_11_not_a_normal_timestamp.csv,11,not a normal timestamp,"
-            ",,,,0.459,0.003,True,2",
-        ]
-        assert archive.read("well_experiment_11_not_a_normal_timestamp.csv").decode().splitlines() == [
-            "Timestamp(s),Z_Position(mm),Raw_Force(N),Corrected_Force(N)",
-            ",-74.010,0.463,0.004",
-            ",-74.020,0.457,-0.002",
-        ]
+    assert response.status_code == 400
+    assert response.json()["detail"] == "ASMI field 'sample_timestamps' is missing"
 
 
 def test_export_campaign_asmi_zip_returns_404_for_missing_database(monkeypatch, tmp_path):

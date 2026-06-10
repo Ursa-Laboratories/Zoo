@@ -210,7 +210,7 @@ export const protocolApi = {
     deck_file: string;
     protocol_file: string;
   }) =>
-    request<{ status: string; steps_executed: number }>("/protocol/run", {
+    request<import("../types").ProtocolRunResponse>("/protocol/run", {
       method: "POST",
       body: JSON.stringify(body),
     }),
