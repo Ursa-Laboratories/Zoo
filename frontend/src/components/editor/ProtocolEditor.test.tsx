@@ -218,9 +218,10 @@ describe("ProtocolEditor", () => {
 
   it("renders run results and errors", () => {
     const { unmount } = render(
-      <ProtocolEditor {...baseProps()} runResult={{ status: "complete", steps_executed: 2 }} />,
+      <ProtocolEditor {...baseProps()} runResult={{ status: "complete", steps_executed: 2, campaign_id: 7 }} />,
     );
     expect(screen.getByText(/2 steps executed/i)).toBeInTheDocument();
+    expect(screen.getByText(/campaign #7 created/i)).toBeInTheDocument();
     unmount();
 
     render(<ProtocolEditor {...baseProps()} runError="boom" />);

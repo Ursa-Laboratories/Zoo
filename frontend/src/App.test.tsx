@@ -207,7 +207,7 @@ function installFetchMock(state: ApiState) {
       ]);
     }
     if (path === "/api/protocol/run" && method === "POST") {
-      return jsonResponse({ status: "complete", steps_executed: 1 });
+      return jsonResponse({ status: "complete", steps_executed: 1, campaign_id: 123 });
     }
     if (path === "/api/protocol/validate-setup" && method === "POST") {
       return jsonResponse({
@@ -733,7 +733,8 @@ describe("Zoo editor interactions", () => {
         }),
       }),
     ));
-    expect(await screen.findByText(/Protocol complete/i)).toBeInTheDocument();
+    expect(await screen.findByText(/campaign #123 created/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Last Campaign")).toHaveValue("#123");
   });
 
   it("blocks Run Protocol when an unsaved edit lives in another tab (Deck)", async () => {

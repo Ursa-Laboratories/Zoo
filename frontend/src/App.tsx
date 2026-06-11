@@ -28,6 +28,7 @@ import type {
   ProtocolConfig,
   GantryResponse,
   WorkingVolume,
+  ProtocolRunResponse,
 } from "./types";
 import type { SettingsResponse } from "./api/client";
 
@@ -45,7 +46,6 @@ export default function App() {
   const qc = useQueryClient();
   const [activeView, setActiveView] = useState<"Workflow" | "Results">("Workflow");
   const [activeTab, setActiveTab] = useState("Gantry");
-  const [campaignId, setCampaignId] = useState("");
   const [configDir, setConfigDir] = useState<string | null>(null);
   const [browseLoading, setBrowseLoading] = useState(false);
 
@@ -53,7 +53,7 @@ export default function App() {
   const [gantryFile, setGantryFile] = useState<string | null>(null);
   const [protocolFile, setProtocolFile] = useState<string | null>(null);
   const [validationResult, setValidationResult] = useState<ProtocolValidationResponse | null>(null);
-  const [runResult, setRunResult] = useState<{ status: string; steps_executed: number } | null>(null);
+  const [runResult, setRunResult] = useState<ProtocolRunResponse | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
@@ -261,6 +261,7 @@ export default function App() {
         protocol_file: protocolFile,
       });
       setRunResult(result);
+      qc.invalidateQueries({ queryKey: ["data", "campaigns"] });
     } catch (err: unknown) {
       setRunError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -276,13 +277,13 @@ export default function App() {
       </div>
       <div style={{ marginBottom: 12 }}>
         <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
-          <span style={{ color: "#666" }}>Campaign ID</span>
+          <span style={{ color: "#666" }}>Last Campaign</span>
           <input
             type="text"
-            value={campaignId}
-            onChange={(e) => setCampaignId(e.target.value)}
-            placeholder="e.g. mofcat_001"
-            style={campaignInputStyle}
+            value={runResult ? `#${runResult.campaign_id}` : ""}
+            readOnly
+            placeholder="Created after run"
+            style={{ ...campaignInputStyle, color: runResult ? "#1a1a1a" : "#aaa" }}
           />
         </label>
       </div>

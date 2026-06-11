@@ -7,10 +7,13 @@ Set-StrictMode -Version 2.0
 
 $UserRoot = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "UrsaLabs\Zoo"
 $LogDir = Join-Path $UserRoot "logs"
+$DataDir = Join-Path $UserRoot "data"
+$DataDbPath = Join-Path $DataDir "panda_data.db"
 $Timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $LogPath = Join-Path $LogDir "zoo-launch-$Timestamp.log"
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
 function Write-Log {
     param([string]$Message)
@@ -40,6 +43,7 @@ try {
     Write-Log "Expected Python: $Python"
     Write-Log "Zoo source directory: $ZooDir"
     Write-Log "Config directory: $ConfigDir"
+    Write-Log "Data database path: $DataDbPath"
 
     if (-not (Test-Path $Python)) {
         throw "Python runtime not found at $Python"
@@ -63,6 +67,7 @@ try {
     }
 
     $env:ZOO_CONFIG_DIR = $ConfigDir
+    $env:CUBOS_DATA_DB_PATH = $DataDbPath
     $env:ZOO_HOST = "127.0.0.1"
     $env:ZOO_PORT = "8742"
     $env:ZOO_OPEN_BROWSER = "true"

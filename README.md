@@ -20,8 +20,11 @@ See also:
 - Zoo reads and writes YAML configs from `configs/` by default.
 - The active directory is exposed through `/api/settings` as `config_dir`.
 - Operators can point Zoo at another config directory through the settings UI or API.
-- Stored experiment output is read from `ZOO_DATA_DB_PATH`, defaulting to
-  `data/databases/panda_data.db`.
+- Protocol runs create a CubOS `DataStore` campaign automatically and return
+  the created campaign id.
+- Stored experiment output is read from CubOS' default `DataStore` path. Set
+  `ZOO_DATA_DB_PATH` to override the Results view path without changing the
+  CubOS runtime store, or set `CUBOS_DATA_DB_PATH` to move the shared default.
 - Deck YAML editing follows CubOS' current schema field names such as `length`, `width`, `height`, `x_offset`, `y_offset`, and `diameter`.
 - Gantry YAMLs are read back through CubOS validation before Zoo returns or saves them; missing current fields must be filled and saved in the gantry editor.
 - Malformed YAML returns a load error instead of a server traceback, and hardware controls only enable after the selected gantry file has loaded through CubOS validation.
@@ -49,7 +52,7 @@ See also:
 
 - The protocol editor builds step fields from CubOS command schemas and uses the loaded deck, gantry config, and protocol `positions` mapping to offer dropdowns for plates, instruments, deck targets, named protocol positions, and measurement methods.
 - Top-level protocol `positions` such as `park_position` are edited in a separate Named Positions panel above the step list; they remain CubOS protocol targets, not protocol steps.
-- Protocol execution is only enabled when the gantry position poll reports an active connection.
+- Protocol execution is only enabled when the gantry position poll reports an active connection. Each run creates one CubOS campaign for the selected gantry, deck, and protocol files.
 - ASMI indentation steps expose first-class method options, including `force_limit`, `step_size`, `baseline_samples`, and `measure_with_return`, which are saved into `method_kwargs`.
 
 ## Results Output

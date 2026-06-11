@@ -218,16 +218,8 @@ def _sample_arrays(row: sqlite3.Row) -> tuple[list[Any], list[Any], list[Any], l
     z_positions = _json_array(row["z_positions"], "z_positions")
     raw_forces = _json_array(row["raw_forces"], "raw_forces")
     corrected_forces = _json_array(row["corrected_forces"], "corrected_forces")
-    timestamps = _json_array_or_default(
-        row["sample_timestamps"],
-        "sample_timestamps",
-        default=[None] * len(z_positions),
-    )
-    directions = _json_array_or_default(
-        row["directions"],
-        "directions",
-        default=[None] * len(z_positions),
-    )
+    timestamps = _json_array(row["sample_timestamps"], "sample_timestamps")
+    directions = _json_array(row["directions"], "directions")
     _validate_equal_lengths(
         z_positions=z_positions,
         raw_forces=raw_forces,
@@ -262,17 +254,6 @@ def _json_array(value: Any, field_name: str) -> list[Any]:
     if not isinstance(parsed, list):
         raise HTTPException(400, f"ASMI field '{field_name}' must be a JSON array")
     return parsed
-
-
-def _json_array_or_default(
-    value: Any,
-    field_name: str,
-    *,
-    default: list[Any],
-) -> list[Any]:
-    if value is None:
-        return list(default)
-    return _json_array(value, field_name)
 
 
 def _validate_equal_lengths(**arrays: list[Any]) -> None:
