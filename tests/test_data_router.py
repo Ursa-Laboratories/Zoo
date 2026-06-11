@@ -241,6 +241,30 @@ def _seed_all_measurement_tables(path: Path) -> int:
     return campaign_id
 
 
+def _seed_uv_curing_measurement_only(path: Path) -> int:
+    store = DataStore(db_path=path)
+    campaign_id = store.create_campaign(
+        description="UV curing only",
+        deck_config="deck.yaml",
+        gantry_config="gantry.yaml",
+        protocol_config="protocol.yaml",
+    )
+    experiment_id = store.create_experiment(campaign_id, "plate", "A1", "[]")
+    store.log_measurement(
+        experiment_id,
+        InstrumentMeasurement(
+            measurement_type=MeasurementType.UV_CURING_EXPOSURE,
+            payload={
+                "intensity_percent": 55.0,
+                "exposure_time_s": 1.25,
+                "cure_timestamp_s": 123.4,
+            },
+        ),
+    )
+    store.close()
+    return campaign_id
+
+
 def test_list_campaigns_returns_run_metadata(monkeypatch, tmp_path):
     db_path = tmp_path / "panda_data.db"
     _seed_asmi_database(db_path)
@@ -415,6 +439,41 @@ def test_export_campaign_measurements_zip_includes_all_cubos_measurement_tables(
             "id", "campaign_id", "labware_name", "well_id", "contents", "created_at",
         ]
         assert len(experiments_rows) == 7
+
+
+def test_export_campaign_measurements_zip_omits_empty_measurement_tables(
+    monkeypatch, tmp_path,
+):
+    db_path = tmp_path / "panda_data.db"
+    campaign_id = _seed_uv_curing_measurement_only(db_path)
+    monkeypatch.setattr(get_settings(), "data_db_path", db_path)
+
+    response = api_request(
+        create_app(), "GET", f"/api/data/campaigns/{campaign_id}/measurements.zip",
+    )
+
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert set(archive.namelist()) == {
+            "manifest.csv",
+            "experiments.csv",
+            "measurements/uv_curing_measurements.csv",
+        }
+        assert archive.read("manifest.csv").decode().splitlines() == [
+            "instrument,table,row_count,file",
+            "uv_curing,uv_curing_measurements,1,measurements/uv_curing_measurements.csv",
+        ]
+        uv_curing_rows = list(csv.reader(io.StringIO(
+            archive.read("measurements/uv_curing_measurements.csv").decode()
+        )))
+        assert uv_curing_rows[0][:5] == [
+            "id",
+            "experiment_id",
+            "intensity_percent",
+            "exposure_time_s",
+            "cure_timestamp_s",
+        ]
+        assert uv_curing_rows[1][2:5] == ["55.0", "1.25", "123.4"]
 
 
 def test_export_campaign_asmi_zip_reads_cubos_datastore_schema(monkeypatch, tmp_path):

@@ -41,7 +41,7 @@ protocol with that campaign context.
 The Results view reads the CubOS `DataStore` SQLite path by default, or
 `ZOO_DATA_DB_PATH` when explicitly set, and lets operators export campaign
 measurement rows as ZIPs of raw CSV files for each CubOS instrument measurement
-table. The ASMI-only per-well ZIP remains available for the
+table that has rows in the selected campaign. The ASMI-only per-well ZIP remains available for the
 `projects/ASMI_new` analysis workflow.
 
 ## Key Directories

@@ -107,7 +107,7 @@ def list_campaigns() -> list[CampaignSummary]:
 
 @router.get("/campaigns/{campaign_id}/measurements.zip")
 def export_campaign_measurements_zip(campaign_id: int) -> Response:
-    """Export all instrument measurement tables for a campaign as raw CSV files."""
+    """Export non-empty instrument measurement tables for a campaign as CSV."""
     db_path = _data_db_path()
     if not db_path.is_file():
         raise HTTPException(404, f"Data database not found: {db_path}")
@@ -123,6 +123,10 @@ def export_campaign_measurements_zip(campaign_id: int) -> Response:
             (table, _measurement_table_rows(conn, table, campaign_id))
             for table in MEASUREMENT_TABLES
             if table.table in present_tables
+        ]
+        table_exports = [
+            (table, rows) for table, rows in table_exports
+            if len(rows) > 0
         ]
         measurement_count = sum(len(rows) for _, rows in table_exports)
         if measurement_count == 0:
