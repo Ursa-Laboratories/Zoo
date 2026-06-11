@@ -1,99 +1,170 @@
 # Zoo
 
-`Zoo` is the local web UI for `CubOS`. It edits YAML configs, visualizes deck state, controls gantry motion, and triggers protocol execution through CubOS.
+Zoo is the local operator UI for `CubOS`. It provides a FastAPI backend and a
+React frontend for editing YAML configs, viewing deck state, controlling gantry
+motion, running protocols, and exporting stored results.
 
-See also:
+Zoo intentionally stays thin: configuration validation, deck math, protocol
+execution, motion control, calibration primitives, and data storage come from
+CubOS.
 
-- `docs/repo-overview.md`
-- `../docs/architecture/system-overview.md`
-- `../docs/reference/api-contracts.md`
+## Start here
 
-## Dependency Model
+| Need | Command or path |
+| --- | --- |
+| Run Zoo locally | `python -m zoo` |
+| Backend tests | `pytest tests/` |
+| Frontend lint | `cd frontend && npm run lint` |
+| Frontend tests | `cd frontend && npm run test` |
+| Frontend build | `cd frontend && npm run build` |
+| Repo overview | `docs/repo-overview.md` |
+| API contracts | `../docs/reference/api-contracts.md` |
+| System architecture | `../docs/architecture/system-overview.md` |
 
-- Zoo imports `CubOS` as an installed package.
-- Zoo should stay a thin layer over CubOS loaders, schemas, registries, and motion logic.
-- The checked-in dependency currently points at a Git branch in `pyproject.toml`. Confirm branch strategy before changing it.
-- Zoo uses CubOS' current three-config runtime surface: gantry, deck, and protocol. Mounted instruments are edited and saved inside gantry YAML.
-
-## Local Config Storage
-
-- Zoo reads and writes YAML configs from `configs/` by default.
-- The active directory is exposed through `/api/settings` as `config_dir`.
-- Operators can point Zoo at another config directory through the settings UI or API.
-- Protocol runs create a CubOS `DataStore` campaign automatically and return
-  the created campaign id.
-- Stored experiment output is read from CubOS' default `DataStore` path. Set
-  `ZOO_DATA_DB_PATH` to override the Results view path without changing the
-  CubOS runtime store, or set `CUBOS_DATA_DB_PATH` to move the shared default.
-- Deck YAML editing follows CubOS' current schema field names such as `length`, `width`, `height`, `x_offset`, `y_offset`, and `diameter`.
-- Gantry YAMLs are read back through CubOS validation before Zoo returns or saves them; missing current fields must be filled and saved in the gantry editor.
-- Malformed YAML returns a load error instead of a server traceback, and hardware controls only enable after the selected gantry file has loaded through CubOS validation.
-- Deck and gantry save paths validate the converted CubOS YAML before overwriting the target file.
-- Protocol YAML `positions` mappings are editable in the protocol editor's Named Positions panel and are saved with the protocol steps.
-- The protocol Validate button runs full CubOS setup validation for the selected gantry, deck, and protocol files. The older `/api/protocol/validate` endpoint remains a command-schema check only.
-- Protocol runs are blocked while a gantry calibration warning is active. Connect and calibration remain available so first-time users can program the controller and clear the warning.
-- Manual absolute `Move To` commands are checked against the loaded gantry `working_volume` before Zoo sends motion to CubOS.
-
-## Gantry Calibration
-
-- The Gantry Control panel includes a `Calibrate` wizard after a gantry YAML is loaded.
-- Gantry Control also has an `Advanced` mode for connected-controller recovery and inspection: read live GRBL settings, send one numeric GRBL setting through CubOS, clear alarms, reset + unlock, feed hold, and jog cancel.
-- The wizard is a serial, one-way workflow. Single-instrument: prepare/home with soft limits disabled, jog to set XY origin (soft limits restored on confirm), jog to the calibration block to capture Z from live WPos, then re-home to measure X/Y bounds and save. Multi-instrument: prepare/home, jog XY origin, re-home to capture XY bounds and move to deck center, jog the lowest instrument to the block to set Z, record each remaining instrument at the same point, then save.
-- Calibration preserves `cnc.factory_z_travel_mm` as the out-of-box Z travel safety bound. Zoo uses `cnc.calibration_block_height_mm`, the recorded home-to-block travel, and the final homed readback to write `working_volume.z_min`, `working_volume.z_max`, and GRBL `max_travel_z`.
-- `working_volume` remains the usable deck/WPos range. GRBL `max_travel_*` fields are controller soft-limit spans and include the configured homing pull-off reserve (`grbl_settings.homing_pull_off`, GRBL `$27`). For example, homed WPos `Z=91` with `$27=10` saves `working_volume.z_max=91` and `grbl_settings.max_travel_z=101`.
-- During calibration Zoo sets `$10=0` for WPos status reporting and writes the machine's configured `$27` before homing. This avoids mixing GRBL MPos/WCO reporting with deck-origin WPos math.
-- Multi-instrument gantries add a tool-recording step that writes instrument `offset_x`, `offset_y`, and `depth` values from a shared block point.
-- The multi-instrument path automatically re-homes after XY origining, captures XY travel bounds, moves to deck center, and retracts Z after each tool record while controls are locked.
-- If a calibration jog or automatic blocking retract triggers a GRBL alarm, the wizard stops jog repeats, locks calibration controls, tells the operator a limit was hit, and calls CubOS limit recovery to soft-reset/unlock and pull off opposite the failed jog. Once recovery succeeds, Zoo clears the lock and reports that calibration can continue.
-- Calibration routes stay thin over CubOS `Gantry` methods for work-coordinate assignment, GRBL soft-limit programming, and limit recovery; Zoo does not send raw serial commands directly.
-- Disconnect reports a failure if Zoo cannot restore calibration-disabled soft limits before closing the controller connection.
-
-## Protocol Editing
-
-- The protocol editor builds step fields from CubOS command schemas and uses the loaded deck, gantry config, and protocol `positions` mapping to offer dropdowns for plates, instruments, deck targets, named protocol positions, and measurement methods.
-- Top-level protocol `positions` such as `park_position` are edited in a separate Named Positions panel above the step list; they remain CubOS protocol targets, not protocol steps.
-- Protocol execution is only enabled when the gantry position poll reports an active connection. Each run creates one CubOS campaign for the selected gantry, deck, and protocol files.
-- ASMI indentation steps expose first-class method options, including `force_limit`, `step_size`, `baseline_samples`, and `measure_with_return`, which are saved into `method_kwargs`.
-
-## Results Output
-
-- The Results view lists stored campaign rows with run time, experiment count,
-  well count, and campaign description.
-- ASMI campaign rows can be exported as a ZIP containing raw per-well CSV files
-  and a `metadata.csv` file for per-well run settings.
-- The API surface is `/api/data/campaigns` and
-  `/api/data/campaigns/{campaign_id}/asmi.zip`.
-
-## Run
+## Install and run
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+
 cd frontend
 npm ci
 cd ..
+
 python -m zoo
 ```
 
 Defaults:
 
-- host: `127.0.0.1`
-- port: `8742`
-- browser auto-open: enabled
+| Setting | Value |
+| --- | --- |
+| Host | `127.0.0.1` |
+| Port | `8742` |
+| Config directory | `configs/` |
+| Browser auto-open | Enabled |
 
-## Test And Build
+If `frontend/dist/` is missing, `python -m zoo` builds the frontend
+automatically.
 
-- Backend tests: `pytest tests/`
-- Frontend lint: `cd frontend && npm run lint`
-- Frontend tests: `cd frontend && npm run test`
-- Frontend build: `cd frontend && npm run build`
+## Project role
+
+Zoo is a UI/API layer over CubOS, not a second implementation of CubOS logic.
+
+- Zoo imports CubOS as an installed package.
+- Routers write YAML from UI/API input, then read it back through CubOS loaders
+  and schemas.
+- Frontend types model API payloads; they should not become a duplicate source
+  of CubOS schema truth.
+- Hardware-touching routes call CubOS `Gantry` methods and runtime APIs.
+- The checked-in CubOS dependency currently points at a Git branch in
+  `pyproject.toml`; confirm branch strategy before changing it.
+
+Zoo uses CubOS' three-config runtime surface: gantry, deck, and protocol.
+Mounted instruments are edited and saved inside gantry YAML.
+
+## Configuration
+
+Zoo reads and writes YAML files from `configs/` by default. The active config
+directory is exposed by `/api/settings` as `config_dir`, and operators can
+change it through the settings UI or API.
+
+- **Decks:** Use CubOS field names such as `length`, `width`, `height`,
+  `x_offset`, `y_offset`, and `diameter`.
+- **Gantries:** Load, convert, validate, and save through CubOS schemas before
+  Zoo overwrites YAML.
+- **Protocols:** Saved protocol YAML includes both steps and top-level
+  `positions` mappings.
+- **Validation:** The protocol Validate button runs full CubOS setup validation
+  for the selected gantry, deck, and protocol files.
+- **Malformed YAML:** Zoo returns a load error instead of a server traceback.
+
+Hardware controls only enable after the selected gantry file has loaded through
+CubOS validation. Protocol runs are blocked while a gantry calibration warning
+is active, but connect and calibration remain available so first-time users can
+program the controller and clear the warning.
+
+## Gantry control and calibration
+
+The Gantry Control panel supports connection, homing, jogging, absolute
+movement, calibration, and advanced recovery. Manual absolute `Move To`
+commands are checked against the loaded gantry `working_volume` before motion
+is sent to CubOS.
+
+Advanced mode exposes recovery and inspection actions through CubOS `Gantry`
+methods:
+
+- Read live GRBL settings.
+- Send one numeric GRBL setting.
+- Clear alarms.
+- Reset and unlock.
+- Feed hold.
+- Cancel jog.
+
+The calibration wizard follows CubOS' serial calibration flow. Zoo sequences the
+operator UI and YAML save path; CubOS handles work-coordinate assignment,
+soft-limit programming, and limit recovery.
+
+Important calibration semantics:
+
+- `working_volume` is the usable deck/WPos range.
+- GRBL `max_travel_*` fields are controller soft-limit spans and include the
+  configured homing pull-off reserve (`grbl_settings.homing_pull_off`, GRBL
+  `$27`).
+- Example: homed WPos `Z=91` with `$27=10` saves
+  `working_volume.z_max=91` and `grbl_settings.max_travel_z=101`.
+- During calibration Zoo sets `$10=0` for WPos status reporting and writes the
+  configured `$27` before homing.
+- Calibration preserves `cnc.factory_z_travel_mm` as the out-of-box Z travel
+  safety bound.
+- Disconnect reports a failure if Zoo cannot restore calibration-disabled soft
+  limits before closing the controller connection.
+
+If a calibration jog or automatic retract trips a GRBL alarm, Zoo stops repeat
+jogs, locks calibration controls, reports the limit hit, and calls CubOS limit
+recovery before allowing calibration to continue.
+
+## Protocol editing and execution
+
+The protocol editor builds fields from CubOS command schemas. It uses the
+loaded deck, gantry config, and protocol `positions` mapping to offer choices
+for plates, instruments, deck targets, named protocol positions, and measurement
+methods.
+
+- Top-level `positions`, such as `park_position`, are edited in the Named
+  Positions panel.
+- ASMI indentation steps expose method options including `force_limit`,
+  `step_size`, `baseline_samples`, and `measure_with_return`.
+- Protocol execution is enabled only when the gantry position poll reports an
+  active connection.
+- Each run creates one CubOS `DataStore` campaign for the selected gantry, deck,
+  and protocol files.
+
+The older `/api/protocol/validate` endpoint remains a command-schema check
+only; use the UI Validate action for full setup validation.
+
+## Results
+
+The Results view reads stored output from CubOS' default `DataStore` path.
+
+Set `ZOO_DATA_DB_PATH` to override the Results view path without changing the
+CubOS runtime store. Set `CUBOS_DATA_DB_PATH` to move the shared default store.
+
+| API | Purpose |
+| --- | --- |
+| `/api/data/campaigns` | List campaign rows. |
+| `/api/data/campaigns/{campaign_id}/asmi.zip` | Export ASMI campaign data. |
+
+Campaign rows include run time, experiment count, well count, and description.
+
+ASMI exports contain raw per-well CSV files and a `metadata.csv` file with
+per-well run settings.
 
 ## Windows Operator Installer
 
 The Windows installer builder lives in `installer/windows/`. It clones Zoo
 `main` and CubOS `main`, builds the frontend, prepares an offline wheelhouse,
-and emits an Inno Setup installer that installs an app-local Python runtime.
+and emits an Inno Setup installer with an app-local Python runtime.
 
 Build it on a Windows packaging machine with Git, Python 3.11, Node.js, and
 Inno Setup 6:
@@ -102,8 +173,25 @@ Inno Setup 6:
 powershell -ExecutionPolicy Bypass -File .\installer\windows\build-installer.ps1
 ```
 
-## Notes
+## Repository Map
 
-- If `frontend/dist/` is missing, `python -m zoo` builds it automatically.
-- Gantry operations, including calibration, are hardware-touching and should be treated as high risk.
-- `frontend/README.md` is still the stock Vite template and is not authoritative documentation.
+| Path | Purpose |
+| --- | --- |
+| `zoo/app.py` | FastAPI app factory |
+| `zoo/__main__.py` | Startup entrypoint |
+| `zoo/config.py` | `ZOO_*` settings and config directory handling |
+| `zoo/routers/` | REST endpoints |
+| `zoo/services/` | YAML file helpers |
+| `frontend/src/` | React + TypeScript application |
+| `frontend/dist/` | Built frontend served by FastAPI |
+| `configs/` | Default local config store |
+| `tests/` | Backend tests |
+
+## Operational Notes
+
+- Gantry operations, including calibration, are hardware-touching and should be
+  treated as high risk.
+- Raw YAML endpoints bypass schema-aware editing and can write malformed files
+  if used carelessly.
+- `frontend/README.md` is the stock Vite template and is not authoritative
+  project documentation.
