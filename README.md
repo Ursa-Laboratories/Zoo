@@ -94,6 +94,8 @@ Defaults:
 The Windows installer builder lives in `installer/windows/`. It clones Zoo
 `main` and CubOS `main`, builds the frontend, prepares an offline wheelhouse,
 and emits an Inno Setup installer that installs an app-local Python runtime.
+The installer carries the Python installer inside the app directory, and the
+launcher verifies or repairs the private runtime before starting Zoo.
 
 Build it on a Windows packaging machine with Git, Python 3.11, Node.js, and
 Inno Setup 6:

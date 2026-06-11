@@ -167,6 +167,10 @@ if (-not (Test-Path $DownloadedPython)) {
     Invoke-WebRequest -Uri $PythonUrl -OutFile $DownloadedPython
 }
 Copy-Item $DownloadedPython $PythonInstaller -Force
+$PythonInstallerInfo = Get-Item -Path $PythonInstaller -ErrorAction SilentlyContinue
+if (-not $PythonInstallerInfo -or $PythonInstallerInfo.Length -eq 0) {
+    throw "Python installer was not staged at $PythonInstaller"
+}
 
 $BuildInfo = [ordered]@{
     generated_at = (Get-Date -Format o)

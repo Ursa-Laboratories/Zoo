@@ -36,7 +36,7 @@ Name: "{localappdata}\UrsaLabs\Zoo\configs"
 Name: "{localappdata}\UrsaLabs\Zoo\logs"
 
 [Files]
-Source: "{#SourceDir}\python-installer.exe"; DestDir: "{tmp}"; Flags: ignoreversion deleteafterinstall
+Source: "{#SourceDir}\python-installer.exe"; DestDir: "{app}\installers"; DestName: "python-installer.exe"; Flags: ignoreversion
 Source: "{#SourceDir}\app\*"; DestDir: "{app}\app"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SourceDir}\scripts\*"; DestDir: "{app}\scripts"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SourceDir}\wheelhouse\*"; DestDir: "{app}\wheelhouse"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -44,7 +44,7 @@ Source: "{#SourceDir}\requirements\*"; DestDir: "{app}\requirements"; Flags: ign
 Source: "{#SourceDir}\build-info.json"; DestDir: "{app}"; Flags: ignoreversion
 
 [Run]
-Filename: "{tmp}\python-installer.exe"; Parameters: "/quiet InstallAllUsers=0 TargetDir=""{app}\Python"" Include_launcher=0 PrependPath=0 Include_test=0 Include_doc=0 Include_tcltk=1 Include_pip=1 SimpleInstall=1"; StatusMsg: "Installing private Python runtime..."; Flags: waituntilterminated
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\Install-Python.ps1"" -InstallDir ""{app}"" -PythonInstaller ""{app}\installers\python-installer.exe"""; StatusMsg: "Installing private Python runtime..."; Flags: waituntilterminated runhidden
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\Install-Runtime.ps1"" -InstallDir ""{app}"""; StatusMsg: "Installing Zoo and CubOS runtime packages..."; Flags: waituntilterminated runhidden
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\Start-Zoo.ps1"" -InstallDir ""{app}"""; Description: "Start Zoo"; Flags: nowait postinstall skipifsilent unchecked
 
