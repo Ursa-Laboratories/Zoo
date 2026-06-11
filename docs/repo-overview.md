@@ -104,8 +104,9 @@ npm run build
 - Depends on the published or installable `CubOS` package
 - `installer/windows/` builds a Windows operator installer from Zoo `main` and
   CubOS `main`; the generated installer includes a private Python runtime,
-  prebuilt frontend assets, an offline wheelhouse, Start Menu shortcuts, config
-  seeding, logs, and diagnostic export.
+  retains the bundled Python installer for launcher repair, prebuilt frontend
+  assets, an offline wheelhouse, Start Menu shortcuts, config seeding, logs,
+  and diagnostic export.
 
 ## Dependencies On Other Repos Or Services
 

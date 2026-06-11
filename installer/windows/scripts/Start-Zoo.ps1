@@ -33,9 +33,30 @@ function Show-Failure {
 }
 
 $Python = Join-Path $InstallDir "Python\python.exe"
+$PythonInstaller = Join-Path $InstallDir "installers\python-installer.exe"
+$InstallPythonScript = Join-Path $InstallDir "scripts\Install-Python.ps1"
+$InstallRuntimeScript = Join-Path $InstallDir "scripts\Install-Runtime.ps1"
+$RuntimeMarker = Join-Path $InstallDir "runtime-installed.txt"
 $ZooDir = Join-Path $InstallDir "app\Zoo"
 $CubOSConfigDir = Join-Path $InstallDir "app\CubOS\configs"
 $ConfigDir = if ($env:ZOO_CONFIG_DIR) { $env:ZOO_CONFIG_DIR } else { Join-Path $UserRoot "configs" }
+
+function Invoke-LauncherScript {
+    param(
+        [string]$ScriptPath,
+        [string[]]$Arguments
+    )
+
+    if (-not (Test-Path $ScriptPath)) {
+        throw "Required installer script not found at $ScriptPath"
+    }
+
+    Write-Log "> powershell.exe -NoProfile -ExecutionPolicy Bypass -File $ScriptPath $($Arguments -join ' ')"
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $ScriptPath @Arguments 2>&1 | ForEach-Object { $_.ToString() } | Tee-Object -FilePath $LogPath -Append
+    if ($LASTEXITCODE -ne 0) {
+        throw "$ScriptPath failed with exit code $LASTEXITCODE"
+    }
+}
 
 try {
     Write-Log "Starting Zoo launcher"
@@ -45,12 +66,21 @@ try {
     Write-Log "Config directory: $ConfigDir"
     Write-Log "Data database path: $DataDbPath"
 
+    $NeedsRuntimeInstall = -not (Test-Path $RuntimeMarker)
+
     if (-not (Test-Path $Python)) {
-        throw "Python runtime not found at $Python"
+        Write-Log "Python runtime missing; installing from bundled installer"
+        Invoke-LauncherScript $InstallPythonScript @("-InstallDir", $InstallDir, "-PythonInstaller", $PythonInstaller)
+        $NeedsRuntimeInstall = $true
     }
 
     if (-not (Test-Path $ZooDir)) {
         throw "Zoo source directory not found at $ZooDir"
+    }
+
+    if ($NeedsRuntimeInstall) {
+        Write-Log "Zoo runtime packages need installation"
+        Invoke-LauncherScript $InstallRuntimeScript @("-InstallDir", $InstallDir)
     }
 
     $FrontendDist = Join-Path $ZooDir "frontend\dist"
