@@ -25,6 +25,18 @@ const COMMANDS: CommandInfo[] = [
       { name: "method_kwargs", type: "Dict[str, Any] | None", required: false, default: null },
     ],
   },
+  {
+    name: "measure",
+    description: "Measure",
+    args: [
+      { name: "instrument", type: "str", required: true, default: null },
+      { name: "position", type: "str", required: true, default: null },
+      { name: "method", type: "str", required: false, default: "measure" },
+      { name: "measurement_height", type: "float", required: true, default: null },
+      { name: "indentation_limit_height", type: "float | None", required: false, default: null },
+      { name: "method_kwargs", type: "Dict[str, Any] | None", required: false, default: null },
+    ],
+  },
 ];
 
 const DECK: DeckResponse = {
@@ -63,6 +75,7 @@ const GANTRY: GantryResponse = {
     grbl_settings: {},
     instruments: {
       asmi: { type: "asmi", vendor: "vernier", offset_x: 0, offset_y: 0 },
+      uv_curing: { type: "uv_curing", vendor: "mock", offset_x: 0, offset_y: 0 },
       pip: { type: "pipette", vendor: "opentrons", offset_x: 0, offset_y: 0 },
     },
   },
@@ -200,6 +213,62 @@ describe("ProtocolEditor", () => {
     await user.clear(screen.getByLabelText("Force limit (N)"));
     await user.type(screen.getByLabelText("Force limit (N)"), "12");
     expect(props.onLocalChange).toHaveBeenCalled();
+  });
+
+  it("hides ASMI-only indentation limit for uv curing measure steps", () => {
+    renderProtocol({
+      steps: [
+        {
+          command: "measure",
+          args: {
+            instrument: "uv_curing",
+            position: "plate_1.A1",
+            method: "measure",
+            measurement_height: 1,
+          },
+        },
+      ],
+    });
+
+    expect(screen.getByLabelText(/Instrument/)).toHaveValue("uv_curing");
+    expect(screen.getByLabelText(/^Measurement$/)).toHaveValue("measure");
+    expect(screen.getByLabelText(/Measurement height/)).toHaveValue("1");
+    expect(screen.queryByLabelText(/Indentation limit height/)).not.toBeInTheDocument();
+    expect(screen.queryByText("ASMI indentation options")).not.toBeInTheDocument();
+  });
+
+  it("removes stale ASMI indentation args when switching to uv curing", async () => {
+    const user = userEvent.setup();
+    const props = renderProtocol({
+      steps: [
+        {
+          command: "measure",
+          args: {
+            instrument: "asmi",
+            position: "plate_1.A1",
+            method: "indentation",
+            measurement_height: -1,
+            indentation_limit_height: -5,
+            method_kwargs: { force_limit: 10 },
+          },
+        },
+      ],
+    });
+
+    expect(screen.getByLabelText(/Indentation limit height/)).toHaveValue("-5");
+    await user.selectOptions(screen.getByRole("combobox", { name: /Instrument/ }), "uv_curing");
+
+    expect(props.onLocalChange).toHaveBeenLastCalledWith([
+      {
+        command: "measure",
+        args: {
+          instrument: "uv_curing",
+          position: "plate_1.A1",
+          method: "measure",
+          measurement_height: -1,
+        },
+      },
+    ]);
   });
 
   it("renames a named position and rewrites the steps that reference it", async () => {

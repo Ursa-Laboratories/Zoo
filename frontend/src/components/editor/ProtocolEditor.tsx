@@ -172,6 +172,10 @@ export default function ProtocolEditor({
         ...(isRecord(updatedArgs.method_kwargs) ? updatedArgs.method_kwargs : {}),
       };
     }
+    if ((argName === "instrument" || argName === "method") && !isAsmiIndentationStep(updatedArgs, choices)) {
+      delete updatedArgs.indentation_limit_height;
+      delete updatedArgs.method_kwargs;
+    }
     next[i] = { ...next[i], args: updatedArgs };
     commit(next);
   };
@@ -355,6 +359,9 @@ export default function ProtocolEditor({
             {cmd ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 {cmd.args.map((arg) => {
+                  if (isHiddenArgForStep(arg.name, step.args, choices)) {
+                    return null;
+                  }
                   const val = step.args[arg.name];
                   const contextualOptions = optionsForArg(arg.name, step.args, choices);
                   const argOptions = contextualOptions.length > 0
@@ -676,6 +683,14 @@ function isAsmiIndentationStep(args: Record<string, unknown>, choices: ProtocolC
   const instrument = String(args.instrument ?? "");
   const type = inferInstrumentType(instrument, choices);
   return type === "asmi" && String(args.method ?? "") === "indentation";
+}
+
+function isHiddenArgForStep(
+  argName: string,
+  args: Record<string, unknown>,
+  choices: ProtocolChoices,
+): boolean {
+  return argName === "indentation_limit_height" && !isAsmiIndentationStep(args, choices);
 }
 
 function uniqueStrings(items: string[]): string[] {
