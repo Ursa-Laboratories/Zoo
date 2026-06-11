@@ -6,12 +6,16 @@ Python runtime, installs Zoo/CubOS packages from an offline wheelhouse, copies
 the checked-out Zoo and CubOS `main` sources into the app directory, launches
 Zoo from the copied Zoo source so the prebuilt frontend is available, and seeds
 the operator config folder from CubOS configs on first launch.
+The bundled Python installer is retained inside the app directory so `Start Zoo`
+can repair a missing private runtime without requiring Python on the operator
+machine.
 
 ## What The Installer Targets
 
 - Zoo repo: `https://github.com/Ursa-Laboratories/Zoo.git`, branch `main`
 - CubOS repo: `https://github.com/Ursa-Laboratories/CubOS.git`, branch `main`
 - Runtime: app-local Python 3.11
+- Bundled Python installer: `%LOCALAPPDATA%\Programs\UrsaLabs\Zoo\installers\python-installer.exe`
 - User config directory: `%LOCALAPPDATA%\UrsaLabs\Zoo\configs`
 - User data database: `%LOCALAPPDATA%\UrsaLabs\Zoo\data\panda_data.db`
 - Logs: `%LOCALAPPDATA%\UrsaLabs\Zoo\logs`
@@ -91,10 +95,11 @@ Before handing the installer to an operator:
 3. Launch `Start Zoo` and confirm `http://127.0.0.1:8742` opens.
 4. Confirm `%LOCALAPPDATA%\UrsaLabs\Zoo\configs` contains seeded CubOS config
    YAMLs.
-5. Confirm the gantry and ASMI hardware are not connected during UI-only smoke
+5. Confirm `%LOCALAPPDATA%\Programs\UrsaLabs\Zoo\Python\python.exe` exists.
+6. Confirm the gantry and ASMI hardware are not connected during UI-only smoke
    testing, or keep the machine clear and E-stop reachable during hardware
    tests.
-6. Use `Export Diagnostics` and verify the zip includes build info, logs,
+7. Use `Export Diagnostics` and verify the zip includes build info, logs,
    configs, and Python package information.
 
 Hardware-touching actions such as connect, home, jog, calibration, and protocol

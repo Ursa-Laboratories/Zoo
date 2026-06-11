@@ -153,18 +153,22 @@ CubOS runtime store. Set `CUBOS_DATA_DB_PATH` to move the shared default store.
 | API | Purpose |
 | --- | --- |
 | `/api/data/campaigns` | List campaign rows. |
-| `/api/data/campaigns/{campaign_id}/asmi.zip` | Export ASMI campaign data. |
+| `/api/data/campaigns/{campaign_id}/measurements.zip` | Export raw CSV files for populated CubOS instrument measurement tables. |
+| `/api/data/campaigns/{campaign_id}/asmi.zip` | Export the legacy ASMI-specific archive. |
 
-Campaign rows include run time, experiment count, well count, and description.
+Campaign rows include run time, experiment count, well count, measurement
+count, and description.
 
-ASMI exports contain raw per-well CSV files and a `metadata.csv` file with
-per-well run settings.
+The ASMI-specific archive contains raw per-well CSV files and a `metadata.csv`
+file with per-well run settings.
 
 ## Windows Operator Installer
 
 The Windows installer builder lives in `installer/windows/`. It clones Zoo
 `main` and CubOS `main`, builds the frontend, prepares an offline wheelhouse,
-and emits an Inno Setup installer with an app-local Python runtime.
+and emits an Inno Setup installer that installs an app-local Python runtime.
+The installer carries the Python installer inside the app directory, and the
+launcher verifies or repairs the private runtime before starting Zoo.
 
 Build it on a Windows packaging machine with Git, Python 3.11, Node.js, and
 Inno Setup 6:
