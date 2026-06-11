@@ -39,9 +39,10 @@ connection. Each Run Protocol request creates one CubOS `DataStore` campaign
 for the selected gantry, deck, and protocol files, then executes the saved
 protocol with that campaign context.
 The Results view reads the CubOS `DataStore` SQLite path by default, or
-`ZOO_DATA_DB_PATH` when explicitly set, and lets operators export ASMI campaign
-rows as ZIPs of raw per-well CSV files for the `projects/ASMI_new` analysis
-workflow.
+`ZOO_DATA_DB_PATH` when explicitly set, and lets operators export campaign
+measurement rows as ZIPs of raw CSV files for each CubOS instrument measurement
+table. The ASMI-only per-well ZIP remains available for the
+`projects/ASMI_new` analysis workflow.
 
 ## Key Directories
 
@@ -114,7 +115,7 @@ npm run build
 - Talks directly to local gantry hardware through CubOS when operators use motion endpoints
 - Manual absolute `Move To` commands are validated against the connected gantry's loaded `working_volume` before Zoo starts motion.
 - Data export reads the same SQLite schema CubOS writes for campaigns,
-  experiments, and ASMI measurements; Zoo does not analyze the data.
+  experiments, and instrument measurement tables; Zoo does not analyze the data.
 - Gantry calibration delegates work-coordinate, soft-limit, and limit-recovery operations to CubOS `Gantry`/recovery methods; Zoo only sequences the operator UI and YAML save. During XY origining, Zoo may temporarily disable stale soft limits and restores them on cancel, single-instrument XY completion, disconnect, or successful soft-limit programming. Zoo preserves `cnc.factory_z_travel_mm` as the out-of-box safety bound, reads `cnc.calibration_block_height_mm`, and writes calibrated Z bounds from home-to-block travel plus the final homed readback. `working_volume` is the usable deck/WPos range; saved GRBL `max_travel_*` values are controller soft-limit spans that include the `$27` homing pull-off reserve. Calibration sets `$10=0` for WPos reports and writes the machine's configured `homing_pull_off` before homing so MPos/WCO reporting does not leak into deck-origin math. If an interactive calibration jog or automatic blocking retract trips a GRBL alarm, Zoo stops repeated jogs, locks calibration controls, tells the operator a limit was hit, and calls CubOS limit recovery before allowing calibration to continue. Disconnect surfaces soft-limit restore failures instead of silently reporting success.
 - Advanced gantry recovery endpoints still route through CubOS `Gantry`; Zoo does not expose arbitrary raw serial command entry.
 

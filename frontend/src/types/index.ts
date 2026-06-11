@@ -265,6 +265,8 @@ export interface CampaignSummary {
   latest_measurement_at: string | null;
   experiment_count: number;
   well_count: number;
+  measurement_count: number;
+  measurement_counts: Record<string, number>;
   asmi_measurement_count: number;
 }
 

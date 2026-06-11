@@ -23,11 +23,11 @@ export default function DataOutputPanel({
     setExportingId(campaign.campaign_id);
     setExportError(null);
     try {
-      const blob = await dataApi.exportCampaignAsmiZip(campaign.campaign_id);
+      const blob = await dataApi.exportCampaignMeasurementsZip(campaign.campaign_id);
       const href = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = href;
-      link.download = `campaign_${campaign.campaign_id}_asmi_raw_csvs.zip`;
+      link.download = `campaign_${campaign.campaign_id}_measurements.zip`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -44,7 +44,7 @@ export default function DataOutputPanel({
       <div style={headerStyle}>
         <div>
           <h3 style={titleStyle}>Campaign Results</h3>
-          <div style={subtitleStyle}>Stored ASMI campaign output</div>
+          <div style={subtitleStyle}>Stored instrument measurement output</div>
         </div>
         <button onClick={onRefresh} style={secondaryButtonStyle}>
           Refresh
@@ -70,12 +70,13 @@ export default function DataOutputPanel({
                 <th style={thStyle}>Run time</th>
                 <th style={thStyle}>Experiments</th>
                 <th style={thStyle}>Wells</th>
+                <th style={thStyle}>Measurements</th>
                 <th style={thStyle}>Export</th>
               </tr>
             </thead>
             <tbody>
               {campaigns.map((campaign) => {
-                const exportDisabled = campaign.asmi_measurement_count === 0 || exportingId !== null;
+                const exportDisabled = campaign.measurement_count === 0 || exportingId !== null;
                 return (
                   <tr key={campaign.campaign_id}>
                     <td style={tdStyle}>
@@ -85,6 +86,7 @@ export default function DataOutputPanel({
                     <td style={tdStyle}>{campaign.latest_measurement_at ?? campaign.created_at}</td>
                     <td style={tdStyle}>{campaign.experiment_count}</td>
                     <td style={tdStyle}>{campaign.well_count}</td>
+                    <td style={tdStyle}>{campaign.measurement_count}</td>
                     <td style={tdStyle}>
                       <button
                         onClick={() => void handleExport(campaign)}

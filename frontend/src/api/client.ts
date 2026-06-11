@@ -234,8 +234,8 @@ export const settingsApi = {
 export const dataApi = {
   listCampaigns: () =>
     request<import("../types").CampaignSummary[]>("/data/campaigns"),
-  exportCampaignAsmiZip: (campaignId: number) =>
-    download(`/data/campaigns/${campaignId}/asmi.zip`),
+  exportCampaignMeasurementsZip: (campaignId: number) =>
+    download(`/data/campaigns/${campaignId}/measurements.zip`),
 };
 
 // Raw YAML

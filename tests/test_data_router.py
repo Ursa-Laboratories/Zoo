@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import io
 import sqlite3
@@ -16,7 +17,7 @@ from protocol_engine.measurements import InstrumentMeasurement, MeasurementType
 from tests.api_client import api_request
 from zoo.app import create_app
 from zoo.config import get_settings
-from zoo.routers.data import _json_array
+from zoo.routers.data import _format_cell, _json_array
 
 
 def _seed_asmi_database(path: Path) -> None:
@@ -124,6 +125,122 @@ def _seed_asmi_database(path: Path) -> None:
     conn.close()
 
 
+def _seed_all_measurement_tables(path: Path) -> int:
+    store = DataStore(db_path=path)
+    campaign_id = store.create_campaign(
+        description="All instruments",
+        deck_config="deck.yaml",
+        gantry_config="gantry.yaml",
+        protocol_config="protocol.yaml",
+    )
+    store._conn.execute(
+        "UPDATE campaigns SET created_at = ? WHERE id = ?",
+        ("2026-06-11 10:00:00", campaign_id),
+    )
+
+    experiments = {
+        "uvvis": store.create_experiment(campaign_id, "plate", "A1", "[]"),
+        "filmetrics": store.create_experiment(campaign_id, "plate", "B2", "[]"),
+        "uv_curing": store.create_experiment(campaign_id, "plate", "C3", "[]"),
+        "camera": store.create_experiment(campaign_id, "plate", "D4", "[]"),
+        "asmi": store.create_experiment(campaign_id, "plate", "E5", "[]"),
+        "potentiostat": store.create_experiment(campaign_id, "plate", "F6", "[]"),
+    }
+
+    uvvis_id = store.log_measurement(
+        experiments["uvvis"],
+        InstrumentMeasurement(
+            measurement_type=MeasurementType.UVVIS_SPECTRUM,
+            payload={
+                "wavelength_nm": [400.0, 500.0],
+                "intensity_au": [0.1, 0.2],
+            },
+            metadata={"integration_time_s": 0.24},
+        ),
+    )
+    filmetrics_id = store.log_measurement(
+        experiments["filmetrics"],
+        InstrumentMeasurement(
+            measurement_type=MeasurementType.FILMETRICS_THICKNESS,
+            payload={"thickness_nm": 151.2, "goodness_of_fit": 0.96},
+        ),
+    )
+    uv_curing_id = store.log_measurement(
+        experiments["uv_curing"],
+        InstrumentMeasurement(
+            measurement_type=MeasurementType.UV_CURING_EXPOSURE,
+            payload={
+                "intensity_percent": 55.0,
+                "exposure_time_s": 1.25,
+                "cure_timestamp_s": 123.4,
+            },
+        ),
+    )
+    camera_id = store.log_measurement(experiments["camera"], "/images/D4.png")
+    asmi_id = store.log_measurement(
+        experiments["asmi"],
+        InstrumentMeasurement(
+            measurement_type=MeasurementType.ASMI_INDENTATION,
+            payload={
+                "sample_timestamps": [1.0, 1.1],
+                "z_positions_mm": [-74.0, -74.1],
+                "raw_forces_n": [0.5, 0.6],
+                "corrected_forces_n": [0.1, 0.2],
+                "directions": ["down", "up"],
+            },
+            metadata={
+                "baseline_avg": 0.4,
+                "baseline_std": 0.01,
+                "force_exceeded": False,
+                "data_points": 2,
+                "step_size_mm": 0.01,
+                "z_target_mm": -80.0,
+                "force_limit_n": 10.0,
+            },
+        ),
+    )
+    potentiostat_id = store.log_measurement(
+        experiments["potentiostat"],
+        InstrumentMeasurement(
+            measurement_type=MeasurementType.POTENTIOSTAT_CA,
+            payload={
+                "time_s": [0.0, 1.0],
+                "voltage_v": [0.2, 0.25],
+                "current_a": [0.001, 0.002],
+            },
+            metadata={
+                "technique": "ca",
+                "sample_period_s": 1.0,
+                "duration_s": 1.0,
+                "vendor": "mock",
+                "device_id": "pstat-1",
+                "channel": 0,
+                "started_at": "2026-06-11T10:06:00",
+                "stopped_at": "2026-06-11T10:06:01",
+                "aborted": False,
+                "stop_reason": "complete",
+            },
+        ),
+    )
+
+    timestamp_updates = [
+        ("uvvis_measurements", uvvis_id, "2026-06-11 10:01:00"),
+        ("filmetrics_measurements", filmetrics_id, "2026-06-11 10:02:00"),
+        ("uv_curing_measurements", uv_curing_id, "2026-06-11 10:03:00"),
+        ("camera_measurements", camera_id, "2026-06-11 10:04:00"),
+        ("asmi_measurements", asmi_id, "2026-06-11 10:05:00"),
+        ("potentiostat_measurements", potentiostat_id, "2026-06-11 10:06:00"),
+    ]
+    for table_name, measurement_id, timestamp in timestamp_updates:
+        store._conn.execute(
+            f"UPDATE {table_name} SET timestamp = ? WHERE id = ?",
+            (timestamp, measurement_id),
+        )
+    store._conn.commit()
+    store.close()
+    return campaign_id
+
+
 def test_list_campaigns_returns_run_metadata(monkeypatch, tmp_path):
     db_path = tmp_path / "panda_data.db"
     _seed_asmi_database(db_path)
@@ -140,7 +257,46 @@ def test_list_campaigns_returns_run_metadata(monkeypatch, tmp_path):
             "latest_measurement_at": "2025-10-30 12:22:07",
             "experiment_count": 2,
             "well_count": 2,
+            "measurement_count": 2,
+            "measurement_counts": {
+                "uvvis": 0,
+                "filmetrics": 0,
+                "uv_curing": 0,
+                "camera": 0,
+                "asmi": 2,
+                "potentiostat": 0,
+            },
             "asmi_measurement_count": 2,
+        }
+    ]
+
+
+def test_list_campaigns_counts_all_cubos_measurement_tables(monkeypatch, tmp_path):
+    db_path = tmp_path / "panda_data.db"
+    campaign_id = _seed_all_measurement_tables(db_path)
+    monkeypatch.setattr(get_settings(), "data_db_path", db_path)
+
+    response = api_request(create_app(), "GET", "/api/data/campaigns")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "campaign_id": campaign_id,
+            "campaign_description": "All instruments",
+            "created_at": "2026-06-11 10:00:00",
+            "latest_measurement_at": "2026-06-11 10:06:00",
+            "experiment_count": 6,
+            "well_count": 6,
+            "measurement_count": 6,
+            "measurement_counts": {
+                "uvvis": 1,
+                "filmetrics": 1,
+                "uv_curing": 1,
+                "camera": 1,
+                "asmi": 1,
+                "potentiostat": 1,
+            },
+            "asmi_measurement_count": 1,
         }
     ]
 
@@ -180,6 +336,85 @@ def test_export_campaign_asmi_zip_has_raw_rows_and_metadata(monkeypatch, tmp_pat
             "Timestamp(s),Z_Position(mm),Raw_Force(N),Corrected_Force(N),Direction",
             "1761841280.199,-74.030,0.461,0.002,down",
         ]
+
+
+def test_export_campaign_measurements_zip_includes_all_cubos_measurement_tables(
+    monkeypatch, tmp_path,
+):
+    db_path = tmp_path / "panda_data.db"
+    campaign_id = _seed_all_measurement_tables(db_path)
+    monkeypatch.setattr(get_settings(), "data_db_path", db_path)
+
+    response = api_request(
+        create_app(), "GET", f"/api/data/campaigns/{campaign_id}/measurements.zip",
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/zip")
+    assert response.headers["content-disposition"] == (
+        f'attachment; filename="campaign_{campaign_id}_measurements.zip"'
+    )
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert set(archive.namelist()) == {
+            "manifest.csv",
+            "experiments.csv",
+            "measurements/uvvis_measurements.csv",
+            "measurements/filmetrics_measurements.csv",
+            "measurements/uv_curing_measurements.csv",
+            "measurements/camera_measurements.csv",
+            "measurements/asmi_measurements.csv",
+            "measurements/potentiostat_measurements.csv",
+        }
+        assert archive.read("manifest.csv").decode().splitlines() == [
+            "instrument,table,row_count,file",
+            "uvvis,uvvis_measurements,1,measurements/uvvis_measurements.csv",
+            "filmetrics,filmetrics_measurements,1,measurements/filmetrics_measurements.csv",
+            "uv_curing,uv_curing_measurements,1,measurements/uv_curing_measurements.csv",
+            "camera,camera_measurements,1,measurements/camera_measurements.csv",
+            "asmi,asmi_measurements,1,measurements/asmi_measurements.csv",
+            "potentiostat,potentiostat_measurements,1,measurements/potentiostat_measurements.csv",
+        ]
+
+        uvvis_rows = list(csv.reader(io.StringIO(
+            archive.read("measurements/uvvis_measurements.csv").decode()
+        )))
+        assert uvvis_rows[0] == [
+            "id",
+            "experiment_id",
+            "wavelengths",
+            "intensities",
+            "integration_time_s",
+            "timestamp",
+            "experiment_labware_name",
+            "experiment_well_id",
+            "experiment_contents",
+            "experiment_created_at",
+        ]
+        assert uvvis_rows[1][2:5] == ["[400.0, 500.0]", "[0.1, 0.2]", "0.24"]
+        assert uvvis_rows[1][6:8] == ["plate", "A1"]
+
+        potentiostat_rows = list(csv.reader(io.StringIO(
+            archive.read("measurements/potentiostat_measurements.csv").decode()
+        )))
+        assert potentiostat_rows[0][:5] == [
+            "id", "experiment_id", "technique", "time_s", "voltage_v",
+        ]
+        assert potentiostat_rows[1][2:6] == [
+            "ca", "[0.0, 1.0]", "[0.2, 0.25]", "[0.001, 0.002]",
+        ]
+
+        camera_rows = list(csv.reader(io.StringIO(
+            archive.read("measurements/camera_measurements.csv").decode()
+        )))
+        assert camera_rows[1][2] == "/images/D4.png"
+
+        experiments_rows = list(csv.reader(io.StringIO(
+            archive.read("experiments.csv").decode()
+        )))
+        assert experiments_rows[0] == [
+            "id", "campaign_id", "labware_name", "well_id", "contents", "created_at",
+        ]
+        assert len(experiments_rows) == 7
 
 
 def test_export_campaign_asmi_zip_reads_cubos_datastore_schema(monkeypatch, tmp_path):
@@ -252,6 +487,19 @@ def test_export_campaign_asmi_zip_returns_404_for_missing_database(monkeypatch, 
     assert "Data database not found" in response.json()["detail"]
 
 
+def test_export_campaign_measurements_zip_returns_404_for_missing_database(
+    monkeypatch, tmp_path,
+):
+    monkeypatch.setattr(get_settings(), "data_db_path", tmp_path / "missing.db")
+
+    response = api_request(
+        create_app(), "GET", "/api/data/campaigns/1/measurements.zip",
+    )
+
+    assert response.status_code == 404
+    assert "Data database not found" in response.json()["detail"]
+
+
 def test_export_campaign_asmi_zip_returns_404_for_empty_campaign(monkeypatch, tmp_path):
     db_path = tmp_path / "panda_data.db"
     _seed_asmi_database(db_path)
@@ -261,6 +509,25 @@ def test_export_campaign_asmi_zip_returns_404_for_empty_campaign(monkeypatch, tm
 
     assert response.status_code == 404
     assert response.json()["detail"] == "No ASMI measurement found for campaign 999"
+
+
+def test_export_campaign_measurements_zip_returns_404_for_campaign_without_measurements(
+    monkeypatch, tmp_path,
+):
+    db_path = tmp_path / "panda_data.db"
+    store = DataStore(db_path=db_path)
+    campaign_id = store.create_campaign(description="empty")
+    store.close()
+    monkeypatch.setattr(get_settings(), "data_db_path", db_path)
+
+    response = api_request(
+        create_app(), "GET", f"/api/data/campaigns/{campaign_id}/measurements.zip",
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == (
+        f"No instrument measurements found for campaign {campaign_id}"
+    )
 
 
 def test_export_campaign_asmi_zip_rejects_missing_tables(monkeypatch, tmp_path):
@@ -283,6 +550,11 @@ def test_json_array_rejects_missing_required_value():
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "ASMI field 'z_positions' is missing"
+
+
+def test_format_cell_converts_binary_values_to_readable_text():
+    assert _format_cell(b"plain text") == "plain text"
+    assert _format_cell(b"\xff\x00") == "base64:/wA="
 
 
 def test_export_campaign_asmi_zip_rejects_non_array_json(monkeypatch, tmp_path):
