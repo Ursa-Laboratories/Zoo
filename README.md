@@ -58,11 +58,14 @@ See also:
 ## Results Output
 
 - The Results view lists stored campaign rows with run time, experiment count,
-  well count, and campaign description.
-- ASMI campaign rows can be exported as a ZIP containing raw per-well CSV files
-  and a `metadata.csv` file for per-well run settings.
+  well count, measurement count, and campaign description.
+- Campaign rows can be exported as a ZIP containing raw CSV files for the
+  CubOS instrument measurement tables that have rows in that campaign.
+- The ASMI-specific export remains available as a ZIP containing raw per-well
+  CSV files and a `metadata.csv` file for per-well run settings.
 - The API surface is `/api/data/campaigns` and
-  `/api/data/campaigns/{campaign_id}/asmi.zip`.
+  `/api/data/campaigns/{campaign_id}/measurements.zip`; the legacy ASMI-only
+  archive is `/api/data/campaigns/{campaign_id}/asmi.zip`.
 
 ## Run
 
