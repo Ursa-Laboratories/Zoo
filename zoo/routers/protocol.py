@@ -252,6 +252,35 @@ class RunProtocolRequest(BaseModel):
     protocol_file: str
 
 
+@router.post("/stop")
+def stop_protocol_endpoint() -> dict:
+    """Request an immediate stop for the connected gantry.
+
+    /protocol/run holds gantry_router._serial_lock for the duration of a
+    protocol so position polling cannot interleave normal request/response
+    serial traffic with G-code. A stop request is different: it must be able
+    to interrupt that active run instead of waiting behind the same lock until
+    the run naturally finishes. When the lock is busy, send CubOS' feed-hold
+    command directly to the connected gantry as an emergency control path.
+    """
+    from zoo.routers import gantry as gantry_router
+
+    if gantry_router._gantry is None:
+        raise HTTPException(400, "Gantry is not connected")
+
+    acquired = gantry_router._serial_lock.acquire(blocking=False)
+    try:
+        gantry_router._gantry.stop()
+    except Exception as exc:
+        logging.exception("Protocol stop failed")
+        raise HTTPException(500, f"Stop failed: {exc}") from exc
+    finally:
+        if acquired:
+            gantry_router._serial_lock.release()
+
+    return {"status": "stop_requested"}
+
+
 @router.post("/run")
 def run_protocol_endpoint(body: RunProtocolRequest) -> dict:
     """Run a protocol with gantry/deck/protocol configs and the connected gantry.

@@ -56,6 +56,7 @@ export default function App() {
   const [runResult, setRunResult] = useState<ProtocolRunResponse | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
 
   // Load the local config directory on mount.
@@ -252,6 +253,7 @@ export default function App() {
       return;
     }
     setIsRunning(true);
+    setIsStopping(false);
     setRunResult(null);
     setRunError(null);
     try {
@@ -266,6 +268,20 @@ export default function App() {
       setRunError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsRunning(false);
+      setIsStopping(false);
+    }
+  };
+
+  const handleStopProtocol = async () => {
+    if (!isRunning || isStopping) return;
+    setIsStopping(true);
+    try {
+      await protocolApi.stop();
+      setRunError("Stop requested. Wait for the active protocol run to unwind before starting another run.");
+    } catch (err: unknown) {
+      setRunError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsStopping(false);
     }
   };
 
@@ -440,9 +456,11 @@ export default function App() {
             isValidating={validateProtocolSetup.isPending}
             onRefresh={refreshAll}
             onRun={handleRunProtocol}
+            onStop={handleStopProtocol}
             unsavedConfigs={unsavedConfigs}
             canRun={gantryConnected}
             isRunning={isRunning}
+            isStopping={isStopping}
             runResult={runResult}
             runError={runError}
           />

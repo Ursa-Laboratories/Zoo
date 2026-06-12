@@ -369,3 +369,49 @@ def test_run_endpoint_blocks_active_calibration_warning(monkeypatch, tmp_path):
     assert response.status_code == 400
     assert "calibration warning is active" in response.text
     mock_gantry.is_healthy.assert_not_called()
+
+
+def test_stop_endpoint_requires_connected_gantry(monkeypatch):
+    from zoo.routers import gantry as gantry_router
+
+    monkeypatch.setattr(gantry_router, "_gantry", None)
+
+    response = api_request(create_app(), "POST", "/api/protocol/stop")
+
+    assert response.status_code == 400
+    assert "Gantry is not connected" in response.text
+
+
+def test_stop_endpoint_sends_stop_without_leaking_serial_lock(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from zoo.routers import gantry as gantry_router
+
+    mock_gantry = MagicMock()
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(create_app(), "POST", "/api/protocol/stop")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "stop_requested"}
+    mock_gantry.stop.assert_called_once_with()
+    assert gantry_router._serial_lock.locked() is False
+
+
+def test_stop_endpoint_can_interrupt_while_run_lock_is_held(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from zoo.routers import gantry as gantry_router
+
+    mock_gantry = MagicMock()
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    assert gantry_router._serial_lock.acquire(blocking=False) is True
+    try:
+        response = api_request(create_app(), "POST", "/api/protocol/stop")
+    finally:
+        gantry_router._serial_lock.release()
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "stop_requested"}
+    mock_gantry.stop.assert_called_once_with()

@@ -103,9 +103,11 @@ function renderProtocol(overrides: Partial<React.ComponentProps<typeof ProtocolE
     isValidating: false,
     onRefresh: vi.fn(),
     onRun: vi.fn(),
+    onStop: vi.fn(),
     unsavedConfigs: [],
     canRun: true,
     isRunning: false,
+    isStopping: false,
     runResult: null,
     runError: null,
     ...overrides,
@@ -296,6 +298,16 @@ describe("ProtocolEditor", () => {
     render(<ProtocolEditor {...baseProps()} runError="boom" />);
     expect(screen.getByText("boom")).toBeInTheDocument();
   });
+
+  it("shows a stop button while a protocol is running", async () => {
+    const user = userEvent.setup();
+    const onStop = vi.fn();
+    renderProtocol({ isRunning: true, onStop });
+
+    await user.click(screen.getByRole("button", { name: "Stop" }));
+
+    expect(onStop).toHaveBeenCalledOnce();
+  });
 });
 
 function baseProps(): React.ComponentProps<typeof ProtocolEditor> {
@@ -316,9 +328,11 @@ function baseProps(): React.ComponentProps<typeof ProtocolEditor> {
     isValidating: false,
     onRefresh: vi.fn(),
     onRun: vi.fn(),
+    onStop: vi.fn(),
     unsavedConfigs: [],
     canRun: true,
     isRunning: false,
+    isStopping: false,
     runResult: null,
     runError: null,
   };
