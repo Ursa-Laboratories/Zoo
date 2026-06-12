@@ -30,12 +30,14 @@ interface Props {
   isValidating: boolean;
   onRefresh: () => void;
   onRun: () => void;
+  onStop: () => void;
   /** Names of configs (Gantry/Deck/Protocol) with unsaved local edits.
    * Run is blocked while non-empty because it executes the saved files,
    * not these in-memory edits. */
   unsavedConfigs: string[];
   canRun: boolean;
   isRunning: boolean;
+  isStopping: boolean;
   runResult: ProtocolRunResponse | null;
   runError: string | null;
 }
@@ -105,9 +107,11 @@ export default function ProtocolEditor({
   validationErrors,
   isValidating,
   onRun,
+  onStop,
   unsavedConfigs,
   canRun,
   isRunning,
+  isStopping,
   runResult,
   runError,
 }: Props) {
@@ -490,6 +494,15 @@ export default function ProtocolEditor({
             >
               {isRunning ? "Running..." : "Run Protocol"}
             </button>
+            {isRunning && (
+              <button
+                onClick={onStop}
+                disabled={isStopping}
+                style={isStopping ? { ...stopBtnStyle, opacity: 0.6, cursor: "not-allowed" } : stopBtnStyle}
+              >
+                {isStopping ? "Stopping..." : "Stop"}
+              </button>
+            )}
           </div>
 
           {validationErrors !== null && validationErrors.length === 0 && (
@@ -1042,6 +1055,17 @@ const saveBtnStyle: React.CSSProperties = {
 
 const runBtnStyle: React.CSSProperties = {
   background: "#059669",
+  color: "#fff",
+  border: "none",
+  padding: "6px 20px",
+  borderRadius: 4,
+  cursor: "pointer",
+  fontSize: 13,
+  fontWeight: 600,
+};
+
+const stopBtnStyle: React.CSSProperties = {
+  background: "#dc2626",
   color: "#fff",
   border: "none",
   padding: "6px 20px",

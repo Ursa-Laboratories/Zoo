@@ -214,6 +214,10 @@ export const protocolApi = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  stop: () =>
+    request<{ status: string }>("/protocol/stop", {
+      method: "POST",
+    }),
 };
 
 // Settings
