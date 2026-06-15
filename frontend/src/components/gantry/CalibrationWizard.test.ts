@@ -14,7 +14,6 @@ function gantryConfig(): GantryConfig {
     serial_port: "/dev/ttyUSB0",
     gantry_type: "cub_xl",
     cnc: {
-      homing_strategy: "standard",
       factory_z_travel_mm: 110,
       calibration_block_height_mm: 35,
       y_axis_motion: "head",

@@ -175,7 +175,6 @@ export interface WorkingVolume {
 }
 
 export interface CncConfig {
-  homing_strategy: "standard";
   factory_z_travel_mm: number;
   total_z_range?: number;
   total_z_height?: number;

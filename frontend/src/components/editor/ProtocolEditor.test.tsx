@@ -70,7 +70,7 @@ const GANTRY: GantryResponse = {
   config: {
     serial_port: "",
     gantry_type: "cub_xl",
-    cnc: { homing_strategy: "standard", factory_z_travel_mm: 80, y_axis_motion: "head", safe_z: 80 },
+    cnc: { factory_z_travel_mm: 80, y_axis_motion: "head", safe_z: 80 },
     working_volume: { x_min: 0, x_max: 300, y_min: 0, y_max: 200, z_min: 0, z_max: 80 },
     grbl_settings: {},
     instruments: {

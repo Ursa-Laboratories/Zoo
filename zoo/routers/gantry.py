@@ -200,8 +200,8 @@ def _normalize_gantry_yaml(data: Dict[str, Any]) -> Dict[str, Any]:
     """Lift older Zoo gantry YAMLs into CubOS staging's gantry schema.
 
     Zoo still validates through CubOS after this compatibility pass. The pass
-    is intentionally narrow: it removes the retired homing strategy and fills
-    fields that CubOS now requires so operators can save a corrected file.
+    is intentionally narrow: it fills fields that CubOS now requires so
+    operators can save a corrected file.
     """
     normalized = copy.deepcopy(data)
     gantry_fields = _gantry_schema_fields()
@@ -214,7 +214,6 @@ def _normalize_gantry_yaml(data: Dict[str, Any]) -> Dict[str, Any]:
     z_span = max(z_max - z_min, 0.0)
 
     cnc = dict(normalized.get("cnc") or {})
-    cnc["homing_strategy"] = "standard"
     if cnc.get("y_axis_motion") not in {"head", "bed"}:
         cnc["y_axis_motion"] = "head"
 
@@ -631,12 +630,7 @@ def get_position() -> GantryPosition:
 
 @router.post("/home")
 def home() -> GantryPosition:
-    """Home the gantry using the strategy from the loaded config.
-
-    Dispatch lives in ``cubos.Gantry.home()``, which reads
-    ``config['cnc']['homing_strategy']`` and routes through CubOS's
-    current standard homing behavior.
-    """
+    """Home the gantry through CubOS's current standard homing behavior."""
     if _gantry is None:
         raise HTTPException(400, "Gantry not connected")
     with _serial_lock:
