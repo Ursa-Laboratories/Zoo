@@ -137,6 +137,8 @@ methods.
   `step_size`, `baseline_samples`, and `measure_with_return`.
 - Protocol execution is enabled only when the gantry position poll reports an
   active connection.
+- While a protocol is running, Zoo keeps the running state visible and exposes
+  a Cancel Run control that requests CubOS gantry feed hold.
 - Each run creates one CubOS `DataStore` campaign for the selected gantry, deck,
   and protocol files.
 

@@ -103,9 +103,11 @@ function renderProtocol(overrides: Partial<React.ComponentProps<typeof ProtocolE
     isValidating: false,
     onRefresh: vi.fn(),
     onRun: vi.fn(),
+    onCancelRun: vi.fn(),
     unsavedConfigs: [],
     canRun: true,
     isRunning: false,
+    isCancelingRun: false,
     runResult: null,
     runError: null,
     ...overrides,
@@ -154,6 +156,26 @@ describe("ProtocolEditor", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await user.click(runButton);
     expect(props.onRun).toHaveBeenCalled();
+  });
+
+  it("keeps the running state visible and shows a cancel button while running", async () => {
+    const user = userEvent.setup();
+    const props = renderProtocol({ isRunning: true });
+
+    expect(screen.getByRole("button", { name: "Running..." })).toBeDisabled();
+    const cancelButton = screen.getByRole("button", { name: "Cancel Run" });
+    expect(cancelButton).toBeEnabled();
+    const buttonLabels = screen.getAllByRole("button").map((button) => button.textContent);
+    expect(buttonLabels.indexOf("Cancel Run")).toBeLessThan(buttonLabels.indexOf("Running..."));
+
+    await user.click(cancelButton);
+    expect(props.onCancelRun).toHaveBeenCalled();
+  });
+
+  it("disables the cancel button while cancellation is being requested", () => {
+    renderProtocol({ isRunning: true, isCancelingRun: true });
+    expect(screen.queryByRole("button", { name: "Running..." })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancelling..." })).toBeDisabled();
   });
 
   it("disables Run while the gantry cannot run", () => {
@@ -316,9 +338,11 @@ function baseProps(): React.ComponentProps<typeof ProtocolEditor> {
     isValidating: false,
     onRefresh: vi.fn(),
     onRun: vi.fn(),
+    onCancelRun: vi.fn(),
     unsavedConfigs: [],
     canRun: true,
     isRunning: false,
+    isCancelingRun: false,
     runResult: null,
     runError: null,
   };

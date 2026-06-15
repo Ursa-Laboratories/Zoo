@@ -18,6 +18,10 @@ type ApiState = {
   protocols: Record<string, ProtocolResponse>;
 };
 
+type FetchMockOptions = {
+  protocolRun?: (init?: RequestInit) => Promise<Response>;
+};
+
 function createState(): ApiState {
   return {
     decks: {
@@ -129,7 +133,7 @@ function toProtocolResponse(filename: string, body: ProtocolConfig): ProtocolRes
   };
 }
 
-function installFetchMock(state: ApiState) {
+function installFetchMock(state: ApiState, options: FetchMockOptions = {}) {
   let gantryConnected = false;
   const gantryPosition = (x = 0, y = 0, z = 0) => ({
     x,
@@ -206,7 +210,11 @@ function installFetchMock(state: ApiState) {
       ]);
     }
     if (path === "/api/protocol/run" && method === "POST") {
+      if (options.protocolRun) return options.protocolRun(init);
       return jsonResponse({ status: "complete", steps_executed: 1, campaign_id: 123 });
+    }
+    if (path === "/api/protocol/cancel" && method === "POST") {
+      return jsonResponse({ status: "cancel_requested" });
     }
     if (path === "/api/protocol/validate-setup" && method === "POST") {
       return jsonResponse({
@@ -734,6 +742,37 @@ describe("Zoo editor interactions", () => {
     ));
     expect(await screen.findByText(/campaign #123 created/i)).toBeInTheDocument();
     expect(screen.getByLabelText("Last Campaign")).toHaveValue("#123");
+  });
+
+  it("shows a red cancel control while a protocol run is pending", async () => {
+    const user = userEvent.setup();
+    const fetchMock = installFetchMock(createState(), {
+      protocolRun: (init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("Aborted", "AbortError"));
+        });
+      }),
+    });
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+    await connectGantry(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+    await user.click(await screen.findByRole("button", { name: "Run Protocol" }));
+
+    expect(await screen.findByRole("button", { name: "Running..." })).toBeDisabled();
+    const cancelButton = await screen.findByRole("button", { name: "Cancel Run" });
+    expect(cancelButton).toBeEnabled();
+
+    await user.click(cancelButton);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/protocol/cancel",
+      expect.objectContaining({ method: "POST" }),
+    ));
+    expect(await screen.findByText("Protocol cancellation requested.")).toBeInTheDocument();
   });
 
   it("blocks Run Protocol when an unsaved edit lives in another tab (Deck)", async () => {
