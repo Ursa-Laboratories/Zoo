@@ -49,10 +49,8 @@ def reset_gantry_router_state(monkeypatch):
 def test_home_endpoint_delegates_to_gantry_home(monkeypatch):
     """POST /api/gantry/home must call Gantry.home(), not hardcode home_xy.
 
-    Regression: router previously invoked `_gantry.home_xy()` unconditionally,
-    which ignored the `cnc.homing_strategy` set via the Zoo UI (e.g. a YAML
-    with `homing_strategy: standard` still ran XY-only homing).
-    Dispatch on strategy lives inside CubOS's `Gantry.home()`.
+    Regression: router previously invoked `_gantry.home_xy()` unconditionally.
+    Homing behavior lives inside CubOS's `Gantry.home()`.
     """
     mock_gantry = MagicMock()
     mock_gantry.get_position_info.return_value = {
@@ -166,7 +164,7 @@ def test_connect_uses_selected_gantry_config(monkeypatch, tmp_path):
     gantry_dir.mkdir(parents=True)
 
     base = {
-        "cnc": {"homing_strategy": "standard", "total_z_height": 80.0},
+        "cnc": {"total_z_height": 80.0},
         "working_volume": {
             "x_min": 0.0,
             "x_max": 300.0,
@@ -265,7 +263,6 @@ def test_connect_warns_but_does_not_fail_on_grbl_setting_mismatch(monkeypatch, t
         {
             "serial_port": "/dev/ttyUSB0",
             "cnc": {
-                "homing_strategy": "standard",
                 "total_z_height": 115.0,
                 "structure_clearance_z": 115.0,
             },
@@ -359,7 +356,6 @@ def test_get_gantry_normalizes_legacy_config_for_editing(monkeypatch, tmp_path):
 
     assert response.status_code == 200
     config = response.json()["config"]
-    assert config["cnc"]["homing_strategy"] == "standard"
     assert config["cnc"]["factory_z_travel_mm"] == 80.0
     if "total_z_range" in gantry_router._cnc_schema_fields():
         assert config["cnc"]["total_z_range"] == 80.0
@@ -379,7 +375,6 @@ def test_get_gantry_preserves_factory_z_travel_for_offset_z_bounds(monkeypatch, 
             "serial_port": "",
             "gantry_type": "cub_xl",
             "cnc": {
-                "homing_strategy": "standard",
                 "factory_z_travel_mm": 110.0,
                 "calibration_block_height_mm": 35.0,
             },
@@ -1166,7 +1161,7 @@ def test_put_gantry_persists_calibration_block_height_mm(monkeypatch, tmp_path):
         {
             "serial_port": "",
             "gantry_type": "cub_xl",
-            "cnc": {"homing_strategy": "standard", "factory_z_travel_mm": 110.0},
+            "cnc": {"factory_z_travel_mm": 110.0},
             "working_volume": {
                 "x_min": 0.0, "x_max": 300.0,
                 "y_min": 0.0, "y_max": 200.0,
@@ -1185,7 +1180,6 @@ def test_put_gantry_persists_calibration_block_height_mm(monkeypatch, tmp_path):
             "serial_port": "",
             "gantry_type": "cub_xl",
             "cnc": {
-                "homing_strategy": "standard",
                 "factory_z_travel_mm": 110.0,
                 "calibration_block_height_mm": 36.25,
             },

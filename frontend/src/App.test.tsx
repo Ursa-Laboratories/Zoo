@@ -57,8 +57,7 @@ function createState(): ApiState {
           serial_port: "",
           gantry_type: "cub_xl",
           cnc: {
-            homing_strategy: "standard",
-            factory_z_travel_mm: 80,
+      factory_z_travel_mm: 80,
             calibration_block_height_mm: 35,
             y_axis_motion: "head",
             safe_z: 80,

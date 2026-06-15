@@ -34,14 +34,12 @@ interface Props {
   onRefresh: () => void;
 }
 
-const HOMING_STRATEGIES = ["standard"] as const;
 const Y_AXIS_MOTION_OPTIONS = ["head", "bed"] as const;
 
 const EMPTY_GANTRY: GantryConfig = {
   serial_port: "",
   gantry_type: "cub_xl",
   cnc: {
-    homing_strategy: "standard",
     factory_z_travel_mm: 80,
     calibration_block_height_mm: 35,
     y_axis_motion: "head",
@@ -190,7 +188,6 @@ export default function GantryEditor({
   const d = {
     serial_port: !!config && !notDirty(config.serial_port, base?.serial_port ?? ""),
     gantry_type: !!config && !notDirty(config.gantry_type, base?.gantry_type),
-    homing_strategy: !!cnc && !notDirty(cnc.homing_strategy, bcnc?.homing_strategy),
     factory_z_travel_mm: !!cnc && !notDirty(cnc.factory_z_travel_mm, bcnc?.factory_z_travel_mm),
     calibration_block_height_mm: !!cnc && !notDirty(cnc.calibration_block_height_mm, bcnc?.calibration_block_height_mm),
     safe_z: !!cnc && !notDirty(cnc.safe_z, bcnc?.safe_z),
@@ -253,15 +250,6 @@ export default function GantryEditor({
                 onChange={(v) => commit({ ...config, gantry_type: v as "cub" | "cub_xl" })}
                 dirty={d.gantry_type}
                 required
-              />
-              <SelectField
-                id="gantry-homing-strategy"
-                name="homing_strategy"
-                label="Homing strategy"
-                value={config.cnc.homing_strategy}
-                options={HOMING_STRATEGIES.map((s) => ({ value: s, label: s }))}
-                onChange={() => commit({ ...config, cnc: { ...config.cnc, homing_strategy: "standard" } })}
-                dirty={d.homing_strategy}
               />
               <SelectField
                 id="gantry-y-axis-motion"
