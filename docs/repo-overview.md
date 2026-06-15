@@ -37,7 +37,9 @@ measure-with-return controls.
 Protocol execution is gated on the gantry position poll reporting an active
 connection. Each Run Protocol request creates one CubOS `DataStore` campaign
 for the selected gantry, deck, and protocol files, then executes the saved
-protocol with that campaign context.
+protocol with that campaign context. While the request is pending, the
+frontend keeps the running state visible and offers a Cancel Run control that
+requests CubOS gantry feed hold.
 The Results view reads the CubOS `DataStore` SQLite path by default, or
 `ZOO_DATA_DB_PATH` when explicitly set, and lets operators export campaign
 measurement rows as ZIPs of raw CSV files for each CubOS instrument measurement

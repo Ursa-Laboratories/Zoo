@@ -56,7 +56,9 @@ export default function App() {
   const [runResult, setRunResult] = useState<ProtocolRunResponse | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [isCancelingRun, setIsCancelingRun] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const runAbortControllerRef = useRef<AbortController | null>(null);
 
   // Load the local config directory on mount.
   React.useEffect(() => {
@@ -252,20 +254,47 @@ export default function App() {
       return;
     }
     setIsRunning(true);
+    setIsCancelingRun(false);
     setRunResult(null);
     setRunError(null);
+    const abortController = new AbortController();
+    runAbortControllerRef.current = abortController;
     try {
       const result = await protocolApi.run({
         gantry_file: gantryFile,
         deck_file: deckFile,
         protocol_file: protocolFile,
+      }, {
+        signal: abortController.signal,
       });
       setRunResult(result);
       qc.invalidateQueries({ queryKey: ["data", "campaigns"] });
     } catch (err: unknown) {
-      setRunError(err instanceof Error ? err.message : String(err));
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setRunError("Protocol cancellation requested.");
+      } else {
+        setRunError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
+      if (runAbortControllerRef.current === abortController) {
+        runAbortControllerRef.current = null;
+      }
       setIsRunning(false);
+      setIsCancelingRun(false);
+    }
+  };
+
+  const handleCancelRun = async () => {
+    if (!isRunning || isCancelingRun) return;
+    setIsCancelingRun(true);
+    setRunError(null);
+    try {
+      await protocolApi.cancelRun();
+      runAbortControllerRef.current?.abort();
+      setRunError("Protocol cancellation requested.");
+    } catch (err: unknown) {
+      setRunError(`Cancel failed: ${err instanceof Error ? err.message : String(err)}`);
+      setIsCancelingRun(false);
     }
   };
 
@@ -440,9 +469,11 @@ export default function App() {
             isValidating={validateProtocolSetup.isPending}
             onRefresh={refreshAll}
             onRun={handleRunProtocol}
+            onCancelRun={handleCancelRun}
             unsavedConfigs={unsavedConfigs}
             canRun={gantryConnected}
             isRunning={isRunning}
+            isCancelingRun={isCancelingRun}
             runResult={runResult}
             runError={runError}
           />

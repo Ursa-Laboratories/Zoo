@@ -252,6 +252,41 @@ class RunProtocolRequest(BaseModel):
     protocol_file: str
 
 
+def _looks_like_feed_hold_timeout(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "command execution timed out" in message
+        and "executing command !" in message
+    )
+
+
+@router.post("/cancel")
+def cancel_protocol_run() -> dict:
+    """Request immediate feed hold for the active protocol run."""
+    from zoo.routers import gantry as gantry_router
+
+    if gantry_router._gantry is None:
+        raise HTTPException(400, "Gantry is not connected")
+    try:
+        # This is an interrupt path for a run that may currently hold
+        # _serial_lock. Taking that lock here would make cancel wait for
+        # normal completion, so send CubOS/GRBL feed hold immediately.
+        gantry_router._gantry.stop()
+    except Exception as exc:
+        if _looks_like_feed_hold_timeout(exc):
+            logging.warning(
+                "Protocol cancel feed hold timed out after being sent: %s",
+                exc,
+            )
+            return {
+                "status": "cancel_requested",
+                "warning": "Feed hold was sent, but the controller did not acknowledge before the read timeout.",
+            }
+        logging.exception("Protocol cancel failed")
+        raise HTTPException(500, f"Cancel failed: {exc}") from exc
+    return {"status": "cancel_requested"}
+
+
 @router.post("/run")
 def run_protocol_endpoint(body: RunProtocolRequest) -> dict:
     """Run a protocol with gantry/deck/protocol configs and the connected gantry.

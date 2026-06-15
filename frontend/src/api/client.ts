@@ -209,10 +209,15 @@ export const protocolApi = {
     gantry_file: string;
     deck_file: string;
     protocol_file: string;
-  }) =>
+  }, init?: Pick<RequestInit, "signal">) =>
     request<import("../types").ProtocolRunResponse>("/protocol/run", {
       method: "POST",
       body: JSON.stringify(body),
+      signal: init?.signal,
+    }),
+  cancelRun: () =>
+    request<{ status: string }>("/protocol/cancel", {
+      method: "POST",
     }),
 };
 

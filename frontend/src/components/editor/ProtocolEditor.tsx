@@ -30,12 +30,14 @@ interface Props {
   isValidating: boolean;
   onRefresh: () => void;
   onRun: () => void;
+  onCancelRun: () => void;
   /** Names of configs (Gantry/Deck/Protocol) with unsaved local edits.
    * Run is blocked while non-empty because it executes the saved files,
    * not these in-memory edits. */
   unsavedConfigs: string[];
   canRun: boolean;
   isRunning: boolean;
+  isCancelingRun: boolean;
   runResult: ProtocolRunResponse | null;
   runError: string | null;
 }
@@ -105,9 +107,11 @@ export default function ProtocolEditor({
   validationErrors,
   isValidating,
   onRun,
+  onCancelRun,
   unsavedConfigs,
   canRun,
   isRunning,
+  isCancelingRun,
   runResult,
   runError,
 }: Props) {
@@ -464,32 +468,45 @@ export default function ProtocolEditor({
               Run Protocol uses the saved files, not your edits.
             </UnsavedNotice>
           )}
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={protocolActionBarStyle}>
             <input
               value={saveAs}
               onChange={(e) => setSaveAs(e.target.value)}
               placeholder={selectedFile ?? "my_protocol.yaml"}
               style={filenameInputStyle}
             />
-            <button onClick={handleValidate} disabled={isValidating || hasPositionErrors} style={validateBtnStyle}>
-              {isValidating ? "..." : "Validate"}
-            </button>
-            <button onClick={handleSave} disabled={!canSave} style={saveBtnStyle}>
-              Save
-              {protocolDirty && (
-                // aria-hidden so the accessible name stays "Save"; the
-                // amber asterisk is a sighted-only unsaved-edit cue.
-                <span aria-hidden="true" title="Unsaved changes" style={{ marginLeft: 4, fontWeight: 700, color: "#d97706" }}>*</span>
+            <div style={protocolButtonGroupStyle}>
+              <button onClick={handleValidate} disabled={isValidating || hasPositionErrors} style={validateBtnStyle}>
+                {isValidating ? "..." : "Validate"}
+              </button>
+              <button onClick={handleSave} disabled={!canSave} style={saveBtnStyle}>
+                Save
+                {protocolDirty && (
+                  // aria-hidden so the accessible name stays "Save"; the
+                  // amber asterisk is a sighted-only unsaved-edit cue.
+                  <span aria-hidden="true" title="Unsaved changes" style={{ marginLeft: 4, fontWeight: 700, color: "#d97706" }}>*</span>
+                )}
+              </button>
+              {isRunning && (
+                <button
+                  onClick={onCancelRun}
+                  disabled={isCancelingRun}
+                  style={isCancelingRun ? { ...cancelRunBtnStyle, opacity: 0.65, cursor: "not-allowed" } : cancelRunBtnStyle}
+                >
+                  {isCancelingRun ? "Cancelling..." : "Cancel Run"}
+                </button>
               )}
-            </button>
-            <button
-              onClick={onRun}
-              disabled={runDisabled}
-              title={hasUnsaved ? "Save your changes before running" : undefined}
-              style={runDisabled ? { ...runBtnStyle, opacity: 0.5, cursor: "not-allowed" } : runBtnStyle}
-            >
-              {isRunning ? "Running..." : "Run Protocol"}
-            </button>
+              {!isCancelingRun && (
+                <button
+                  onClick={onRun}
+                  disabled={runDisabled}
+                  title={hasUnsaved ? "Save your changes before running" : undefined}
+                  style={runDisabled ? { ...runBtnStyle, opacity: 0.5, cursor: "not-allowed" } : runBtnStyle}
+                >
+                  {isRunning ? "Running..." : "Run Protocol"}
+                </button>
+              )}
+            </div>
           </div>
 
           {validationErrors !== null && validationErrors.length === 0 && (
@@ -1008,6 +1025,22 @@ const removeBtnStyle: React.CSSProperties = {
   lineHeight: 1,
 };
 
+const protocolActionBarStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+
+const protocolButtonGroupStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  alignItems: "center",
+  justifyContent: "flex-end",
+  flex: "0 0 auto",
+  flexWrap: "wrap",
+};
+
 const filenameInputStyle: React.CSSProperties = {
   background: "#fff",
   border: "1px solid #ccc",
@@ -1015,7 +1048,8 @@ const filenameInputStyle: React.CSSProperties = {
   padding: "4px 8px",
   borderRadius: 4,
   fontSize: 13,
-  flex: 1,
+  flex: "1 1 220px",
+  minWidth: 160,
 };
 
 const validateBtnStyle: React.CSSProperties = {
@@ -1049,4 +1083,16 @@ const runBtnStyle: React.CSSProperties = {
   cursor: "pointer",
   fontSize: 13,
   fontWeight: 600,
+};
+
+const cancelRunBtnStyle: React.CSSProperties = {
+  background: "#dc2626",
+  color: "#fff",
+  border: "none",
+  padding: "6px 14px",
+  borderRadius: 4,
+  cursor: "pointer",
+  fontSize: 13,
+  fontWeight: 600,
+  whiteSpace: "nowrap",
 };

@@ -328,6 +328,51 @@ def test_run_endpoint_holds_serial_lock_for_duration(monkeypatch, tmp_configs):
     assert gantry_router._serial_lock.locked() is False
 
 
+def test_cancel_endpoint_requests_gantry_stop(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from zoo.routers import gantry as gantry_router
+
+    mock_gantry = MagicMock()
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(create_app(), "POST", "/api/protocol/cancel")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "cancel_requested"}
+    mock_gantry.stop.assert_called_once()
+
+
+def test_cancel_endpoint_treats_feed_hold_timeout_as_requested(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from zoo.routers import gantry as gantry_router
+
+    mock_gantry = MagicMock()
+    mock_gantry.stop.side_effect = RuntimeError(
+        "Error executing command !: Command execution timed out after 5 seconds: 000|FS:0,0>\r\n"
+    )
+    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
+
+    response = api_request(create_app(), "POST", "/api/protocol/cancel")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancel_requested"
+    assert "warning" in response.json()
+    mock_gantry.stop.assert_called_once()
+
+
+def test_cancel_endpoint_requires_connected_gantry(monkeypatch):
+    from zoo.routers import gantry as gantry_router
+
+    monkeypatch.setattr(gantry_router, "_gantry", None)
+
+    response = api_request(create_app(), "POST", "/api/protocol/cancel")
+
+    assert response.status_code == 400
+    assert "Gantry is not connected" in response.text
+
+
 def test_run_endpoint_blocks_active_calibration_warning(monkeypatch, tmp_path):
     from unittest.mock import MagicMock
 
