@@ -56,7 +56,7 @@ Zoo is a UI/API layer over CubOS, not a second implementation of CubOS logic.
   and schemas.
 - Frontend types model API payloads; they should not become a duplicate source
   of CubOS schema truth.
-- Hardware-touching routes call CubOS `Gantry` methods and runtime APIs.
+- Hardware-touching routes call CubOS `GantrySession` and runtime APIs.
 - The checked-in CubOS dependency currently points at a Git branch in
   `pyproject.toml`; confirm branch strategy before changing it.
 
@@ -71,8 +71,8 @@ change it through the settings UI or API.
 
 - **Decks:** Use CubOS field names such as `length`, `width`, `height`,
   `x_offset`, `y_offset`, and `diameter`.
-- **Gantries:** Load, convert, validate, and save through CubOS schemas before
-  Zoo overwrites YAML.
+- **Gantries:** Load, validate, and save through current CubOS schemas before
+  Zoo overwrites YAML. Zoo no longer normalizes older gantry YAML shapes.
 - **Protocols:** Saved protocol YAML includes both steps and top-level
   `positions` mappings.
 - **Validation:** The protocol Validate button runs full CubOS setup validation
@@ -87,11 +87,12 @@ program the controller and clear the warning.
 ## Gantry control and calibration
 
 The Gantry Control panel supports connection, homing, jogging, absolute
-movement, calibration, and advanced recovery. Manual absolute `Move To`
-commands are checked against the loaded gantry `working_volume` before motion
-is sent to CubOS.
+movement, calibration, and advanced recovery. CubOS `GantrySession` owns the
+persistent connected gantry, serial operation lock, cached position/status,
+manual movement working-volume checks, calibration soft-limit state, and
+advanced recovery calls.
 
-Advanced mode exposes recovery and inspection actions through CubOS `Gantry`
+Advanced mode exposes recovery and inspection actions through CubOS session
 methods:
 
 - Read live GRBL settings.
@@ -103,7 +104,8 @@ methods:
 
 The calibration wizard follows CubOS' serial calibration flow. Zoo sequences the
 operator UI and YAML save path; CubOS handles work-coordinate assignment,
-soft-limit programming, and limit recovery.
+soft-limit programming, temporary soft-limit bypass/restore, and limit
+recovery.
 
 Important calibration semantics:
 
@@ -139,15 +141,18 @@ methods.
   active connection.
 - While a protocol is running, Zoo keeps the running state visible and exposes
   a Cancel Run control that requests CubOS gantry feed hold.
-- Each run creates one CubOS `DataStore` campaign for the selected gantry, deck,
-  and protocol files.
+- Each run goes through `GantrySession.run_protocol()`, which creates one CubOS
+  `DataStore` campaign for the selected gantry, deck, and protocol files,
+  registers nested deck labware, executes against the already-connected gantry,
+  and returns `campaign_id`.
 
 The older `/api/protocol/validate` endpoint remains a command-schema check
 only; use the UI Validate action for full setup validation.
 
 ## Results
 
-The Results view reads stored output from CubOS' default `DataStore` path.
+The Results view reads stored output through CubOS data export helpers from the
+default `DataStore` path.
 
 Set `ZOO_DATA_DB_PATH` to override the Results view path without changing the
 CubOS runtime store. Set `CUBOS_DATA_DB_PATH` to move the shared default store.

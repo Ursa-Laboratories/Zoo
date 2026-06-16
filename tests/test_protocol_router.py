@@ -1,9 +1,20 @@
 """Test protocol API endpoints."""
 
+from __future__ import annotations
+
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
+from gantry.session import (
+    CalibrationBlockedError,
+    GantryNotConnectedError,
+    GantrySessionError,
+    GantrySessionHealthCheckError,
+    InterruptFeedHoldTimeoutError,
+)
+from validation.errors import BoundsViolation, SetupValidationError
 
 from tests.api_client import api_request
 from zoo.app import create_app
@@ -25,11 +36,9 @@ def tmp_configs(monkeypatch):
             "protocol": [
                 {"move": {"instrument": "pipette", "position": "plate_1.A1"}},
                 {"aspirate": {"position": "plate_1.A1", "volume_ul": 100.0}},
-            ]
+            ],
         }
         write_yaml(configs / "test_protocol.yaml", protocol_data)
-
-        # Also add a non-protocol file to make sure it's excluded
         write_yaml(configs / "deck.yaml", {"labware": {}})
 
         monkeypatch.setattr(get_settings(), "config_dir", Path(d) / "configs")
@@ -42,45 +51,44 @@ def client():
 
 
 def test_get_commands(client):
-    r = api_request(client, "GET", "/api/protocol/commands")
-    assert r.status_code == 200
-    commands = r.json()
-    names = [c["name"] for c in commands]
+    response = api_request(client, "GET", "/api/protocol/commands")
+    assert response.status_code == 200
+    commands = response.json()
+    names = [command["name"] for command in commands]
     assert "move" in names
     assert "aspirate" in names
     assert "scan" in names
-    # Commands come from CubOS's registry; at least the core set exists.
     assert len(names) >= 8
 
 
 def test_get_single_command(client):
-    r = api_request(client, "GET", "/api/protocol/commands/aspirate")
-    assert r.status_code == 200
-    cmd = r.json()
-    assert cmd["name"] == "aspirate"
-    arg_names = [a["name"] for a in cmd["args"]]
+    response = api_request(client, "GET", "/api/protocol/commands/aspirate")
+    assert response.status_code == 200
+    command = response.json()
+    assert command["name"] == "aspirate"
+    arg_names = [arg["name"] for arg in command["args"]]
     assert "position" in arg_names
     assert "volume_ul" in arg_names
     assert "speed" in arg_names
 
 
 def test_get_unknown_command(client):
-    r = api_request(client, "GET", "/api/protocol/commands/nonexistent")
-    assert r.status_code == 404
+    response = api_request(client, "GET", "/api/protocol/commands/nonexistent")
+    assert response.status_code == 404
 
 
 def test_list_protocol_configs(client, tmp_configs):
-    r = api_request(client, "GET", "/api/protocol/configs")
-    assert r.status_code == 200
-    configs = r.json()
+    response = api_request(client, "GET", "/api/protocol/configs")
+    assert response.status_code == 200
+    configs = response.json()
     assert "test_protocol.yaml" in configs
     assert "deck.yaml" not in configs
 
 
 def test_get_protocol(client, tmp_configs):
-    r = api_request(client, "GET", "/api/protocol/test_protocol.yaml")
-    assert r.status_code == 200
-    data = r.json()
+    response = api_request(client, "GET", "/api/protocol/test_protocol.yaml")
+    assert response.status_code == 200
+    data = response.json()
     assert data["filename"] == "test_protocol.yaml"
     assert data["positions"] == {"park": [10.0, 20.0, 30.0]}
     assert len(data["steps"]) == 2
@@ -89,17 +97,50 @@ def test_get_protocol(client, tmp_configs):
     assert data["steps"][1]["args"]["volume_ul"] == 100.0
 
 
+def test_get_protocol_errors(client, tmp_configs):
+    missing = api_request(client, "GET", "/api/protocol/missing.yaml")
+    assert missing.status_code == 404
+
+    write_yaml(tmp_configs / "not_protocol.yaml", {"not_protocol": []})
+    invalid = api_request(client, "GET", "/api/protocol/not_protocol.yaml")
+    assert invalid.status_code == 400
+
+    (tmp_configs / "bad.yaml").write_text("protocol: [", encoding="utf-8")
+    bad_yaml = api_request(client, "GET", "/api/protocol/bad.yaml")
+    assert bad_yaml.status_code == 400
+
+
 def test_save_protocol(client, tmp_configs):
     body = {
         "positions": {"park": [10.0, 20.0, 30.0]},
         "protocol": [
-            {"command": "move", "args": {"instrument": "uvvis", "position": "plate_1.A1"}},
-        ]
+            {
+                "command": "move",
+                "args": {"instrument": "uvvis", "position": "plate_1.A1"},
+            },
+        ],
     }
-    r = api_request(client, "PUT", "/api/protocol/new_protocol.yaml", json=body)
-    assert r.status_code == 200
+    response = api_request(client, "PUT", "/api/protocol/new_protocol.yaml", json=body)
+    assert response.status_code == 200
     assert (tmp_configs / "new_protocol.yaml").exists()
     assert read_yaml(tmp_configs / "new_protocol.yaml")["positions"] == body["positions"]
+
+
+def test_save_protocol_omits_empty_positions(client, tmp_configs):
+    body = {
+        "protocol": [
+            {
+                "command": "move",
+                "args": {"instrument": "uvvis", "position": "plate_1.A1"},
+            },
+        ],
+    }
+
+    response = api_request(client, "PUT", "/api/protocol/no_positions.yaml", json=body)
+
+    assert response.status_code == 200
+    saved = read_yaml(tmp_configs / "no_positions.yaml")
+    assert "positions" not in saved
 
 
 def test_validate_protocol_ok(client):
@@ -109,9 +150,9 @@ def test_validate_protocol_ok(client):
             {"command": "aspirate", "args": {"position": "plate_1.A1", "volume_ul": 100.0}},
         ]
     }
-    r = api_request(client, "POST", "/api/protocol/validate", json=body)
-    assert r.status_code == 200
-    data = r.json()
+    response = api_request(client, "POST", "/api/protocol/validate", json=body)
+    assert response.status_code == 200
+    data = response.json()
     assert data["valid"] is True
     assert data["errors"] == []
 
@@ -122,9 +163,9 @@ def test_validate_protocol_unknown_command(client):
             {"command": "fly_away", "args": {}},
         ]
     }
-    r = api_request(client, "POST", "/api/protocol/validate", json=body)
-    assert r.status_code == 200
-    data = r.json()
+    response = api_request(client, "POST", "/api/protocol/validate", json=body)
+    assert response.status_code == 200
+    data = response.json()
     assert data["valid"] is False
     assert "Unknown command" in data["errors"][0]
 
@@ -135,9 +176,9 @@ def test_validate_protocol_missing_args(client):
             {"command": "aspirate", "args": {"position": "plate_1.A1"}},
         ]
     }
-    r = api_request(client, "POST", "/api/protocol/validate", json=body)
-    assert r.status_code == 200
-    data = r.json()
+    response = api_request(client, "POST", "/api/protocol/validate", json=body)
+    assert response.status_code == 200
+    data = response.json()
     assert data["valid"] is False
     assert "volume_ul" in data["errors"][0]
 
@@ -148,11 +189,43 @@ def test_validate_protocol_unknown_args(client):
             {"command": "move", "args": {"instrument": "p", "position": "a", "turbo": True}},
         ]
     }
-    r = api_request(client, "POST", "/api/protocol/validate", json=body)
-    assert r.status_code == 200
-    data = r.json()
+    response = api_request(client, "POST", "/api/protocol/validate", json=body)
+    assert response.status_code == 200
+    data = response.json()
     assert data["valid"] is False
     assert "turbo" in data["errors"][0]
+
+
+def test_validate_setup_endpoint_maps_unexpected_errors(monkeypatch, tmp_path):
+    from zoo.routers import protocol as protocol_router
+
+    for subdir in ("gantry", "deck", "protocol"):
+        (tmp_path / subdir).mkdir()
+
+    monkeypatch.setattr(
+        protocol_router,
+        "run_setup_validation",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("validator exploded")),
+    )
+    monkeypatch.setattr(
+        protocol_router,
+        "get_settings",
+        lambda: type("S", (), {"configs_dir": tmp_path})(),
+    )
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/protocol/validate-setup",
+        json={
+            "gantry_file": "gantry.yaml",
+            "deck_file": "deck.yaml",
+            "protocol_file": "protocol.yaml",
+        },
+    )
+
+    assert response.status_code == 500
+    assert "validator exploded" in response.text
 
 
 def test_validate_setup_endpoint_calls_cubos_validation(monkeypatch, tmp_path):
@@ -243,161 +316,101 @@ def test_validate_setup_endpoint_returns_validation_errors(monkeypatch, tmp_path
     assert data["output"] == "RESULT: FAIL"
 
 
-def test_run_endpoint_holds_serial_lock_for_duration(monkeypatch, tmp_configs):
-    """Regression: /protocol/run must run inside ``_serial_lock`` so the
-    200 ms /position poll can't race the protocol's G-code writes on the
-    serial port — the race closed the port mid-run with
-    ``[Errno 9] Bad file descriptor`` on real hardware.
-
-    Also pins that ``is_healthy()`` runs INSIDE the lock: it writes ``?``
-    to the serial port and would re-introduce the same race if it ran
-    before the ``with _serial_lock:`` block.
-    """
-    import tempfile
-    from unittest.mock import MagicMock
-    from zoo.app import create_app
+def test_run_endpoint_delegates_to_gantry_session(monkeypatch, tmp_path):
     from zoo.routers import gantry as gantry_router
     from zoo.routers import protocol as protocol_router
 
-    observations: list[tuple[str, bool]] = []
+    observed: dict[str, object] = {}
 
-    mock_gantry = MagicMock()
+    def fake_run_protocol_on_session(**kwargs):
+        observed.update(kwargs)
+        return type(
+            "Result",
+            (),
+            {"status": "ok", "steps_executed": 2, "campaign_id": 123},
+        )()
 
-    def observe_is_healthy():
-        observations.append(("is_healthy_lock_held", gantry_router._serial_lock.locked()))
-        return True
-
-    mock_gantry.is_healthy.side_effect = observe_is_healthy
-
-    def fake_run(*_a, gantry=None, **_kw):
-        observations.append(("run_lock_held", gantry_router._serial_lock.locked()))
-        observations.append(("campaign_id", _kw["campaign_id"]))
-        observations.append(("data_store_closed_during_run", _kw["data_store"].closed))
-        return []
-
-    class FakeDataStore:
-        def __init__(self):
-            self.closed = False
-
-        def close(self):
-            self.closed = True
-            observations.append(("data_store_closed", True))
-
-    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
-    monkeypatch.setattr(protocol_router, "run_protocol", fake_run)
-    monkeypatch.setattr(protocol_router, "DataStore", FakeDataStore)
+    monkeypatch.setattr(gantry_router, "run_protocol_on_session", fake_run_protocol_on_session)
+    for subdir in ("gantry", "deck", "protocol"):
+        (tmp_path / subdir).mkdir()
     monkeypatch.setattr(
         protocol_router,
-        "_create_campaign_for_run",
-        lambda *_args, **_kwargs: 123,
+        "get_settings",
+        lambda: type(
+            "S",
+            (),
+            {"configs_dir": tmp_path, "data_db_path": tmp_path / "data.db"},
+        )(),
     )
 
-    # Minimal viable path resolution: create the YAMLs /run checks
-    # for so path validation doesn't 404 us before the lock work.
-    with tempfile.TemporaryDirectory() as d:
-        import pathlib
-        from zoo.services.yaml_io import write_yaml as wy
-        d_path = pathlib.Path(d)
-        for sub in ("gantry", "deck", "protocol"):
-            (d_path / sub).mkdir()
-            wy(d_path / sub / "test.yaml", {})
-        monkeypatch.setattr(
-            "zoo.config.get_settings",
-            lambda: type("S", (), {"configs_dir": d_path})(),
-        )
-
-        response = api_request(
-            create_app(),
-            "POST",
-            "/api/protocol/run",
-            json={
-                "gantry_file": "test.yaml",
-                "deck_file": "test.yaml",
-                "protocol_file": "test.yaml",
-            },
-        )
-
-    assert response.status_code == 200
-    assert response.json()["campaign_id"] == 123
-    assert ("is_healthy_lock_held", True) in observations
-    assert ("run_lock_held", True) in observations
-    assert ("campaign_id", 123) in observations
-    assert ("data_store_closed_during_run", False) in observations
-    assert ("data_store_closed", True) in observations
-    # Lock released after the endpoint returns — no leak.
-    assert gantry_router._serial_lock.locked() is False
-
-
-def test_cancel_endpoint_requests_gantry_stop(monkeypatch):
-    from unittest.mock import MagicMock
-
-    from zoo.routers import gantry as gantry_router
-
-    mock_gantry = MagicMock()
-    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
-
-    response = api_request(create_app(), "POST", "/api/protocol/cancel")
-
-    assert response.status_code == 200
-    assert response.json() == {"status": "cancel_requested"}
-    mock_gantry.stop.assert_called_once()
-
-
-def test_cancel_endpoint_treats_feed_hold_timeout_as_requested(monkeypatch):
-    from unittest.mock import MagicMock
-
-    from zoo.routers import gantry as gantry_router
-
-    mock_gantry = MagicMock()
-    mock_gantry.stop.side_effect = RuntimeError(
-        "Error executing command !: Command execution timed out after 5 seconds: 000|FS:0,0>\r\n"
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/protocol/run",
+        json={
+            "gantry_file": "gantry.yaml",
+            "deck_file": "deck.yaml",
+            "protocol_file": "protocol.yaml",
+        },
     )
-    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
-
-    response = api_request(create_app(), "POST", "/api/protocol/cancel")
 
     assert response.status_code == 200
-    assert response.json()["status"] == "cancel_requested"
-    assert "warning" in response.json()
-    mock_gantry.stop.assert_called_once()
+    assert response.json() == {
+        "status": "ok",
+        "steps_executed": 2,
+        "campaign_id": 123,
+    }
+    assert observed["gantry_path"] == str(tmp_path / "gantry" / "gantry.yaml")
+    assert observed["deck_path"] == str(tmp_path / "deck" / "deck.yaml")
+    assert observed["protocol_path"] == str(tmp_path / "protocol" / "protocol.yaml")
+    assert observed["db_path"] == tmp_path / "data.db"
 
 
-def test_cancel_endpoint_requires_connected_gantry(monkeypatch):
+def test_run_endpoint_maps_session_connection_errors(monkeypatch, tmp_path):
     from zoo.routers import gantry as gantry_router
+    from zoo.routers import protocol as protocol_router
 
-    monkeypatch.setattr(gantry_router, "_gantry", None)
+    monkeypatch.setattr(
+        gantry_router,
+        "run_protocol_on_session",
+        lambda **_kwargs: (_ for _ in ()).throw(GantryNotConnectedError("nope")),
+    )
+    monkeypatch.setattr(
+        protocol_router,
+        "get_settings",
+        lambda: type("S", (), {"configs_dir": tmp_path, "data_db_path": tmp_path / "data.db"})(),
+    )
 
-    response = api_request(create_app(), "POST", "/api/protocol/cancel")
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/protocol/run",
+        json={
+            "gantry_file": "gantry.yaml",
+            "deck_file": "deck.yaml",
+            "protocol_file": "protocol.yaml",
+        },
+    )
 
     assert response.status_code == 400
     assert "Gantry is not connected" in response.text
 
 
 def test_run_endpoint_blocks_active_calibration_warning(monkeypatch, tmp_path):
-    from unittest.mock import MagicMock
-
     from zoo.routers import gantry as gantry_router
     from zoo.routers import protocol as protocol_router
 
-    for subdir in ("gantry", "deck", "protocol"):
-        (tmp_path / subdir).mkdir()
-
-    mock_gantry = MagicMock()
-    monkeypatch.setattr(gantry_router, "_gantry", mock_gantry)
     monkeypatch.setattr(
         gantry_router,
-        "_calibration_warning",
-        "Calibration needed: $20 expected 1, got 0",
+        "run_protocol_on_session",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            CalibrationBlockedError("calibration warning is active")
+        ),
     )
     monkeypatch.setattr(
         protocol_router,
         "get_settings",
-        lambda: type("S", (), {"configs_dir": tmp_path})(),
-    )
-    monkeypatch.setattr(
-        protocol_router,
-        "run_protocol",
-        lambda *_args, **_kwargs: pytest.fail("run_protocol should be blocked"),
+        lambda: type("S", (), {"configs_dir": tmp_path, "data_db_path": tmp_path / "data.db"})(),
     )
 
     response = api_request(
@@ -413,4 +426,110 @@ def test_run_endpoint_blocks_active_calibration_warning(monkeypatch, tmp_path):
 
     assert response.status_code == 400
     assert "calibration warning is active" in response.text
-    mock_gantry.is_healthy.assert_not_called()
+
+
+def test_run_endpoint_error_mapping(monkeypatch, tmp_path):
+    from zoo.routers import gantry as gantry_router
+    from zoo.routers import protocol as protocol_router
+
+    setup_error = SetupValidationError([
+        BoundsViolation(
+            labware_key="plate",
+            position_id="A1",
+            instrument_name=None,
+            coordinate_type="gantry",
+            x=-1.0,
+            y=0.0,
+            z=0.0,
+            axis="x",
+            bound_name="x_min",
+            bound_value=0.0,
+        )
+    ])
+    cases = [
+        (GantrySessionHealthCheckError("not healthy"), 400, "Gantry is not connected"),
+        (setup_error, 400, "x_min"),
+        (GantrySessionError("session exploded"), 500, "Execution failed"),
+        (RuntimeError("plain exploded"), 500, "Execution failed"),
+    ]
+    monkeypatch.setattr(
+        protocol_router,
+        "get_settings",
+        lambda: type("S", (), {"configs_dir": tmp_path, "data_db_path": tmp_path / "data.db"})(),
+    )
+    for exc, status, text in cases:
+        monkeypatch.setattr(
+            gantry_router,
+            "run_protocol_on_session",
+            lambda **_kwargs: (_ for _ in ()).throw(exc),
+        )
+        response = api_request(
+            create_app(),
+            "POST",
+            "/api/protocol/run",
+            json={
+                "gantry_file": "gantry.yaml",
+                "deck_file": "deck.yaml",
+                "protocol_file": "protocol.yaml",
+            },
+        )
+        assert response.status_code == status
+        assert text in response.text
+
+
+def test_cancel_endpoint_requests_session_interrupt(monkeypatch):
+    from zoo.routers import gantry as gantry_router
+
+    interrupt = MagicMock()
+    monkeypatch.setattr(gantry_router, "request_feed_hold_interrupt", interrupt)
+
+    response = api_request(create_app(), "POST", "/api/protocol/cancel")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "cancel_requested"}
+    interrupt.assert_called_once()
+
+
+def test_cancel_endpoint_treats_feed_hold_timeout_as_requested(monkeypatch):
+    from zoo.routers import gantry as gantry_router
+
+    def timeout():
+        raise InterruptFeedHoldTimeoutError("sent but not acknowledged")
+
+    monkeypatch.setattr(gantry_router, "request_feed_hold_interrupt", timeout)
+
+    response = api_request(create_app(), "POST", "/api/protocol/cancel")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "cancel_requested",
+        "warning": "sent but not acknowledged",
+    }
+
+
+def test_cancel_endpoint_requires_connected_gantry(monkeypatch):
+    from zoo.routers import gantry as gantry_router
+
+    def fail():
+        raise GantryNotConnectedError("Gantry not connected")
+
+    monkeypatch.setattr(gantry_router, "request_feed_hold_interrupt", fail)
+
+    response = api_request(create_app(), "POST", "/api/protocol/cancel")
+
+    assert response.status_code == 400
+    assert "Gantry is not connected" in response.text
+
+
+def test_cancel_endpoint_maps_unexpected_errors(monkeypatch):
+    from zoo.routers import gantry as gantry_router
+
+    def fail():
+        raise RuntimeError("serial failed")
+
+    monkeypatch.setattr(gantry_router, "request_feed_hold_interrupt", fail)
+
+    response = api_request(create_app(), "POST", "/api/protocol/cancel")
+
+    assert response.status_code == 500
+    assert "Cancel failed" in response.text

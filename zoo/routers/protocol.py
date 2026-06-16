@@ -9,14 +9,16 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 
-from data import DataStore
-from deck.deck import Deck
-from deck.loader import load_deck_from_yaml_safe
 from fastapi import APIRouter, HTTPException
-from gantry.loader import load_gantry_from_yaml_safe
+from gantry.session import (
+    CalibrationBlockedError,
+    GantryNotConnectedError,
+    GantrySessionError,
+    GantrySessionHealthCheckError,
+    InterruptFeedHoldTimeoutError,
+)
 from pydantic import BaseModel
 from protocol_engine.registry import CommandRegistry
-from protocol_engine.setup import run_protocol
 from protocol_engine.setup_validator import run_setup_validation
 from validation.errors import SetupValidationError
 
@@ -37,11 +39,6 @@ from zoo.models.protocol import (
 from zoo.services.yaml_io import list_configs, read_yaml, resolve_config_path, write_yaml
 
 router = APIRouter(prefix="/api/protocol", tags=["protocol"])
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _type_name(annotation: Any) -> str:
@@ -71,62 +68,6 @@ def _build_command_info(name: str) -> CommandInfo:
         description=(cmd.handler.__doc__ or "").strip(),
         args=args,
     )
-
-
-def _register_campaign_labware(
-    data_store: DataStore,
-    campaign_id: int,
-    deck: Deck,
-) -> None:
-    for labware_key, labware in deck.labware.items():
-        _register_labware_path(data_store, campaign_id, labware_key, labware)
-
-
-def _register_labware_path(
-    data_store: DataStore,
-    campaign_id: int,
-    labware_key: str,
-    labware: Any,
-) -> None:
-    try:
-        data_store.register_labware(campaign_id, labware_key, labware)
-    except TypeError:
-        pass
-
-    for child_name, child in getattr(labware, "contained_labware", {}).items():
-        _register_labware_path(
-            data_store,
-            campaign_id,
-            f"{labware_key}.{child_name}",
-            child,
-        )
-
-
-def _create_campaign_for_run(
-    data_store: DataStore,
-    *,
-    gantry_path: str,
-    deck_path: str,
-    gantry_file: str,
-    deck_file: str,
-    protocol_file: str,
-) -> int:
-    campaign_id = data_store.create_campaign(
-        description=(
-            f"Zoo protocol run: gantry={gantry_file}, deck={deck_file}, "
-            f"protocol={protocol_file}"
-        ),
-        deck_config=deck_file,
-        gantry_config=gantry_file,
-        protocol_config=protocol_file,
-    )
-    gantry_config = load_gantry_from_yaml_safe(gantry_path)
-    deck = load_deck_from_yaml_safe(
-        deck_path,
-        factory_z_travel_mm=gantry_config.factory_z_travel_mm,
-    )
-    _register_campaign_labware(data_store, campaign_id, deck)
-    return campaign_id
 
 
 # ---------------------------------------------------------------------------
@@ -252,36 +193,24 @@ class RunProtocolRequest(BaseModel):
     protocol_file: str
 
 
-def _looks_like_feed_hold_timeout(exc: Exception) -> bool:
-    message = str(exc).lower()
-    return (
-        "command execution timed out" in message
-        and "executing command !" in message
-    )
-
-
 @router.post("/cancel")
 def cancel_protocol_run() -> dict:
     """Request immediate feed hold for the active protocol run."""
     from zoo.routers import gantry as gantry_router
 
-    if gantry_router._gantry is None:
-        raise HTTPException(400, "Gantry is not connected")
     try:
-        # This is an interrupt path for a run that may currently hold
-        # _serial_lock. Taking that lock here would make cancel wait for
-        # normal completion, so send CubOS/GRBL feed hold immediately.
-        gantry_router._gantry.stop()
+        gantry_router.request_feed_hold_interrupt()
+    except InterruptFeedHoldTimeoutError as exc:
+        logging.warning(
+            "Protocol cancel feed hold timed out after being sent: %s",
+            exc,
+        )
+        return gantry_router.translate_interrupt_timeout(exc)
+    except HTTPException:
+        raise
+    except GantryNotConnectedError as exc:
+        raise HTTPException(400, "Gantry is not connected") from exc
     except Exception as exc:
-        if _looks_like_feed_hold_timeout(exc):
-            logging.warning(
-                "Protocol cancel feed hold timed out after being sent: %s",
-                exc,
-            )
-            return {
-                "status": "cancel_requested",
-                "warning": "Feed hold was sent, but the controller did not acknowledge before the read timeout.",
-            }
         logging.exception("Protocol cancel failed")
         raise HTTPException(500, f"Cancel failed: {exc}") from exc
     return {"status": "cancel_requested"}
@@ -289,20 +218,7 @@ def cancel_protocol_run() -> dict:
 
 @router.post("/run")
 def run_protocol_endpoint(body: RunProtocolRequest) -> dict:
-    """Run a protocol with gantry/deck/protocol configs and the connected gantry.
-
-    Holds ``_serial_lock`` for the full duration of the run so the
-    frontend's 200 ms ``/position`` poll cannot race the protocol's
-    G-code writes on the same serial port. Without this, the two
-    threads alternately wrote ``?`` and motion commands, corrupting
-    GRBL responses and ultimately getting the serial driver to close
-    the port (``read failed: [Errno 9] Bad file descriptor``).
-
-    The position endpoint's non-blocking ``acquire`` falls through to
-    ``_last_position``/``_extract_status`` while the lock is held —
-    the UI freezes on its last known coords during a run (acceptable)
-    rather than crashing the run.
-    """
+    """Run a protocol through the persistent CubOS gantry session."""
     from zoo.routers import gantry as gantry_router
 
     settings = get_settings()
@@ -310,53 +226,32 @@ def run_protocol_endpoint(body: RunProtocolRequest) -> dict:
     deck_path = resolve_config_path(settings.configs_dir, "deck", body.deck_file)
     protocol_path = resolve_config_path(settings.configs_dir, "protocol", body.protocol_file)
 
-    if gantry_router._gantry is None:
-        raise HTTPException(400, "Gantry is not connected")
-
-    # is_healthy() writes `?` to the serial port; it has to run inside
-    # the lock or a concurrent /position poll (200 ms cadence) will race
-    # it the same way it races run_protocol — the whole point of the
-    # lock on this endpoint.
     try:
-        with gantry_router._serial_lock:
-            if gantry_router._calibration_warning:
-                raise HTTPException(
-                    400,
-                    "Gantry calibration warning is active. Calibration and jog "
-                    "recovery remain available, but protocol runs are blocked "
-                    "until the selected gantry YAML matches the controller. "
-                    f"{gantry_router._calibration_warning}",
-                )
-            if not gantry_router._gantry.is_healthy():
-                raise HTTPException(400, "Gantry is not connected")
-            data_store = DataStore()
-            try:
-                campaign_id = _create_campaign_for_run(
-                    data_store,
-                    gantry_path=str(gantry_path),
-                    deck_path=str(deck_path),
-                    gantry_file=body.gantry_file,
-                    deck_file=body.deck_file,
-                    protocol_file=body.protocol_file,
-                )
-                results = run_protocol(
-                    str(gantry_path), str(deck_path), str(protocol_path),
-                    gantry=gantry_router._gantry,
-                    data_store=data_store,
-                    campaign_id=campaign_id,
-                )
-            finally:
-                data_store.close()
+        result = gantry_router.run_protocol_on_session(
+            gantry_path=str(gantry_path),
+            deck_path=str(deck_path),
+            protocol_path=str(protocol_path),
+            gantry_file=body.gantry_file,
+            deck_file=body.deck_file,
+            protocol_file=body.protocol_file,
+            db_path=settings.data_db_path,
+        )
     except HTTPException:
         raise
+    except (GantryNotConnectedError, GantrySessionHealthCheckError) as exc:
+        raise HTTPException(400, "Gantry is not connected") from exc
+    except CalibrationBlockedError as exc:
+        raise HTTPException(400, str(exc)) from exc
     except SetupValidationError as exc:
-        raise HTTPException(400, str(exc))
+        raise HTTPException(400, str(exc)) from exc
+    except GantrySessionError as exc:
+        raise HTTPException(500, f"Execution failed: {exc}") from exc
     except Exception as exc:
         logging.exception("Protocol execution failed")
-        raise HTTPException(500, f"Execution failed: {exc}")
+        raise HTTPException(500, f"Execution failed: {exc}") from exc
 
     return {
-        "status": "ok",
-        "steps_executed": len(results),
-        "campaign_id": campaign_id,
+        "status": result.status,
+        "steps_executed": result.steps_executed,
+        "campaign_id": result.campaign_id,
     }
