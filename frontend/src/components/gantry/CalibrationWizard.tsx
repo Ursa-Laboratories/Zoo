@@ -32,6 +32,7 @@ type JogDelta = {
 
 const JOG_INTERVAL_MS = 150;
 const MIN_STEP = 0.001;
+const RPI_CAMERA_TYPE = "rpi_camera";
 
 export default function CalibrationWizard({
   open,
@@ -58,6 +59,7 @@ export default function CalibrationWizard({
   const [centerPosition, setCenterPosition] = useState<CapturedPosition | null>(null);
   const [measuredVolume, setMeasuredVolume] = useState<CapturedPosition | null>(null);
   const [instrumentPositions, setInstrumentPositions] = useState<Record<string, CapturedPosition>>({});
+  const [cameraBlockDistances, setCameraBlockDistances] = useState<Record<string, string>>({});
   const [outputFile, setOutputFile] = useState("");
   const [referenceInstrument, setReferenceInstrument] = useState("");
   const [lowestInstrument, setLowestInstrument] = useState("");
@@ -70,6 +72,14 @@ export default function CalibrationWizard({
   const filename = gantry?.filename ?? "";
   const config = gantry?.config ?? null;
   const instruments = useMemo(() => Object.keys(config?.instruments ?? {}), [config]);
+  const rpiCameraInstruments = useMemo(
+    () => instruments.filter((name) => config?.instruments[name]?.type === RPI_CAMERA_TYPE),
+    [config, instruments],
+  );
+  const contactInstruments = useMemo(
+    () => instruments.filter((name) => !rpiCameraInstruments.includes(name)),
+    [instruments, rpiCameraInstruments],
+  );
   const isMulti = instruments.length > 1;
   const connected = position?.connected ?? false;
   const status = position?.status ?? "";
@@ -82,13 +92,17 @@ export default function CalibrationWizard({
   );
   const current = currentWpos(position);
   const normalizedOutput = outputFile.trim() || defaultOutputFilename(filename);
-  const selectedReference = referenceInstrument || instruments[0] || "";
-  const selectedLowest = lowestInstrument || instruments[0] || "";
+  const selectedReference = referenceInstrument || contactInstruments[0] || "";
+  const selectedLowest = lowestInstrument || contactInstruments[0] || "";
   const instrumentSequence = useMemo(
     () => unique([selectedReference, ...instruments]).filter((name) => name && name !== selectedLowest),
     [instruments, selectedLowest, selectedReference],
   );
   const nextInstrumentToRecord = instrumentSequence.find((name) => !instrumentPositions[name]) ?? null;
+  const nextInstrumentIsCamera = nextInstrumentToRecord ? rpiCameraInstruments.includes(nextInstrumentToRecord) : false;
+  const nextCameraDistanceError = nextInstrumentIsCamera && nextInstrumentToRecord
+    ? validateCameraBlockDistance(cameraBlockDistances[nextInstrumentToRecord])
+    : null;
   const readyForSave = isMulti
     ? !!zReference && !!zCalibration && allInstrumentPositionsReady(instruments, instrumentPositions, selectedReference, selectedLowest)
     : !!zReference && !!blockTouch && !!calibrationHome;
@@ -111,14 +125,15 @@ export default function CalibrationWizard({
     setCenterPosition(null);
     setMeasuredVolume(null);
     setInstrumentPositions({});
+    setCameraBlockDistances({});
     setOutputFile(defaultOutputFilename(filename));
-    setReferenceInstrument(instruments[0] ?? "");
-    setLowestInstrument(instruments[0] ?? "");
+    setReferenceInstrument(contactInstruments[0] ?? "");
+    setLowestInstrument(contactInstruments[0] ?? "");
     setBlockHeight(formatOptionalNumber(config?.cnc.calibration_block_height_mm));
     setResolvedAlarmStatus(null);
     lastJogDelta.current = null;
     recoveryAttemptKey.current = null;
-  }, [config?.cnc.calibration_block_height_mm, filename, instruments, open]);
+  }, [config?.cnc.calibration_block_height_mm, contactInstruments, filename, open]);
 
   const stopJog = useCallback(() => {
     if (jogTimer.current) {
@@ -215,9 +230,10 @@ export default function CalibrationWizard({
     setCenterPosition(null);
     setMeasuredVolume(null);
     setInstrumentPositions({});
+    setCameraBlockDistances({});
     setOutputFile(defaultOutputFilename(filename));
-    setReferenceInstrument(instruments[0] ?? "");
-    setLowestInstrument(instruments[0] ?? "");
+    setReferenceInstrument(contactInstruments[0] ?? "");
+    setLowestInstrument(contactInstruments[0] ?? "");
   };
 
   const close = async () => {
@@ -275,6 +291,10 @@ export default function CalibrationWizard({
   // Step 0 → 1: just navigate, no hardware action yet.
   const goToHome = () => {
     if (!filename || instruments.length === 0) return;
+    if (isMulti && contactInstruments.length === 0) {
+      setError("Multi-instrument calibration requires at least one contact-capable instrument.");
+      return;
+    }
     if (isMulti && config) {
       try {
         // Missing homing_pull_off now falls back to a default; this only
@@ -400,11 +420,25 @@ export default function CalibrationWizard({
     setStep(isMulti ? 5 : 3);
   });
 
-  const recordCurrentInstrument = (name: string) => runAction(`Recording ${name} and retracting Z`, async () => {
+  const recordCurrentInstrument = (name: string) => runAction(
+    rpiCameraInstruments.includes(name) ? `Recording ${name}` : `Recording ${name} and retracting Z`,
+    async () => {
     if (!name) return;
+    const isCamera = rpiCameraInstruments.includes(name);
+    if (isCamera) {
+      const message = validateCameraBlockDistance(cameraBlockDistances[name]);
+      if (message) throw new Error(message);
+    }
     const captured = requirePosition(await gantryApi.getPosition());
     const nextPositions = { ...instrumentPositions, [name]: captured };
     setInstrumentPositions(nextPositions);
+    if (isCamera) {
+      setStatusNote(formatCaptured(`Recorded ${name}`, captured));
+      if (allInstrumentPositionsReady(instruments, nextPositions, selectedReference, selectedLowest)) {
+        setStep(6);
+      }
+      return;
+    }
     const recovered = await jogBlockingWithRecovery({ x: 0, y: 0, z: 15 }, 15);
     setStatusNote(
       recovered
@@ -454,6 +488,7 @@ export default function CalibrationWizard({
         instrumentPositions,
         referenceInstrument: selectedReference,
         lowestInstrument: selectedLowest,
+        cameraBlockDistances: parsedCameraBlockDistances(cameraBlockDistances, rpiCameraInstruments),
       }));
       onClose();
       return;
@@ -511,6 +546,7 @@ export default function CalibrationWizard({
       instrumentPositions,
       referenceInstrument: selectedReference,
       lowestInstrument: selectedLowest,
+      cameraBlockDistances: parsedCameraBlockDistances(cameraBlockDistances, rpiCameraInstruments),
     }));
     onClose();
   });
@@ -620,7 +656,7 @@ export default function CalibrationWizard({
                           disabled={controlsLocked}
                           style={buttonStateStyle(inputStyle, controlsLocked)}
                         >
-                          {instruments.map((name) => <option key={name} value={name}>{name}</option>)}
+                          {contactInstruments.map((name) => <option key={name} value={name}>{name}</option>)}
                         </select>
                       </label>
                       <label style={fieldStyle}>
@@ -631,7 +667,7 @@ export default function CalibrationWizard({
                           disabled={controlsLocked}
                           style={buttonStateStyle(inputStyle, controlsLocked)}
                         >
-                          {instruments.map((name) => <option key={name} value={name}>{name}</option>)}
+                          {contactInstruments.map((name) => <option key={name} value={name}>{name}</option>)}
                         </select>
                       </label>
                     </>
@@ -793,7 +829,7 @@ export default function CalibrationWizard({
               <div>
                 <h3 style={sectionTitleStyle}>Record Instruments</h3>
                 <p style={instructionStyle}>
-                  Keep the block fixed. For each tool, jog its active point to the same physical block point and record the pose.
+                  Keep the block fixed. For each contact tool, jog its active point to the same physical block point. For a camera, center the camera over the block mark and enter its distance from the block.
                 </p>
                 <div style={instrumentListStyle}>
                   {instruments.map((name) => (
@@ -802,7 +838,9 @@ export default function CalibrationWizard({
                       <span style={{ color: "#666" }}>
                         {instrumentPositions[name]
                           ? `${instrumentPositions[name].x.toFixed(3)}, ${instrumentPositions[name].y.toFixed(3)}, ${instrumentPositions[name].z.toFixed(3)}`
-                          : name === nextInstrumentToRecord ? "ready" : "pending"}
+                          : name === nextInstrumentToRecord
+                            ? rpiCameraInstruments.includes(name) ? "ready after distance" : "ready"
+                            : "pending"}
                       </span>
                     </div>
                   ))}
@@ -812,7 +850,31 @@ export default function CalibrationWizard({
                     <div style={{ marginBottom: 10 }}>
                       <span style={labelStyle}>Active instrument</span>
                       <h4 style={{ margin: "2px 0 0", fontSize: 15 }}>{nextInstrumentToRecord}</h4>
+                      {nextInstrumentIsCamera && (
+                        <p style={{ ...instructionStyle, margin: "8px 0 0" }}>
+                          Center the camera over the calibration block mark. Enter the distance from the camera reference point to the top of the calibration block before recording.
+                        </p>
+                      )}
                     </div>
+                    {nextInstrumentIsCamera && (
+                      <label style={{ ...fieldStyle, marginBottom: 12 }}>
+                        <span style={labelStyle}>Distance from calibration block (mm)</span>
+                        <input
+                          aria-label="Distance from calibration block (mm)"
+                          value={cameraBlockDistances[nextInstrumentToRecord] ?? ""}
+                          onChange={(event) => setCameraBlockDistances((prev) => ({
+                            ...prev,
+                            [nextInstrumentToRecord]: event.target.value,
+                          }))}
+                          disabled={controlsLocked}
+                          inputMode="decimal"
+                          style={buttonStateStyle(inputStyle, controlsLocked)}
+                        />
+                        {nextCameraDistanceError && (
+                          <span style={{ color: "#b91c1c", fontSize: 12 }}>{nextCameraDistanceError}</span>
+                        )}
+                      </label>
+                    )}
                     <JogPanel
                       xyStep={xyStep}
                       zStep={zStep}
@@ -828,10 +890,10 @@ export default function CalibrationWizard({
                     <div style={actionRowStyle}>
                       <button
                         onClick={() => recordCurrentInstrument(nextInstrumentToRecord)}
-                        disabled={controlsLocked || !connected}
-                        style={buttonStateStyle(primaryButtonStyle, controlsLocked || !connected)}
+                        disabled={controlsLocked || !connected || !!nextCameraDistanceError}
+                        style={buttonStateStyle(primaryButtonStyle, controlsLocked || !connected || !!nextCameraDistanceError)}
                       >
-                        Record {nextInstrumentToRecord} and retract
+                        {nextInstrumentIsCamera ? `Record ${nextInstrumentToRecord}` : `Record ${nextInstrumentToRecord} and retract`}
                       </button>
                     </div>
                   </div>
@@ -1020,6 +1082,38 @@ function parseBlockHeight(value: string): number {
     throw new Error("Calibration block height must be greater than 0.");
   }
   return roundMm(height);
+}
+
+function parseCameraBlockDistance(value: string): number {
+  if (!value.trim()) {
+    throw new Error("Enter the distance from calibration block before recording camera position.");
+  }
+  const distance = Number(value);
+  if (!Number.isFinite(distance) || distance < 0) {
+    throw new Error("Distance from calibration block must be 0 or greater.");
+  }
+  return roundMm(distance);
+}
+
+function validateCameraBlockDistance(value: string | undefined): string | null {
+  try {
+    parseCameraBlockDistance(value ?? "");
+    return null;
+  } catch (err) {
+    return errorMessage(err);
+  }
+}
+
+function parsedCameraBlockDistances(
+  values: Record<string, string>,
+  cameras: string[],
+): Record<string, number> {
+  const parsed: Record<string, number> = {};
+  for (const name of cameras) {
+    if (values[name] == null || !values[name].trim()) continue;
+    parsed[name] = parseCameraBlockDistance(values[name]);
+  }
+  return parsed;
 }
 
 function roundMm(value: number): number {

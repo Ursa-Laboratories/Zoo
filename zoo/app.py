@@ -17,13 +17,14 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     yield
     # Shutdown: disconnect the gantry so the serial port is released cleanly
-    if gantry._gantry is not None:
+    session = gantry.current_session()
+    if session is not None and session.connected:
         logger.info("Shutting down — disconnecting gantry")
         try:
-            gantry._gantry.disconnect()
+            session.disconnect()
         except Exception as e:
             logger.warning("Error disconnecting gantry on shutdown: %s", e)
-        gantry._gantry = None
+        gantry._session = None
 
 
 def create_app() -> FastAPI:

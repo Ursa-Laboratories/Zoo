@@ -287,4 +287,67 @@ describe("buildCalibratedConfig", () => {
     expect(calibrated.grbl_settings?.max_travel_y).toBe(260.5);
     expect(calibrated.grbl_settings?.max_travel_z).toBe(101);
   });
+
+  it("calibrates an rpi camera from centered block position and measured block distance", () => {
+    const config = gantryConfig();
+    config.instruments.camera = {
+      type: "rpi_camera",
+      vendor: "raspberry_pi",
+      offset_x: 0,
+      offset_y: 0,
+      depth: 0,
+      offline: true,
+    };
+
+    const calibrated = buildCalibratedConfig({
+      config,
+      measuredVolume: { x: 398.5, y: 299.25, z: 96.75 },
+      zMin: 0,
+      zMax: 110,
+      maxTravel: { x: 398.5, y: 299.25, z: 110 },
+      isMulti: true,
+      instruments: ["asmi", "camera"],
+      instrumentPositions: {
+        asmi: { x: 199, y: 149.5, z: 12.5 },
+        camera: { x: 211, y: 153.5, z: 35.5 },
+      },
+      referenceInstrument: "asmi",
+      lowestInstrument: "asmi",
+      cameraBlockDistances: { camera: 20 },
+    });
+
+    expect(calibrated.instruments.camera).toMatchObject({
+      offset_x: -12,
+      offset_y: -4,
+      depth: 3,
+    });
+  });
+
+  it("requires an rpi camera distance before saving calibrated offsets", () => {
+    const config = gantryConfig();
+    config.instruments.camera = {
+      type: "rpi_camera",
+      vendor: "raspberry_pi",
+      offset_x: 0,
+      offset_y: 0,
+      depth: 0,
+      offline: true,
+    };
+
+    expect(() => buildCalibratedConfig({
+      config,
+      measuredVolume: { x: 398.5, y: 299.25, z: 96.75 },
+      zMin: 0,
+      zMax: 110,
+      maxTravel: { x: 398.5, y: 299.25, z: 110 },
+      isMulti: true,
+      instruments: ["asmi", "camera"],
+      instrumentPositions: {
+        asmi: { x: 199, y: 149.5, z: 12.5 },
+        camera: { x: 211, y: 153.5, z: 35.5 },
+      },
+      referenceInstrument: "asmi",
+      lowestInstrument: "asmi",
+    })).toThrow("Distance from calibration block is required for camera.");
+  });
 });

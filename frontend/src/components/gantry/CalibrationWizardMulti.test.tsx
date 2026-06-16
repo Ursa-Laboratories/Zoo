@@ -28,6 +28,22 @@ function multiConfig(): GantryConfig {
   };
 }
 
+function multiConfigWithCamera(): GantryConfig {
+  const config = multiConfig();
+  config.instruments = {
+    asmi: { type: "asmi", vendor: "vernier", offset_x: 0, offset_y: 0, depth: 0 },
+    camera: {
+      type: "rpi_camera",
+      vendor: "raspberry_pi",
+      offset_x: 0,
+      offset_y: 0,
+      depth: 0,
+      offline: true,
+    },
+  };
+  return config;
+}
+
 function position(): GantryPosition {
   return { x: 0, y: 0, z: 20, work_x: 0, work_y: 0, work_z: 20, status: "Idle", connected: true };
 }
@@ -126,5 +142,33 @@ describe("CalibrationWizard multi-instrument block height step", () => {
 
     expect(await screen.findByText(/Enter a calibration block height/i)).toBeInTheDocument();
     expect(screen.queryByText("Set Z Reference")).not.toBeInTheDocument();
+  });
+
+  it("requires the rpi camera block distance before recording the camera position", async () => {
+    const user = userEvent.setup();
+    installFetch();
+    render(
+      <CalibrationWizard
+        open
+        onClose={() => undefined}
+        gantry={{ filename: "multi-rpi.yaml", config: multiConfigWithCamera() }}
+        position={position()}
+        onSaveCalibrated={async () => undefined}
+      />,
+    );
+
+    await advanceToBlockHeightStep(user);
+    await user.click(screen.getByRole("button", { name: "Continue" })); // -> Z reference
+    await user.click(await screen.findByRole("button", { name: "Set Z reference with asmi and retract" }));
+
+    expect(await screen.findByText("Record Instruments")).toBeInTheDocument();
+    expect(screen.getByText(/Center the camera over the calibration block mark/i)).toBeInTheDocument();
+
+    const recordButton = screen.getByRole("button", { name: "Record camera" });
+    expect(recordButton).toBeDisabled();
+    const distance = screen.getByLabelText("Distance from calibration block (mm)");
+    await user.type(distance, "20");
+
+    expect(recordButton).toBeEnabled();
   });
 });
