@@ -10,8 +10,11 @@ import pytest
 from gantry.session import (
     CalibrationBlockedError,
     GantryNotConnectedError,
+    GantrySessionError,
+    GantrySessionHealthCheckError,
     InterruptFeedHoldTimeoutError,
 )
+from validation.errors import BoundsViolation, SetupValidationError
 
 from tests.api_client import api_request
 from zoo.app import create_app
@@ -94,6 +97,19 @@ def test_get_protocol(client, tmp_configs):
     assert data["steps"][1]["args"]["volume_ul"] == 100.0
 
 
+def test_get_protocol_errors(client, tmp_configs):
+    missing = api_request(client, "GET", "/api/protocol/missing.yaml")
+    assert missing.status_code == 404
+
+    write_yaml(tmp_configs / "not_protocol.yaml", {"not_protocol": []})
+    invalid = api_request(client, "GET", "/api/protocol/not_protocol.yaml")
+    assert invalid.status_code == 400
+
+    (tmp_configs / "bad.yaml").write_text("protocol: [", encoding="utf-8")
+    bad_yaml = api_request(client, "GET", "/api/protocol/bad.yaml")
+    assert bad_yaml.status_code == 400
+
+
 def test_save_protocol(client, tmp_configs):
     body = {
         "positions": {"park": [10.0, 20.0, 30.0]},
@@ -108,6 +124,23 @@ def test_save_protocol(client, tmp_configs):
     assert response.status_code == 200
     assert (tmp_configs / "new_protocol.yaml").exists()
     assert read_yaml(tmp_configs / "new_protocol.yaml")["positions"] == body["positions"]
+
+
+def test_save_protocol_omits_empty_positions(client, tmp_configs):
+    body = {
+        "protocol": [
+            {
+                "command": "move",
+                "args": {"instrument": "uvvis", "position": "plate_1.A1"},
+            },
+        ],
+    }
+
+    response = api_request(client, "PUT", "/api/protocol/no_positions.yaml", json=body)
+
+    assert response.status_code == 200
+    saved = read_yaml(tmp_configs / "no_positions.yaml")
+    assert "positions" not in saved
 
 
 def test_validate_protocol_ok(client):
@@ -161,6 +194,38 @@ def test_validate_protocol_unknown_args(client):
     data = response.json()
     assert data["valid"] is False
     assert "turbo" in data["errors"][0]
+
+
+def test_validate_setup_endpoint_maps_unexpected_errors(monkeypatch, tmp_path):
+    from zoo.routers import protocol as protocol_router
+
+    for subdir in ("gantry", "deck", "protocol"):
+        (tmp_path / subdir).mkdir()
+
+    monkeypatch.setattr(
+        protocol_router,
+        "run_setup_validation",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("validator exploded")),
+    )
+    monkeypatch.setattr(
+        protocol_router,
+        "get_settings",
+        lambda: type("S", (), {"configs_dir": tmp_path})(),
+    )
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/protocol/validate-setup",
+        json={
+            "gantry_file": "gantry.yaml",
+            "deck_file": "deck.yaml",
+            "protocol_file": "protocol.yaml",
+        },
+    )
+
+    assert response.status_code == 500
+    assert "validator exploded" in response.text
 
 
 def test_validate_setup_endpoint_calls_cubos_validation(monkeypatch, tmp_path):
@@ -363,6 +428,55 @@ def test_run_endpoint_blocks_active_calibration_warning(monkeypatch, tmp_path):
     assert "calibration warning is active" in response.text
 
 
+def test_run_endpoint_error_mapping(monkeypatch, tmp_path):
+    from zoo.routers import gantry as gantry_router
+    from zoo.routers import protocol as protocol_router
+
+    setup_error = SetupValidationError([
+        BoundsViolation(
+            labware_key="plate",
+            position_id="A1",
+            instrument_name=None,
+            coordinate_type="gantry",
+            x=-1.0,
+            y=0.0,
+            z=0.0,
+            axis="x",
+            bound_name="x_min",
+            bound_value=0.0,
+        )
+    ])
+    cases = [
+        (GantrySessionHealthCheckError("not healthy"), 400, "Gantry is not connected"),
+        (setup_error, 400, "x_min"),
+        (GantrySessionError("session exploded"), 500, "Execution failed"),
+        (RuntimeError("plain exploded"), 500, "Execution failed"),
+    ]
+    monkeypatch.setattr(
+        protocol_router,
+        "get_settings",
+        lambda: type("S", (), {"configs_dir": tmp_path, "data_db_path": tmp_path / "data.db"})(),
+    )
+    for exc, status, text in cases:
+        monkeypatch.setattr(
+            gantry_router,
+            "run_protocol_on_session",
+            lambda **_kwargs: (_ for _ in ()).throw(exc),
+        )
+        response = api_request(
+            create_app(),
+            "POST",
+            "/api/protocol/run",
+            json={
+                "gantry_file": "gantry.yaml",
+                "deck_file": "deck.yaml",
+                "protocol_file": "protocol.yaml",
+            },
+        )
+        assert response.status_code == status
+        assert text in response.text
+
+
 def test_cancel_endpoint_requests_session_interrupt(monkeypatch):
     from zoo.routers import gantry as gantry_router
 
@@ -405,3 +519,17 @@ def test_cancel_endpoint_requires_connected_gantry(monkeypatch):
 
     assert response.status_code == 400
     assert "Gantry is not connected" in response.text
+
+
+def test_cancel_endpoint_maps_unexpected_errors(monkeypatch):
+    from zoo.routers import gantry as gantry_router
+
+    def fail():
+        raise RuntimeError("serial failed")
+
+    monkeypatch.setattr(gantry_router, "request_feed_hold_interrupt", fail)
+
+    response = api_request(create_app(), "POST", "/api/protocol/cancel")
+
+    assert response.status_code == 500
+    assert "Cancel failed" in response.text

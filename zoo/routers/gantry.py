@@ -179,6 +179,8 @@ def _position_response(snapshot: GantryPositionSnapshot) -> GantryPosition:
 
 
 def _session_http_exception(exc: Exception, *, default_action: str) -> HTTPException:
+    if isinstance(exc, HTTPException):
+        return exc
     if isinstance(exc, GantryNotConnectedError):
         return HTTPException(400, "Gantry not connected")
     if isinstance(exc, CalibrationBlockedError):

@@ -7,6 +7,7 @@ import json
 import io
 import sqlite3
 import zipfile
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -525,10 +526,11 @@ def test_export_campaign_asmi_zip_reads_cubos_datastore_schema(monkeypatch, tmp_
 def test_export_campaign_asmi_zip_rejects_missing_sample_arrays(monkeypatch, tmp_path):
     db_path = tmp_path / "panda_data.db"
     _seed_asmi_database(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn:
         conn.execute(
             "UPDATE asmi_measurements SET sample_timestamps = NULL WHERE id = 11"
         )
+        conn.commit()
     monkeypatch.setattr(get_settings(), "data_db_path", db_path)
 
     response = api_request(create_app(), "GET", "/api/data/campaigns/1/asmi.zip")
@@ -591,8 +593,9 @@ def test_export_campaign_measurements_zip_returns_404_for_campaign_without_measu
 
 def test_export_campaign_asmi_zip_rejects_missing_tables(monkeypatch, tmp_path):
     db_path = tmp_path / "panda_data.db"
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn:
         conn.execute("CREATE TABLE campaigns (id INTEGER PRIMARY KEY)")
+        conn.commit()
     monkeypatch.setattr(get_settings(), "data_db_path", db_path)
 
     response = api_request(create_app(), "GET", "/api/data/campaigns/1/asmi.zip")
@@ -619,8 +622,9 @@ def test_format_cell_converts_binary_values_to_readable_text():
 def test_export_campaign_asmi_zip_rejects_non_array_json(monkeypatch, tmp_path):
     db_path = tmp_path / "panda_data.db"
     _seed_asmi_database(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn:
         conn.execute("UPDATE asmi_measurements SET raw_forces = ? WHERE id = 11", (json.dumps({}),))
+        conn.commit()
     monkeypatch.setattr(get_settings(), "data_db_path", db_path)
 
     response = api_request(create_app(), "GET", "/api/data/campaigns/1/asmi.zip")
@@ -632,11 +636,12 @@ def test_export_campaign_asmi_zip_rejects_non_array_json(monkeypatch, tmp_path):
 def test_export_campaign_asmi_zip_rejects_mismatched_array_lengths(monkeypatch, tmp_path):
     db_path = tmp_path / "panda_data.db"
     _seed_asmi_database(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn:
         conn.execute(
             "UPDATE asmi_measurements SET corrected_forces = ? WHERE id = 11",
             (json.dumps([0.004]),),
         )
+        conn.commit()
     monkeypatch.setattr(get_settings(), "data_db_path", db_path)
 
     response = api_request(create_app(), "GET", "/api/data/campaigns/1/asmi.zip")
