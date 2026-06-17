@@ -141,6 +141,7 @@ export function buildCalibratedConfig({
   instrumentPositions,
   referenceInstrument,
   lowestInstrument,
+  cameraBlockDistances,
 }: {
   config: GantryConfig;
   measuredVolume: CapturedPosition;
@@ -152,6 +153,7 @@ export function buildCalibratedConfig({
   instrumentPositions: Record<string, CapturedPosition>;
   referenceInstrument: string;
   lowestInstrument: string;
+  cameraBlockDistances?: Record<string, number>;
 }): GantryConfig {
   const next = structuredClone(config);
   next.working_volume = {
@@ -184,6 +186,19 @@ export function buildCalibratedConfig({
     for (const name of instruments) {
       const coords = instrumentPositions[name];
       if (!coords || !next.instruments[name]) continue;
+      if (next.instruments[name].type === "rpi_camera") {
+        const distance = cameraBlockDistances?.[name];
+        if (!Number.isFinite(distance) || distance == null || distance < 0) {
+          throw new Error(`Distance from calibration block is required for ${name}.`);
+        }
+        next.instruments[name] = {
+          ...next.instruments[name],
+          offset_x: roundMm(requireFinite(reference.x - coords.x, `${name} offset_x`)),
+          offset_y: roundMm(requireFinite(reference.y - coords.y, `${name} offset_y`)),
+          depth: roundMm(requireFinite(coords.z - (lowest.z + distance), `${name} depth`)),
+        };
+        continue;
+      }
       next.instruments[name] = {
         ...next.instruments[name],
         offset_x: roundMm(requireFinite(reference.x - coords.x, `${name} offset_x`)),
