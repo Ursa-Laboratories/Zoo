@@ -1,22 +1,30 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import GantryEditor from "./GantryEditor";
 import type { GantryResponse, InstrumentSchemas, InstrumentTypeInfo } from "../../types";
 
 const INSTRUMENT_TYPES: InstrumentTypeInfo[] = [
   { type: "pipette", vendors: ["opentrons"], is_mock: false },
-  { type: "asmi", vendors: ["vernier"], is_mock: false },
+  { type: "asmi", vendors: ["vernier", "customer"], is_mock: false },
 ];
 
 const INSTRUMENT_SCHEMAS: InstrumentSchemas = {
-  pipette: [{ name: "port", type: "str", required: true, default: "/dev/ttyUSB0", choices: null }],
-  asmi: [
-    { name: "mode", type: "str", required: false, default: "a", choices: ["a", "b"] },
-    { name: "enabled", type: "bool", required: false, default: false, choices: null },
-    { name: "gain", type: "float", required: true, default: 1, choices: null },
-    { name: "label", type: "str", required: false, default: "x", choices: null },
-  ],
+  pipette: {
+    opentrons: [{ name: "port", type: "str", required: true, default: "/dev/ttyUSB0", choices: null }],
+  },
+  asmi: {
+    vernier: [
+      { name: "mode", type: "str", required: false, default: "a", choices: ["a", "b"] },
+      { name: "enabled", type: "bool", required: false, default: false, choices: null },
+      { name: "gain", type: "float", required: true, default: 1, choices: null },
+      { name: "label", type: "str", required: false, default: "x", choices: null },
+    ],
+    customer: [
+      { name: "dll_path", type: "str", required: true, default: "/opt/asmi.dll", choices: null },
+    ],
+  },
 };
 
 function gantryFixture(overrides: Partial<GantryResponse["config"]> = {}): GantryResponse {
@@ -40,8 +48,6 @@ function gantryFixture(overrides: Partial<GantryResponse["config"]> = {}): Gantr
           offset_x: 1,
           offset_y: 2,
           depth: 0,
-          measurement_height: 0,
-          safe_approach_height: 0,
           port: "/dev/ttyUSB0",
         },
         asmi_1: {
@@ -50,8 +56,6 @@ function gantryFixture(overrides: Partial<GantryResponse["config"]> = {}): Gantr
           offset_x: 0,
           offset_y: 0,
           depth: 0,
-          measurement_height: 0,
-          safe_approach_height: 0,
           mode: "a",
           enabled: false,
           gain: 1,
@@ -80,6 +84,37 @@ function renderGantry(overrides: Partial<React.ComponentProps<typeof GantryEdito
   };
   render(<GantryEditor {...props} />);
   return props;
+}
+
+function renderStatefulGantry(initial: GantryResponse = gantryFixture()) {
+  const onLocalChange = vi.fn();
+  const onSave = vi.fn();
+  const onSelectFile = vi.fn();
+  const onRefresh = vi.fn();
+
+  function Harness() {
+    const [gantry, setGantry] = useState(initial);
+    return (
+      <GantryEditor
+        configs={["cubos.yaml"]}
+        selectedFile="cubos.yaml"
+        onSelectFile={onSelectFile}
+        gantry={gantry}
+        baseline={initial}
+        instrumentTypes={INSTRUMENT_TYPES}
+        instrumentSchemas={INSTRUMENT_SCHEMAS}
+        onSave={onSave}
+        onLocalChange={(next) => {
+          onLocalChange(next);
+          setGantry(next);
+        }}
+        onRefresh={onRefresh}
+      />
+    );
+  }
+
+  render(<Harness />);
+  return { onLocalChange, onSave, onSelectFile, onRefresh };
 }
 
 describe("GantryEditor", () => {
@@ -184,6 +219,21 @@ describe("GantryEditor", () => {
     await user.selectOptions(screen.getByLabelText("Soft limits"), "false");
 
     expect(props.onLocalChange).toHaveBeenCalled();
+  });
+
+  it("switches instrument fields when the vendor changes", async () => {
+    const user = userEvent.setup();
+    renderStatefulGantry();
+
+    expect(screen.getByLabelText("Mode")).toBeInTheDocument();
+    const vendorSelect = screen
+      .getAllByRole("combobox", { name: /Vendor/ })
+      .find((select) => (select as HTMLSelectElement).value === "vernier");
+    expect(vendorSelect).toBeDefined();
+    await user.selectOptions(vendorSelect!, "customer");
+
+    expect(screen.queryByLabelText("Mode")).not.toBeInTheDocument();
+    expect(await screen.findByLabelText(/Dll Path/)).toHaveValue("/opt/asmi.dll");
   });
 
   it("disables Save when the working volume is invalid", async () => {

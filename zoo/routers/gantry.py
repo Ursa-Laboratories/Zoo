@@ -215,8 +215,8 @@ def _is_primitive(annotation: Any) -> bool:
     return False
 
 
-def _build_instrument_fields(type_key: str) -> List[InstrumentFieldInfo]:
-    cls = get_instrument_class(type_key)
+def _build_instrument_fields(type_key: str, vendor: str) -> List[InstrumentFieldInfo]:
+    cls = get_instrument_class(type_key, vendor)
     sig = inspect.signature(cls.__init__)
     fields: List[InstrumentFieldInfo] = []
     for param_name, param in sig.parameters.items():
@@ -298,9 +298,12 @@ def list_pipette_models() -> List[PipetteModelInfo]:
 
 
 @router.get("/instrument-schemas")
-def get_instrument_schemas() -> Dict[str, List[InstrumentFieldInfo]]:
+def get_instrument_schemas() -> Dict[str, Dict[str, List[InstrumentFieldInfo]]]:
     return {
-        type_key: _build_instrument_fields(type_key)
+        type_key: {
+            vendor: _build_instrument_fields(type_key, vendor)
+            for vendor in get_supported_vendors(type_key)
+        }
         for type_key in get_supported_types()
     }
 
