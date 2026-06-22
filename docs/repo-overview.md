@@ -36,6 +36,9 @@ mounted instruments, position fields use deck targets plus top-level protocol
 positions, and measurement method fields use instrument-aware options. ASMI
 indentation method options expose force limit, step size, baseline samples, and
 measure-with-return controls.
+The gantry editor gets supported instrument types, vendors, and vendor-specific
+constructor fields from CubOS registry endpoints; it does not maintain a local
+driver registry.
 Protocol execution is gated on the gantry position poll reporting an active
 connection. Each Run Protocol request delegates to `GantrySession.run_protocol()`,
 which creates one CubOS `DataStore` campaign for the selected gantry, deck, and

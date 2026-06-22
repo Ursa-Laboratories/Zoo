@@ -32,7 +32,11 @@ type JogDelta = {
 
 const JOG_INTERVAL_MS = 150;
 const MIN_STEP = 0.001;
-const RPI_CAMERA_TYPE = "rpi_camera";
+const NON_CONTACT_TYPES = new Set(["camera"]);
+
+function isNonContactInstrument(type: string | undefined): boolean {
+  return type != null && NON_CONTACT_TYPES.has(type);
+}
 
 export default function CalibrationWizard({
   open,
@@ -72,13 +76,13 @@ export default function CalibrationWizard({
   const filename = gantry?.filename ?? "";
   const config = gantry?.config ?? null;
   const instruments = useMemo(() => Object.keys(config?.instruments ?? {}), [config]);
-  const rpiCameraInstruments = useMemo(
-    () => instruments.filter((name) => config?.instruments[name]?.type === RPI_CAMERA_TYPE),
+  const nonContactInstruments = useMemo(
+    () => instruments.filter((name) => isNonContactInstrument(config?.instruments[name]?.type)),
     [config, instruments],
   );
   const contactInstruments = useMemo(
-    () => instruments.filter((name) => !rpiCameraInstruments.includes(name)),
-    [instruments, rpiCameraInstruments],
+    () => instruments.filter((name) => !nonContactInstruments.includes(name)),
+    [instruments, nonContactInstruments],
   );
   const isMulti = instruments.length > 1;
   const connected = position?.connected ?? false;
@@ -99,7 +103,7 @@ export default function CalibrationWizard({
     [instruments, selectedLowest, selectedReference],
   );
   const nextInstrumentToRecord = instrumentSequence.find((name) => !instrumentPositions[name]) ?? null;
-  const nextInstrumentIsCamera = nextInstrumentToRecord ? rpiCameraInstruments.includes(nextInstrumentToRecord) : false;
+  const nextInstrumentIsCamera = nextInstrumentToRecord ? nonContactInstruments.includes(nextInstrumentToRecord) : false;
   const nextCameraDistanceError = nextInstrumentIsCamera && nextInstrumentToRecord
     ? validateCameraBlockDistance(cameraBlockDistances[nextInstrumentToRecord])
     : null;
@@ -421,10 +425,10 @@ export default function CalibrationWizard({
   });
 
   const recordCurrentInstrument = (name: string) => runAction(
-    rpiCameraInstruments.includes(name) ? `Recording ${name}` : `Recording ${name} and retracting Z`,
+    nonContactInstruments.includes(name) ? `Recording ${name}` : `Recording ${name} and retracting Z`,
     async () => {
     if (!name) return;
-    const isCamera = rpiCameraInstruments.includes(name);
+    const isCamera = nonContactInstruments.includes(name);
     if (isCamera) {
       const message = validateCameraBlockDistance(cameraBlockDistances[name]);
       if (message) throw new Error(message);
@@ -488,7 +492,7 @@ export default function CalibrationWizard({
         instrumentPositions,
         referenceInstrument: selectedReference,
         lowestInstrument: selectedLowest,
-        cameraBlockDistances: parsedCameraBlockDistances(cameraBlockDistances, rpiCameraInstruments),
+        cameraBlockDistances: parsedCameraBlockDistances(cameraBlockDistances, nonContactInstruments),
       }));
       onClose();
       return;
@@ -546,7 +550,7 @@ export default function CalibrationWizard({
       instrumentPositions,
       referenceInstrument: selectedReference,
       lowestInstrument: selectedLowest,
-      cameraBlockDistances: parsedCameraBlockDistances(cameraBlockDistances, rpiCameraInstruments),
+      cameraBlockDistances: parsedCameraBlockDistances(cameraBlockDistances, nonContactInstruments),
     }));
     onClose();
   });
@@ -839,7 +843,7 @@ export default function CalibrationWizard({
                         {instrumentPositions[name]
                           ? `${instrumentPositions[name].x.toFixed(3)}, ${instrumentPositions[name].y.toFixed(3)}, ${instrumentPositions[name].z.toFixed(3)}`
                           : name === nextInstrumentToRecord
-                            ? rpiCameraInstruments.includes(name) ? "ready after distance" : "ready"
+                            ? nonContactInstruments.includes(name) ? "ready after distance" : "ready"
                             : "pending"}
                       </span>
                     </div>

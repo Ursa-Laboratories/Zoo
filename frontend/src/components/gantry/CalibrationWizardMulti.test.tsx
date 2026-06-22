@@ -33,7 +33,7 @@ function multiConfigWithCamera(): GantryConfig {
   config.instruments = {
     asmi: { type: "asmi", vendor: "vernier", offset_x: 0, offset_y: 0, depth: 0 },
     camera: {
-      type: "rpi_camera",
+      type: "camera",
       vendor: "raspberry_pi",
       offset_x: 0,
       offset_y: 0,

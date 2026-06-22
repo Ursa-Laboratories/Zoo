@@ -160,8 +160,6 @@ export interface InstrumentConfig {
   offset_x: number;
   offset_y: number;
   depth?: number;
-  measurement_height?: number;
-  safe_approach_height?: number | null;
   [key: string]: unknown;
 }
 
@@ -299,7 +297,7 @@ export interface InstrumentFieldInfo {
   choices: string[] | null;
 }
 
-export type InstrumentSchemas = Record<string, InstrumentFieldInfo[]>;
+export type InstrumentSchemas = Record<string, Record<string, InstrumentFieldInfo[]>>;
 
 // Protocol
 

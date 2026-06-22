@@ -75,8 +75,6 @@ function createState(): ApiState {
               offset_x: 1,
               offset_y: 2,
               depth: 0,
-              measurement_height: 0,
-              safe_approach_height: 0,
               port: "/dev/ttyUSB0",
             },
           },
@@ -178,9 +176,11 @@ function installFetchMock(state: ApiState, options: FetchMockOptions = {}) {
     }
     if (path === "/api/gantry/instrument-schemas") {
       return jsonResponse({
-        pipette: [
-          { name: "port", type: "str", required: true, default: "/dev/ttyUSB0", choices: null },
-        ],
+        pipette: {
+          opentrons: [
+            { name: "port", type: "str", required: true, default: "/dev/ttyUSB0", choices: null },
+          ],
+        },
       });
     }
     if (path === "/api/protocol/commands") {
@@ -855,8 +855,6 @@ describe("Zoo editor interactions", () => {
         offset_x: 1,
         offset_y: 2,
         depth: 0,
-        measurement_height: 0,
-        safe_approach_height: 0,
       },
     };
     installFetchMock(state);

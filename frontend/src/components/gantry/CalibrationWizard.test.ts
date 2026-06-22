@@ -288,10 +288,10 @@ describe("buildCalibratedConfig", () => {
     expect(calibrated.grbl_settings?.max_travel_z).toBe(101);
   });
 
-  it("calibrates an rpi camera from centered block position and measured block distance", () => {
+  it("calibrates a camera from centered block position and measured block distance", () => {
     const config = gantryConfig();
     config.instruments.camera = {
-      type: "rpi_camera",
+      type: "camera",
       vendor: "raspberry_pi",
       offset_x: 0,
       offset_y: 0,
@@ -323,10 +323,10 @@ describe("buildCalibratedConfig", () => {
     });
   });
 
-  it("requires an rpi camera distance before saving calibrated offsets", () => {
+  it("requires a camera distance before saving calibrated offsets", () => {
     const config = gantryConfig();
     config.instruments.camera = {
-      type: "rpi_camera",
+      type: "camera",
       vendor: "raspberry_pi",
       offset_x: 0,
       offset_y: 0,

@@ -221,6 +221,7 @@ def test_list_configs_and_schema_metadata(monkeypatch, tmp_path):
     assert any(item["channels"] >= 1 for item in pipettes.json())
     assert schemas.status_code == 200
     assert "asmi" in schemas.json()
+    assert "vernier" in schemas.json()["asmi"]
 
 
 def test_home_endpoint_delegates_to_gantry_session(monkeypatch):

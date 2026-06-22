@@ -25,7 +25,7 @@ Rule: write YAML from UI/API input, then read it back through CubOS loaders/sche
 Use CubOS public modules/classes instead of duplicating behavior:
 
 - Deck/config validation: `load_deck_from_yaml`, CubOS deck schemas/loaders.
-- Gantry/instrument validation: CubOS gantry schema and instrument registry.
+- Gantry/instrument validation: CubOS gantry schema and instrument registry. `/api/gantry/instrument-schemas` stays a thin reflection of CubOS and returns fields nested by `type` then `vendor`.
 - Movement: CubOS `Gantry` and public protocol/movement methods.
 - Calibration: keep Zoo UI/API orchestration thin over CubOS `Gantry` methods and the canonical serial flow in `CubOS/setup/calibrate_gantry.py`, including blocking home/center/retract operations and temporary XY-origin soft-limit disabling.
 - Protocols: CubOS protocol loaders/runtime APIs using gantry, deck, and protocol configs.

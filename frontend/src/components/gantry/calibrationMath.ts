@@ -186,7 +186,7 @@ export function buildCalibratedConfig({
     for (const name of instruments) {
       const coords = instrumentPositions[name];
       if (!coords || !next.instruments[name]) continue;
-      if (next.instruments[name].type === "rpi_camera") {
+      if (next.instruments[name].type === "camera") {
         const distance = cameraBlockDistances?.[name];
         if (!Number.isFinite(distance) || distance == null || distance < 0) {
           throw new Error(`Distance from calibration block is required for ${name}.`);

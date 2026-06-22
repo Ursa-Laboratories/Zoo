@@ -151,16 +151,14 @@ export default function GantryEditor({
       offset_x: 0,
       offset_y: 0,
       depth: 0,
-      measurement_height: 0,
-      safe_approach_height: 0,
     };
-    const fields = instrumentSchemas[selectedAddType] ?? [];
-    for (const field of fields) {
-      if (field.default != null) {
-        (template as Record<string, unknown>)[field.name] = field.default;
-      }
-    }
-    commit({ ...config, instruments: { ...config.instruments, [key]: template } });
+    commit({
+      ...config,
+      instruments: {
+        ...config.instruments,
+        [key]: applyInstrumentFieldDefaults(template, instrumentSchemas),
+      },
+    });
   };
 
   const updateGrblSetting = (field: keyof GrblSettingsConfig, value: number | boolean | null) => {
@@ -316,7 +314,7 @@ export default function GantryEditor({
 
             {Object.entries(config.instruments).map(([key, inst]) => {
               const color = INSTRUMENT_COLORS[inst.type] ?? INSTRUMENT_COLORS[inst.type.replace("mock_", "")] ?? "#666";
-              const fields = instrumentSchemas[inst.type] ?? [];
+              const fields = fieldsForInstrument(instrumentSchemas, inst.type, inst.vendor);
               const vendors = vendorsForType(instrumentTypes, inst.type);
               return (
                 <div key={key} style={instrumentCardStyle}>
@@ -333,7 +331,19 @@ export default function GantryEditor({
                       name={`${key}_type`}
                       label="Type"
                       value={inst.type}
-                      onChange={(v) => updateInstrument(key, { ...inst, type: v })}
+                      onChange={(v) => {
+                        const nextVendors = vendorsForType(instrumentTypes, v);
+                        const nextVendor = nextVendors.includes(inst.vendor)
+                          ? inst.vendor
+                          : nextVendors[0] ?? inst.vendor;
+                        updateInstrument(
+                          key,
+                          applyInstrumentFieldDefaults(
+                            { ...inst, type: v, vendor: nextVendor },
+                            instrumentSchemas,
+                          ),
+                        );
+                      }}
                       dirty={isInstrumentFieldDirty(baseline, key, "type", inst.type)}
                       required
                     />
@@ -344,7 +354,13 @@ export default function GantryEditor({
                         label="Vendor"
                         value={inst.vendor}
                         options={vendors.map((v) => ({ value: v, label: v }))}
-                        onChange={(v) => updateInstrument(key, { ...inst, vendor: v })}
+                        onChange={(v) => updateInstrument(
+                          key,
+                          applyInstrumentFieldDefaults(
+                            { ...inst, vendor: v },
+                            instrumentSchemas,
+                          ),
+                        )}
                         dirty={isInstrumentFieldDirty(baseline, key, "vendor", inst.vendor)}
                         required
                       />
@@ -362,8 +378,6 @@ export default function GantryEditor({
                     <NumberField id={`${key}-offset-x`} name={`${key}_offset_x`} label="Offset X" value={inst.offset_x} onChange={(v) => updateInstrument(key, { ...inst, offset_x: v })} dirty={isInstrumentFieldDirty(baseline, key, "offset_x", inst.offset_x)} />
                     <NumberField id={`${key}-offset-y`} name={`${key}_offset_y`} label="Offset Y" value={inst.offset_y} onChange={(v) => updateInstrument(key, { ...inst, offset_y: v })} dirty={isInstrumentFieldDirty(baseline, key, "offset_y", inst.offset_y)} />
                     <NumberField id={`${key}-depth`} name={`${key}_depth`} label="Depth" value={Number(inst.depth ?? 0)} onChange={(v) => updateInstrument(key, { ...inst, depth: v })} dirty={isInstrumentFieldDirty(baseline, key, "depth", inst.depth)} />
-                    <NumberField id={`${key}-measurement-height`} name={`${key}_measurement_height`} label="Measurement height" value={Number(inst.measurement_height ?? 0)} onChange={(v) => updateInstrument(key, { ...inst, measurement_height: v })} dirty={isInstrumentFieldDirty(baseline, key, "measurement_height", inst.measurement_height)} />
-                    <NumberField id={`${key}-safe-approach`} name={`${key}_safe_approach`} label="Safe approach" value={Number(inst.safe_approach_height ?? inst.measurement_height ?? 0)} onChange={(v) => updateInstrument(key, { ...inst, safe_approach_height: v })} dirty={isInstrumentFieldDirty(baseline, key, "safe_approach_height", inst.safe_approach_height)} />
                   </div>
 
                   {fields.length > 0 && (
@@ -510,9 +524,6 @@ function isValidGantry(config: GantryConfig): boolean {
   if (config.cnc.safe_z != null && (config.cnc.safe_z < wv.z_min || config.cnc.safe_z > wv.z_max)) return false;
   for (const inst of Object.values(config.instruments)) {
     if (!inst.type.trim() || !inst.vendor.trim()) return false;
-    const measurement = Number(inst.measurement_height ?? 0);
-    const safe = inst.safe_approach_height == null ? measurement : Number(inst.safe_approach_height);
-    if (safe < measurement) return false;
   }
   return true;
 }
@@ -544,6 +555,27 @@ function isInstrumentFieldDirty(
 
 function vendorsForType(instrumentTypes: InstrumentTypeInfo[], type: string): string[] {
   return instrumentTypes.find((it) => it.type === type)?.vendors ?? [];
+}
+
+function fieldsForInstrument(
+  instrumentSchemas: InstrumentSchemas,
+  type: string,
+  vendor: string,
+) {
+  return instrumentSchemas[type]?.[vendor] ?? [];
+}
+
+function applyInstrumentFieldDefaults(
+  inst: InstrumentConfig,
+  instrumentSchemas: InstrumentSchemas,
+): InstrumentConfig {
+  const next = { ...inst };
+  for (const field of fieldsForInstrument(instrumentSchemas, inst.type, inst.vendor)) {
+    if (field.default != null && (next as Record<string, unknown>)[field.name] === undefined) {
+      (next as Record<string, unknown>)[field.name] = field.default;
+    }
+  }
+  return next;
 }
 
 function typeLabel(type: string): string {

@@ -1,11 +1,11 @@
-# RPi Camera Calibration UI
+# Camera Calibration UI
 
 ## Current behavior
 
-The gantry calibration UI supports `rpi_camera` instruments in the normal
-multi-instrument calibration flow. When the active instrument is an RPi camera,
-Zoo shows a required distance-from-calibration-block input before allowing the
-operator to record the camera position.
+The gantry calibration UI supports registered non-contact `camera` instruments
+in the normal multi-instrument calibration flow. When the active instrument is a
+camera, Zoo shows a required distance-from-calibration-block input before
+allowing the operator to record the camera position.
 
 Zoo still uses the normal connected `GantrySession` path. There is no committed
 mock-gantry runtime switch in this branch.
