@@ -173,9 +173,12 @@ file with per-well run settings.
 
 The Windows installer builder lives in `installer/windows/`. It clones Zoo
 `main` and CubOS `main`, builds the frontend, prepares an offline wheelhouse,
-and emits an Inno Setup installer that installs an app-local Python runtime.
-The installer carries the Python installer inside the app directory, and the
-launcher verifies or repairs the private runtime before starting Zoo.
+and emits an Inno Setup installer that installs an app-local Python runtime and
+venv. The installer carries the Python installer inside the app directory, and
+the launcher verifies or repairs the private runtime before starting Zoo.
+Optional public driver packages are selected in the installer wizard; ASMI
+support is selected by default and installs `godirect`, while proprietary
+driver packages are not bundled.
 
 Build it on a Windows packaging machine with Git, Python 3.11, Node.js, and
 Inno Setup 6:

@@ -33,6 +33,7 @@ function Show-Failure {
 }
 
 $Python = Join-Path $InstallDir "Python\python.exe"
+$RuntimePython = Join-Path $InstallDir "venv\Scripts\python.exe"
 $PythonInstaller = Join-Path $InstallDir "installers\python-installer.exe"
 $InstallPythonScript = Join-Path $InstallDir "scripts\Install-Python.ps1"
 $InstallRuntimeScript = Join-Path $InstallDir "scripts\Install-Runtime.ps1"
@@ -58,15 +59,35 @@ function Invoke-LauncherScript {
     }
 }
 
+function Get-InstalledDriverGroups {
+    if (-not (Test-Path $RuntimeMarker)) {
+        return ""
+    }
+
+    $DriverLine = Get-Content -Path $RuntimeMarker -ErrorAction SilentlyContinue |
+        Where-Object { $_ -like "DriverGroups=*" } |
+        Select-Object -First 1
+    if (-not $DriverLine) {
+        return ""
+    }
+
+    $Value = $DriverLine.Substring("DriverGroups=".Length)
+    if ($Value -eq "none") {
+        return ""
+    }
+    return $Value
+}
+
 try {
     Write-Log "Starting Zoo launcher"
     Write-Log "Install directory: $InstallDir"
     Write-Log "Expected Python: $Python"
+    Write-Log "Expected runtime Python: $RuntimePython"
     Write-Log "Zoo source directory: $ZooDir"
     Write-Log "Config directory: $ConfigDir"
     Write-Log "Data database path: $DataDbPath"
 
-    $NeedsRuntimeInstall = -not (Test-Path $RuntimeMarker)
+    $NeedsRuntimeInstall = (-not (Test-Path $RuntimeMarker)) -or (-not (Test-Path $RuntimePython))
 
     if (-not (Test-Path $Python)) {
         Write-Log "Python runtime missing; installing from bundled installer"
@@ -80,7 +101,8 @@ try {
 
     if ($NeedsRuntimeInstall) {
         Write-Log "Zoo runtime packages need installation"
-        Invoke-LauncherScript $InstallRuntimeScript @("-InstallDir", $InstallDir)
+        $InstalledDriverGroups = Get-InstalledDriverGroups
+        Invoke-LauncherScript $InstallRuntimeScript @("-InstallDir", $InstallDir, "-DriverGroups", $InstalledDriverGroups)
     }
 
     $FrontendDist = Join-Path $ZooDir "frontend\dist"
@@ -110,7 +132,7 @@ try {
         $PreviousErrorActionPreference = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         try {
-            & $Python -m zoo 2>&1 | ForEach-Object { $_.ToString() } | Tee-Object -FilePath $LogPath -Append
+            & $RuntimePython -m zoo 2>&1 | ForEach-Object { $_.ToString() } | Tee-Object -FilePath $LogPath -Append
             $ExitCode = $LASTEXITCODE
         }
         finally {
