@@ -2,7 +2,8 @@
 
 This directory builds a Windows installer for an operator-facing Zoo runtime.
 The installer is intentionally local and self-contained: it installs a private
-Python runtime, installs Zoo/CubOS packages from an offline wheelhouse, copies
+Python runtime, creates an app-local virtual environment, installs Zoo/CubOS
+packages from an offline wheelhouse, copies
 the checked-out Zoo and CubOS `main` sources into the app directory, launches
 Zoo from the copied Zoo source so the prebuilt frontend is available, and seeds
 the operator config folder from CubOS configs on first launch.
@@ -15,6 +16,7 @@ machine.
 - Zoo repo: `https://github.com/Ursa-Laboratories/Zoo.git`, branch `main`
 - CubOS repo: `https://github.com/Ursa-Laboratories/CubOS.git`, branch `main`
 - Runtime: app-local Python 3.11
+- Virtual environment: `%LOCALAPPDATA%\Programs\UrsaLabs\Zoo\venv`
 - Bundled Python installer: `%LOCALAPPDATA%\Programs\UrsaLabs\Zoo\installers\python-installer.exe`
 - User config directory: `%LOCALAPPDATA%\UrsaLabs\Zoo\configs`
 - User data database: `%LOCALAPPDATA%\UrsaLabs\Zoo\data\panda_data.db`
@@ -22,6 +24,11 @@ machine.
 
 The generated installer does not require Python, Node.js, Git, or internet
 access on the operator machine.
+
+During install, the wizard lists optional public hardware drivers that can be
+installed from the bundled wheelhouse. ASMI support is selected by default and
+installs the public `godirect` package. Proprietary drivers, such as UV-Vis
+vendor packages, are not offered by this installer.
 
 ## Packaging Machine Requirements
 
@@ -96,10 +103,14 @@ Before handing the installer to an operator:
 4. Confirm `%LOCALAPPDATA%\UrsaLabs\Zoo\configs` contains seeded CubOS config
    YAMLs.
 5. Confirm `%LOCALAPPDATA%\Programs\UrsaLabs\Zoo\Python\python.exe` exists.
-6. Confirm the gantry and ASMI hardware are not connected during UI-only smoke
+6. Confirm `%LOCALAPPDATA%\Programs\UrsaLabs\Zoo\venv\Scripts\python.exe`
+   exists and can import `zoo`, `gantry`, `deck`, and `protocol_engine`.
+7. If ASMI support was selected, confirm the runtime venv can import
+   `godirect`.
+8. Confirm the gantry and ASMI hardware are not connected during UI-only smoke
    testing, or keep the machine clear and E-stop reachable during hardware
    tests.
-7. Use `Export Diagnostics` and verify the zip includes build info, logs,
+9. Use `Export Diagnostics` and verify the zip includes build info, logs,
    configs, and Python package information.
 
 Hardware-touching actions such as connect, home, jog, calibration, and protocol
