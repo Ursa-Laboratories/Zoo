@@ -70,7 +70,10 @@ describe("api client", () => {
 
     const blob = await dataApi.exportCampaignMeasurementsZip(7);
 
-    expect(blob).toBeInstanceOf(Blob);
+    // Duck-type instead of instanceof: Response.blob() can return a Blob from
+    // a different realm (Node vs jsdom global) depending on the Node version.
+    expect(blob.size).toBe(9);
+    expect(blob.type).toBe("application/zip");
     expect(await blob.text()).toBe("zip bytes");
     expect(fetchMock).toHaveBeenCalledWith("/api/data/campaigns/7/measurements.zip");
   });
