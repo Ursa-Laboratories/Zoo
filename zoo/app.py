@@ -3,14 +3,71 @@
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from zoo.config import get_settings
 from zoo.routers import data, deck, gantry, protocol, raw, settings
 
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 logger = logging.getLogger(__name__)
+
+# Methods that change server state — these are the ones a malicious page can
+# trigger cross-origin (CSRF) and that DNS-rebinding could redirect to Zoo.
+_STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+# Hosts that are always treated as equivalent to each other, regardless of
+# which one the server is configured to bind on.
+_LOCALHOST_EQUIVALENTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
+
+
+def _host_equivalents(host: str) -> set[str]:
+    host = host.lower()
+    if host in _LOCALHOST_EQUIVALENTS or host in ("0.0.0.0", "[::]"):
+        return set(_LOCALHOST_EQUIVALENTS)
+    return {host}
+
+
+def _allowed_netlocs() -> set[str]:
+    """Host:port values (and bare hosts) considered same-origin to Zoo."""
+    settings = get_settings()
+    hosts = _host_equivalents(settings.host)
+    netlocs: set[str] = set()
+    for host in hosts:
+        netlocs.add(host)
+        netlocs.add(f"{host}:{settings.port}")
+    netlocs.update(h.lower() for h in settings.trusted_hosts)
+    return netlocs
+
+
+async def _origin_host_middleware(request: Request, call_next):
+    allowed = _allowed_netlocs()
+
+    # DNS-rebinding guard: the Host header must match the configured
+    # host:port (or a localhost equivalent), for every method — not just
+    # state-changing ones — since a GET can also read sensitive data.
+    host_header = request.headers.get("host", "")
+    host_value = host_header.split(",")[0].strip().lower()
+    if not host_value or host_value not in allowed:
+        return JSONResponse({"detail": "Invalid Host header"}, status_code=400)
+
+    # CSRF guard: state-changing requests must be same-origin. Requests with
+    # no Origin/Referer header (curl, native test clients) are allowed
+    # through — only browsers reliably send these headers, and they send them
+    # precisely on the cross-origin requests we want to block.
+    if request.method in _STATE_CHANGING_METHODS:
+        source = request.headers.get("origin") or request.headers.get("referer")
+        if source:
+            netloc = urlsplit(source).netloc.lower()
+            if netloc not in allowed:
+                return JSONResponse(
+                    {"detail": "Cross-origin request blocked"}, status_code=403
+                )
+
+    return await call_next(request)
 
 
 @asynccontextmanager
@@ -24,11 +81,12 @@ async def lifespan(app: FastAPI):
             session.disconnect()
         except Exception as e:
             logger.warning("Error disconnecting gantry on shutdown: %s", e)
-        gantry._session = None
+        gantry.reset_session()
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Zoo — CubOS Visualizer", lifespan=lifespan)
+    app.middleware("http")(_origin_host_middleware)
     app.include_router(deck.router)
     app.include_router(data.router)
     app.include_router(gantry.router)

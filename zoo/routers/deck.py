@@ -8,7 +8,8 @@ from typing import Any, Dict, Optional
 
 from deck import load_deck_from_yaml
 from deck.labware.well_plate import WellPlate
-from deck.loader import _derive_wells_from_calibration
+from deck.errors import DeckLoaderError
+from deck.loader import _derive_wells_from_calibration, _resolve_load_names
 from deck.yaml_schema import WellPlateYamlEntry
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ValidationError
@@ -54,20 +55,28 @@ def list_deck_configs() -> list[str]:
 
 @router.get("/{filename}")
 def get_deck(filename: str) -> DeckResponse:
-    path = resolve_config_path(get_settings().configs_dir, "deck", filename)
+    try:
+        path = resolve_config_path(get_settings().configs_dir, "deck", filename)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     if not path.is_file():
         raise HTTPException(404, f"Config not found: {filename}")
 
     # Use CubOS's loader for validation + well derivation.
     try:
         raw = read_yaml(path)
+        resolved_raw = _resolve_load_names(raw)
         deck = load_deck_from_yaml(path)
-    except (ValueError, ValidationError) as e:
+    except (ValueError, ValidationError, DeckLoaderError) as e:
         raise HTTPException(400, str(e))
 
     items: list[LabwareResponse] = []
     for key, labware in deck.labware.items():
-        config = _normalize_labware_config(raw.get("labware", {}).get(key, {}), labware, key)
+        config = _normalize_labware_config(
+            resolved_raw.get("labware", {}).get(key, {}),
+            labware,
+            key,
+        )
         if hasattr(labware, "iter_positions"):
             positions = _serialize_positions(labware.iter_positions())
         else:
@@ -112,7 +121,10 @@ def preview_wells(body: dict) -> Dict[str, WellPosition]:
 
 @router.put("/{filename}")
 def put_deck(filename: str, body: dict) -> DeckResponse:
-    path = resolve_config_path(get_settings().configs_dir, "deck", filename)
+    try:
+        path = resolve_config_path(get_settings().configs_dir, "deck", filename)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     payload = deepcopy(body)
     try:
         _validate_deck_payload(payload)
@@ -163,16 +175,6 @@ def _geometry_dimension(geometry: Any, name: str) -> Optional[float]:
     return getattr(geometry, name, None)
 
 
-_LABWARE_TYPE_MAP: Dict[str, str] = {
-    "WellPlate": "well_plate",
-    "Vial": "vial",
-    "TipRack": "tip_rack",
-    "WellPlateHolder": "well_plate_holder",
-    "VialHolder": "vial_holder",
-    "TipDisposal": "tip_disposal",
-}
-
-
 def _normalize_labware_config(raw_config: Any, labware: Any, deck_key: str) -> Dict[str, Any]:
     if not isinstance(raw_config, dict):
         log.warning("Labware %s has non-dict raw config (%r) — using empty config", deck_key, type(raw_config).__name__)
@@ -180,9 +182,7 @@ def _normalize_labware_config(raw_config: Any, labware: Any, deck_key: str) -> D
     else:
         config = deepcopy(raw_config)
 
-    inferred_type = config.get("type") or _infer_labware_type(labware, deck_key)
-    if inferred_type:
-        config["type"] = inferred_type
+    labware_type = config.get("type")
 
     if "name" not in config and hasattr(labware, "name"):
         config["name"] = getattr(labware, "name")
@@ -191,9 +191,9 @@ def _normalize_labware_config(raw_config: Any, labware: Any, deck_key: str) -> D
     if "name" not in config:
         config["name"] = deck_key
 
-    if inferred_type == "well_plate":
+    if labware_type == "well_plate":
         _normalize_well_plate_config(config, labware)
-    elif inferred_type == "vial":
+    elif labware_type == "vial":
         _normalize_vial_config(config, labware)
 
     return config
@@ -222,11 +222,3 @@ def _normalize_vial_config(config: Dict[str, Any], labware: Any) -> None:
 def _set_default(config: Dict[str, Any], key: str, value: Any) -> None:
     if config.get(key) is None and value is not None:
         config[key] = value
-
-
-def _infer_labware_type(labware: Any, deck_key: str) -> Optional[str]:
-    class_name = labware.__class__.__name__
-    labware_type = _LABWARE_TYPE_MAP.get(class_name)
-    if labware_type is None:
-        log.warning("Unknown labware class %r for key %s — type will not be inferred", class_name, deck_key)
-    return labware_type

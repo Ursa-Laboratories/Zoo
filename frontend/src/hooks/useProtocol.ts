@@ -30,6 +30,14 @@ export function useProtocol(filename: string | null) {
   });
 }
 
+export function useRunStatus() {
+  return useQuery({
+    queryKey: ["protocol", "run-status"],
+    queryFn: protocolApi.runStatus,
+    refetchInterval: 2000,
+  });
+}
+
 export function useSaveProtocol() {
   const qc = useQueryClient();
   return useMutation({

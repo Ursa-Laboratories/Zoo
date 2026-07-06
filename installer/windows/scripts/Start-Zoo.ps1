@@ -38,6 +38,7 @@ $PythonInstaller = Join-Path $InstallDir "installers\python-installer.exe"
 $InstallPythonScript = Join-Path $InstallDir "scripts\Install-Python.ps1"
 $InstallRuntimeScript = Join-Path $InstallDir "scripts\Install-Runtime.ps1"
 $RuntimeMarker = Join-Path $InstallDir "runtime-installed.txt"
+$DriverGroupsFile = Join-Path $InstallDir "driver-groups.txt"
 $ZooDir = Join-Path $InstallDir "app\Zoo"
 $CubOSConfigDir = Join-Path $InstallDir "app\CubOS\configs"
 $ConfigDir = if ($env:ZOO_CONFIG_DIR) { $env:ZOO_CONFIG_DIR } else { Join-Path $UserRoot "configs" }
@@ -53,13 +54,27 @@ function Invoke-LauncherScript {
     }
 
     Write-Log "> powershell.exe -NoProfile -ExecutionPolicy Bypass -File $ScriptPath $($Arguments -join ' ')"
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $ScriptPath @Arguments 2>&1 | ForEach-Object { $_.ToString() } | Tee-Object -FilePath $LogPath -Append
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $ScriptPath @Arguments 2>&1 | ForEach-Object { $_.ToString() } | Tee-Object -FilePath $LogPath -Append
+    }
+    finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "$ScriptPath failed with exit code $LASTEXITCODE"
     }
 }
 
 function Get-InstalledDriverGroups {
+    if (Test-Path $DriverGroupsFile) {
+        $FileValue = Get-Content -Path $DriverGroupsFile -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($FileValue -and $FileValue.Trim()) {
+            return $FileValue.Trim()
+        }
+    }
+
     if (-not (Test-Path $RuntimeMarker)) {
         return ""
     }

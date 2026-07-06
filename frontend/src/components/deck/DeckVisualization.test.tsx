@@ -110,6 +110,55 @@ describe("DeckVisualization", () => {
     expect(screen.getByText("Sample 1")).toBeInTheDocument();
   });
 
+  it("letterboxes unequal machine ranges and scales well radii from mm", () => {
+    const scaledDeck: DeckResponse = {
+      filename: "scaled.yaml",
+      labware: [
+        {
+          key: "single_plate",
+          config: {
+            type: "well_plate",
+            name: "Scaled Plate",
+            model_name: "single",
+            rows: 1,
+            columns: 1,
+            length: 10,
+            width: 10,
+            height: 5,
+            a1: null,
+            calibration: {
+              a1: { x: 0, y: 100, z: 10 },
+              a2: { x: 9, y: 100, z: 10 },
+            },
+            x_offset: 9,
+            y_offset: 9,
+            capacity_ul: 200,
+            working_volume_ul: 100,
+          },
+          wells: {
+            A1: { x: 0, y: 100, z: 10 },
+          },
+        },
+      ],
+    };
+
+    const { container } = render(
+      <DeckVisualization
+        deck={scaledDeck}
+        instruments={null}
+        gantryPosition={null}
+        machineXRange={[0, 100]}
+        machineYRange={[0, 200]}
+      />,
+    );
+
+    const well = container.querySelector("circle");
+    expect(well).not.toBeNull();
+    expect(Number(well?.getAttribute("cx"))).toBeCloseTo(222.27, 2);
+    expect(Number(well?.getAttribute("cy"))).toBeCloseTo(210, 2);
+    expect(Number(well?.getAttribute("r"))).toBeCloseTo(5.18, 2);
+  });
+
   it("keeps the coordinate scale fixed as the gantry moves", () => {
     render(
       <DeckVisualization
@@ -124,6 +173,7 @@ describe("DeckVisualization", () => {
           work_x: 490,
           work_y: 20,
           work_z: 0,
+          calibration_active: false,
         }}
         machineXRange={[0, 300]}
         machineYRange={[0, 400]}

@@ -6,7 +6,9 @@ import type {
   LabwareResponse,
   ProtocolStep,
   ProtocolConfig,
+  ProtocolResponse,
   ProtocolRunResponse,
+  InstrumentMeasurementMethods,
 } from "../../types";
 import { CoordinateField, NumberField, TextField, UnsavedNotice } from "./fields";
 import ImportFromFile from "./ImportFromFile";
@@ -15,11 +17,16 @@ interface Props {
   configs: string[];
   selectedFile: string | null;
   onSelectFile: (f: string) => void;
+  onImportFile: (f: string) => void;
   commands: CommandInfo[];
   deck: DeckResponse;
   gantry: GantryResponse;
+  instrumentMethods?: InstrumentMeasurementMethods;
   steps: ProtocolStep[] | null;
   positions?: Record<string, number[]> | null;
+  /** The last-saved (server-loaded) protocol, used to reset local edits
+   * when the user discards. */
+  baseline?: ProtocolResponse | null;
   onSave: (filename: string, body: ProtocolConfig) => Promise<void> | void;
   /** Called on every local edit so the parent can persist the working
    * copy across tab switches. */
@@ -36,6 +43,7 @@ interface Props {
    * not these in-memory edits. */
   unsavedConfigs: string[];
   canRun: boolean;
+  runDisabledReason?: string | null;
   isRunning: boolean;
   isCancelingRun: boolean;
   runResult: ProtocolRunResponse | null;
@@ -58,6 +66,7 @@ type ProtocolChoices = {
   plates: string[];
   positions: string[];
   instrumentTypes: Record<string, string>;
+  instrumentMethods: InstrumentMeasurementMethods;
 };
 
 type EditablePosition = {
@@ -95,21 +104,26 @@ export default function ProtocolEditor({
   configs,
   selectedFile,
   onSelectFile,
+  onImportFile,
   commands,
   deck,
   gantry,
+  instrumentMethods = {},
   steps: loadedSteps,
   positions,
+  baseline,
   onSave,
   onLocalChange,
   onPositionsChange,
   onValidate,
   validationErrors,
   isValidating,
+  onRefresh,
   onRun,
   onCancelRun,
   unsavedConfigs,
   canRun,
+  runDisabledReason,
   isRunning,
   isCancelingRun,
   runResult,
@@ -124,19 +138,22 @@ export default function ProtocolEditor({
   const [addCommand, setAddCommand] = useState(commands[0]?.name ?? "move");
   const [saveAs, setSaveAs] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const commandsByName = Object.fromEntries(commands.map((c) => [c.name, c]));
-  const choices = buildProtocolChoices(deck, gantry, positionRows);
+  const choices = buildProtocolChoices(deck, gantry, positionRows, instrumentMethods);
   const positionErrors = validatePositionRows(positionRows);
   const hasPositionErrors = positionErrors.length > 0;
 
   const commit = (next: ProtocolStep[]) => {
     setSteps(next);
+    setSaveError(null);
     onLocalChange?.(next);
   };
 
   const commitPositions = (next: EditablePosition[]) => {
     setPositionRows(next);
+    setSaveError(null);
     onPositionsChange?.(rowsToPositions(next));
   };
 
@@ -249,11 +266,20 @@ export default function ProtocolEditor({
       await Promise.resolve(onSave(normalized, buildConfig()));
       onSelectFile(normalized);
       setSaveAs("");
+      setSaveError(null);
     } catch (err) {
-      console.error("Protocol save failed:", err);
+      setSaveError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleDiscard = () => {
+    if (!window.confirm("Discard unsaved protocol changes?")) return;
+    setSteps(baseline?.steps ? structuredClone(baseline.steps) : []);
+    setPositionRows(positionsToRows(baseline?.positions));
+    setSaveError(null);
+    onRefresh();
   };
 
   const hasSteps = steps.length > 0;
@@ -265,11 +291,17 @@ export default function ProtocolEditor({
   const otherDirty = unsavedConfigs.filter((name) => name !== "Protocol");
   const canSave = hasSteps && (!!saveAs.trim() || !!selectedFile) && !saving && !hasPositionErrors;
   const runDisabled = isRunning || !hasSteps || !canRun || hasUnsaved;
+  const runButtonTitle = hasUnsaved ? "Save your changes before running" : runDisabledReason ?? undefined;
+  const runButtonLabel = isCancelingRun
+    ? "Cancelling — waiting for protocol to stop"
+    : isRunning
+      ? "Running..."
+      : "Run Protocol";
 
   return (
     <div>
       <div style={protocolPickerStyle}>
-        <ImportFromFile configs={configs} onSelectFile={onSelectFile} label="Import protocol config" />
+        <ImportFromFile configs={configs} onSelectFile={onImportFile} label="Import protocol config" />
       </div>
 
       {!hasSteps && (
@@ -429,10 +461,10 @@ export default function ProtocolEditor({
 
             {validationErrors &&
               validationErrors
-                .filter((e) => e.startsWith(`Step ${i}`))
+                .filter((e) => stepErrorPattern(i).test(e))
                 .map((e, j) => (
                   <p key={j} style={{ color: "#dc2626", fontSize: 11, margin: "4px 0 0" }}>
-                    {e}
+                    {displayStepError(e)}
                   </p>
                 ))}
           </div>
@@ -455,80 +487,88 @@ export default function ProtocolEditor({
         </button>
       </div>
 
-      {hasSteps && (
-        <div style={{ marginTop: 12 }}>
-          {hasUnsaved && (
-            <UnsavedNotice>
-              <strong>Unsaved changes.</strong>{" "}
-              {protocolDirty && "Save this protocol before running. "}
-              {otherDirty.length > 0 && (
-                `${otherDirty.join(" and ")} ${otherDirty.length > 1 ? "have" : "has"} unsaved edits — `
-                  + `save ${otherDirty.length > 1 ? "them in their tabs" : `it in the ${otherDirty[0]} tab`}. `
+      <div style={{ marginTop: 12 }}>
+        {hasUnsaved && (
+          <UnsavedNotice>
+            <strong>Unsaved changes.</strong>{" "}
+            {protocolDirty && "Save this protocol before running. "}
+            {otherDirty.length > 0 && (
+              `${otherDirty.join(" and ")} ${otherDirty.length > 1 ? "have" : "has"} unsaved edits — `
+                + `save ${otherDirty.length > 1 ? "them in their tabs" : `it in the ${otherDirty[0]} tab`}. `
+            )}
+            Run Protocol uses the saved files, not your edits.
+          </UnsavedNotice>
+        )}
+        {saveError && (
+          <div style={saveErrorStyle}>Save failed: {saveError}</div>
+        )}
+        <div style={protocolActionBarStyle}>
+          <input
+            value={saveAs}
+            onChange={(e) => setSaveAs(e.target.value)}
+            placeholder={selectedFile ?? "my_protocol.yaml"}
+            style={filenameInputStyle}
+          />
+          <div style={protocolButtonGroupStyle}>
+            <button onClick={handleValidate} disabled={isValidating || hasPositionErrors} style={validateBtnStyle}>
+              {isValidating ? "..." : "Validate"}
+            </button>
+            <button onClick={handleSave} disabled={!canSave} style={saveBtnStyle}>
+              Save
+              {protocolDirty && (
+                // aria-hidden so the accessible name stays "Save"; the
+                // amber asterisk is a sighted-only unsaved-edit cue.
+                <span aria-hidden="true" title="Unsaved changes" style={{ marginLeft: 4, fontWeight: 700, color: "#d97706" }}>*</span>
               )}
-              Run Protocol uses the saved files, not your edits.
-            </UnsavedNotice>
-          )}
-          <div style={protocolActionBarStyle}>
-            <input
-              value={saveAs}
-              onChange={(e) => setSaveAs(e.target.value)}
-              placeholder={selectedFile ?? "my_protocol.yaml"}
-              style={filenameInputStyle}
-            />
-            <div style={protocolButtonGroupStyle}>
-              <button onClick={handleValidate} disabled={isValidating || hasPositionErrors} style={validateBtnStyle}>
-                {isValidating ? "..." : "Validate"}
+            </button>
+            {protocolDirty && (
+              <button onClick={handleDiscard} style={discardBtnStyle}>Discard changes</button>
+            )}
+            {isRunning && (
+              <button
+                onClick={onCancelRun}
+                disabled={isCancelingRun}
+                style={isCancelingRun ? { ...cancelRunBtnStyle, opacity: 0.65, cursor: "not-allowed" } : cancelRunBtnStyle}
+              >
+                {isCancelingRun ? "Cancelling..." : "Cancel Run"}
               </button>
-              <button onClick={handleSave} disabled={!canSave} style={saveBtnStyle}>
-                Save
-                {protocolDirty && (
-                  // aria-hidden so the accessible name stays "Save"; the
-                  // amber asterisk is a sighted-only unsaved-edit cue.
-                  <span aria-hidden="true" title="Unsaved changes" style={{ marginLeft: 4, fontWeight: 700, color: "#d97706" }}>*</span>
-                )}
-              </button>
-              {isRunning && (
-                <button
-                  onClick={onCancelRun}
-                  disabled={isCancelingRun}
-                  style={isCancelingRun ? { ...cancelRunBtnStyle, opacity: 0.65, cursor: "not-allowed" } : cancelRunBtnStyle}
-                >
-                  {isCancelingRun ? "Cancelling..." : "Cancel Run"}
-                </button>
-              )}
-              {!isCancelingRun && (
-                <button
-                  onClick={onRun}
-                  disabled={runDisabled}
-                  title={hasUnsaved ? "Save your changes before running" : undefined}
-                  style={runDisabled ? { ...runBtnStyle, opacity: 0.5, cursor: "not-allowed" } : runBtnStyle}
-                >
-                  {isRunning ? "Running..." : "Run Protocol"}
-                </button>
-              )}
-            </div>
+            )}
+            <button
+              onClick={onRun}
+              disabled={runDisabled}
+              title={runButtonTitle}
+              style={runDisabled ? { ...runBtnStyle, opacity: 0.5, cursor: "not-allowed" } : runBtnStyle}
+            >
+              {runButtonLabel}
+            </button>
           </div>
-
-          {validationErrors !== null && validationErrors.length === 0 && (
-            <p style={{ color: "#059669", fontSize: 12, margin: "6px 0 0" }}>Protocol is valid.</p>
-          )}
-          {validationErrors !== null && validationErrors.length > 0 && (
-            <div style={{ color: "#dc2626", fontSize: 12, margin: "6px 0 0" }}>
-              {validationErrors.map((error, i) => (
-                <div key={i}>{error}</div>
-              ))}
-            </div>
-          )}
-          {runResult && (
-            <p style={{ color: "#059669", fontSize: 12, margin: "6px 0 0" }}>
-              Protocol complete — {runResult.steps_executed} steps executed; campaign #{runResult.campaign_id} created.
-            </p>
-          )}
-          {runError && (
-            <p style={{ color: "#dc2626", fontSize: 12, margin: "6px 0 0" }}>{runError}</p>
-          )}
         </div>
-      )}
+
+        {!hasSteps && (
+          <p style={hintTextStyle}>Add at least one step before saving.</p>
+        )}
+        {!canRun && runDisabledReason && (
+          <p style={{ color: "#b45309", fontSize: 12, margin: "6px 0 0" }}>{runDisabledReason}</p>
+        )}
+        {validationErrors !== null && validationErrors.length === 0 && (
+          <p style={{ color: "#059669", fontSize: 12, margin: "6px 0 0" }}>Protocol is valid.</p>
+        )}
+        {validationErrors !== null && validationErrors.length > 0 && (
+          <div style={{ color: "#dc2626", fontSize: 12, margin: "6px 0 0" }}>
+            {validationErrors.map((error, i) => (
+              <div key={i}>{displayStepError(error)}</div>
+            ))}
+          </div>
+        )}
+        {runResult && (
+          <p style={{ color: "#059669", fontSize: 12, margin: "6px 0 0" }}>
+            Protocol complete — {runResult.steps_executed} steps executed; campaign #{runResult.campaign_id} created.
+          </p>
+        )}
+        {runError && (
+          <p style={{ color: "#dc2626", fontSize: 12, margin: "6px 0 0" }}>{runError}</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -595,7 +635,12 @@ function finiteNumber(value: unknown): number {
   return Number.isFinite(numberValue) ? numberValue : 0;
 }
 
-function buildProtocolChoices(deck: DeckResponse, gantry: GantryResponse, protocolPositions: EditablePosition[]): ProtocolChoices {
+function buildProtocolChoices(
+  deck: DeckResponse,
+  gantry: GantryResponse,
+  protocolPositions: EditablePosition[],
+  instrumentMethods: InstrumentMeasurementMethods,
+): ProtocolChoices {
   const instruments = Object.keys(gantry.config.instruments);
   const instrumentTypes = Object.fromEntries(
     Object.entries(gantry.config.instruments).map(([name, instrument]) => [name, instrument.type]),
@@ -607,7 +652,7 @@ function buildProtocolChoices(deck: DeckResponse, gantry: GantryResponse, protoc
     ...deck.labware.flatMap(targetsForLabware),
     ...protocolPositions.map((position) => position.name.trim()),
   ]);
-  return { instruments, plates, positions, instrumentTypes };
+  return { instruments, plates, positions, instrumentTypes, instrumentMethods };
 }
 
 function targetsForLabware(item: LabwareResponse): string[] {
@@ -667,10 +712,20 @@ function includeCurrentOption(options: string[], current: unknown): string[] {
 
 function measurementMethodsForInstrument(instrument: string, choices: ProtocolChoices): string[] {
   const type = inferInstrumentType(instrument, choices);
+  const methods = choices.instrumentMethods[type] ?? [];
+  if (methods.length > 0) return methods;
   if (type === "asmi") return ["indentation", "measure"];
   if (["filmetrics", "uvvis_ccs", "uv_curing"].includes(type)) return ["measure"];
   if (type === "pipette") return [];
   return ["measure"];
+}
+
+function stepErrorPattern(stepIndex: number): RegExp {
+  return new RegExp(`^Step ${stepIndex}\\b`);
+}
+
+function displayStepError(error: string): string {
+  return error.replace(/^Step (\d+)/, (_match, rawIndex: string) => `Step ${Number(rawIndex) + 1}`);
 }
 
 function inferInstrumentType(instrument: string, choices: ProtocolChoices): string {
@@ -1095,4 +1150,32 @@ const cancelRunBtnStyle: React.CSSProperties = {
   fontSize: 13,
   fontWeight: 600,
   whiteSpace: "nowrap",
+};
+
+const saveErrorStyle: React.CSSProperties = {
+  marginBottom: 8,
+  padding: "6px 10px",
+  borderRadius: 4,
+  background: "#fef2f2",
+  border: "1px solid #fca5a5",
+  color: "#991b1b",
+  fontSize: 12,
+};
+
+const discardBtnStyle: React.CSSProperties = {
+  background: "transparent",
+  color: "#4b5563",
+  border: "1px solid #d1d5db",
+  padding: "6px 14px",
+  borderRadius: 4,
+  cursor: "pointer",
+  fontSize: 13,
+  fontWeight: 600,
+  whiteSpace: "nowrap",
+};
+
+const hintTextStyle: React.CSSProperties = {
+  marginTop: 6,
+  color: "#6b7280",
+  fontSize: 12,
 };

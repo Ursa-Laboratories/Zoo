@@ -1,5 +1,7 @@
 """`python -m zoo` entry point."""
 
+import logging
+import shutil
 import subprocess
 import sys
 import threading
@@ -13,15 +15,20 @@ from zoo.config import ZooSettings
 
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 FRONTEND_DIST = FRONTEND_DIR / "dist"
+log = logging.getLogger(__name__)
 
 
 def _build_frontend() -> None:
     if not FRONTEND_DIR.is_dir():
         print("Warning: frontend/ directory not found, skipping build.")
         return
+    npm = shutil.which("npm")
+    if npm is None:
+        log.warning("npm not found - frontend will not be served")
+        return
     print("Building frontend...")
     subprocess.run(
-        ["npm", "run", "build"],
+        [npm, "run", "build"],
         cwd=FRONTEND_DIR,
         check=True,
     )

@@ -9,6 +9,10 @@ interface Props {
   onSelectFile: (f: string) => void;
   onImportFile: (f: string) => void;
   deck: DeckResponse | null;
+  /** The last-saved (server-loaded) deck, used to reset local edits when
+   * the user discards. Differs from `deck` when the parent is passing a
+   * local working copy with unsaved edits. */
+  baseline?: DeckResponse | null;
   onSave: (filename: string, body: DeckConfig) => Promise<void> | void;
   onLocalChange: (deck: DeckResponse) => void;
   /** True when this deck has local edits not yet saved to disk. The
@@ -87,16 +91,18 @@ function labwareFromDeck(deck: DeckResponse | null): Record<string, LabwareConfi
   return obj;
 }
 
-export default function DeckEditor({ configs, selectedFile, onSelectFile, onImportFile, deck, onSave, onLocalChange, dirty }: Props) {
+export default function DeckEditor({ configs, selectedFile, onSelectFile, onImportFile, deck, baseline, onSave, onLocalChange, dirty, onRefresh }: Props) {
   const [labware, setLabware] = useState<Record<string, LabwareConfig>>(() => labwareFromDeck(deck));
   const [saveAs, setSaveAs] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     setLabware(labwareFromDeck(deck));
   }, [deck]);
 
   const syncViz = (next: Record<string, LabwareConfig>) => {
+    setSaveError(null);
     onLocalChange(buildDeckResponse(next, selectedFile ?? "unsaved", deck));
   };
 
@@ -114,8 +120,16 @@ export default function DeckEditor({ configs, selectedFile, onSelectFile, onImpo
   };
 
   const addLabware = (type: "well_plate" | "vial") => {
-    const idx = Object.keys(labware).length + 1;
-    const key = type === "well_plate" ? `wellplate_${idx}` : `vial_${idx}`;
+    // Find the next free index rather than always using
+    // `count + 1` — removing an earlier item and adding a new one could
+    // otherwise land on a key that's still in use (e.g. wellplate_2),
+    // silently replacing that labware's calibration with a blank template.
+    let idx = Object.keys(labware).length + 1;
+    let key = type === "well_plate" ? `wellplate_${idx}` : `vial_${idx}`;
+    while (labware[key]) {
+      idx += 1;
+      key = type === "well_plate" ? `wellplate_${idx}` : `vial_${idx}`;
+    }
     const template = type === "well_plate" ? structuredClone(EMPTY_WELL_PLATE) : structuredClone(EMPTY_VIAL);
     template.name = key; // Pre-fill with ID
     const next = { ...labware, [key]: template };
@@ -136,11 +150,19 @@ export default function DeckEditor({ configs, selectedFile, onSelectFile, onImpo
       await Promise.resolve(onSave(normalized, { labware }));
       onSelectFile(normalized);
       setSaveAs("");
+      setSaveError(null);
     } catch (err) {
-      console.error("Deck save failed:", err);
+      setSaveError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleDiscard = () => {
+    if (!window.confirm("Discard unsaved deck changes?")) return;
+    setLabware(labwareFromDeck(baseline ?? null));
+    setSaveError(null);
+    onRefresh();
   };
 
   return (
@@ -171,34 +193,41 @@ export default function DeckEditor({ configs, selectedFile, onSelectFile, onImpo
             </>
           ) : (
             <div style={unsupportedNoteStyle}>
-              <strong>{entry.type}</strong> — editing not supported. This entry will be passed through to CubOS unchanged on save.
+              <strong>{entry.type}</strong> — editing not supported. This entry will be passed through to CubOS unchanged on save; the visualization updates after saving.
             </div>
           )}
         </div>
       ))}
 
-      {hasItems && (
-        <div style={{ marginTop: 12 }}>
+      <div style={{ marginTop: 12 }}>
+        {dirty && (
+          <UnsavedNotice>
+            <strong>Unsaved changes.</strong>{" "}
+            Save this deck before running a protocol — runs use the saved file, not your edits.
+          </UnsavedNotice>
+        )}
+        {saveError && (
+          <div style={saveErrorStyle}>Save failed: {saveError}</div>
+        )}
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input
+            value={saveAs}
+            onChange={(e) => setSaveAs(e.target.value)}
+            placeholder={selectedFile ?? "my_deck.yaml"}
+            style={filenameInputStyle}
+          />
+          <SaveButton
+            disabled={!canSave}
+            onClick={handleSave}
+          />
           {dirty && (
-            <UnsavedNotice>
-              <strong>Unsaved changes.</strong>{" "}
-              Save this deck before running a protocol — runs use the saved file, not your edits.
-            </UnsavedNotice>
+            <button onClick={handleDiscard} style={discardBtnStyle}>Discard changes</button>
           )}
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input
-              value={saveAs}
-              onChange={(e) => setSaveAs(e.target.value)}
-              placeholder={selectedFile ?? "my_deck.yaml"}
-              style={filenameInputStyle}
-            />
-            <SaveButton
-              disabled={!canSave}
-              onClick={handleSave}
-            />
-          </div>
         </div>
-      )}
+        {!hasItems && (
+          <p style={hintTextStyle}>Add at least one well plate or vial before saving.</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -292,5 +321,32 @@ const unsupportedNoteStyle: React.CSSProperties = {
   background: "#fffbeb",
   border: "1px solid #fde68a",
   color: "#92400e",
+  fontSize: 12,
+};
+
+const saveErrorStyle: React.CSSProperties = {
+  marginBottom: 8,
+  padding: "6px 10px",
+  borderRadius: 4,
+  background: "#fef2f2",
+  border: "1px solid #fca5a5",
+  color: "#991b1b",
+  fontSize: 12,
+};
+
+const discardBtnStyle: React.CSSProperties = {
+  background: "transparent",
+  color: "#4b5563",
+  border: "1px solid #d1d5db",
+  padding: "6px 14px",
+  borderRadius: 4,
+  cursor: "pointer",
+  fontSize: 13,
+  fontWeight: 600,
+};
+
+const hintTextStyle: React.CSSProperties = {
+  marginTop: 6,
+  color: "#6b7280",
   fontSize: 12,
 };

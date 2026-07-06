@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import CalibrationWizard from "./CalibrationWizard";
@@ -44,8 +44,26 @@ function multiConfigWithCamera(): GantryConfig {
   return config;
 }
 
+function lowTravelMultiConfig(): GantryConfig {
+  const config = multiConfig();
+  config.cnc.factory_z_travel_mm = 80;
+  config.cnc.safe_z = 80;
+  config.working_volume.z_max = 80;
+  return config;
+}
+
 function position(): GantryPosition {
-  return { x: 0, y: 0, z: 20, work_x: 0, work_y: 0, work_z: 20, status: "Idle", connected: true };
+  return {
+    x: 0,
+    y: 0,
+    z: 20,
+    work_x: 0,
+    work_y: 0,
+    work_z: 20,
+    status: "Idle",
+    connected: true,
+    calibration_active: false,
+  };
 }
 
 function installFetch() {
@@ -170,5 +188,123 @@ describe("CalibrationWizard multi-instrument block height step", () => {
     await user.type(distance, "20");
 
     expect(recordButton).toBeEnabled();
+  });
+
+  it("retries a failed Z retract without re-zeroing in the shifted frame", async () => {
+    const user = userEvent.setup();
+    const onSaveCalibrated = vi.fn<(filename: string, config: GantryConfig) => Promise<void>>(async () => undefined);
+    let positionReadCount = 0;
+    let setWorkCoordinateCount = 0;
+    let retractFailuresRemaining = 1;
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (url.pathname === "/api/gantry/calibration/prepare-origin" && init?.method === "POST") {
+        return jsonResponse({ ...position(), z: 90, work_z: 90 });
+      }
+      if (url.pathname === "/api/gantry/calibration/home-and-center" && init?.method === "POST") {
+        return jsonResponse({
+          xy_bounds: { x: 400, y: 300, z: 90 },
+          position: { x: 200, y: 150, z: 90 },
+        });
+      }
+      if (url.pathname === "/api/gantry/position") {
+        positionReadCount++;
+        const z = positionReadCount === 1 ? 55 : 35;
+        return jsonResponse({ ...position(), z, work_z: z });
+      }
+      if (url.pathname === "/api/gantry/work-coordinates" && init?.method === "POST") {
+        setWorkCoordinateCount++;
+        return jsonResponse({ ...position(), z: body?.z ?? 35, work_z: body?.z ?? 35 });
+      }
+      if (url.pathname === "/api/gantry/jog-blocking" && init?.method === "POST") {
+        if (retractFailuresRemaining > 0) {
+          retractFailuresRemaining--;
+          return new Response("retract failed", { status: 500 });
+        }
+        return jsonResponse({ ...position(), z: 50, work_z: 50 });
+      }
+      if (url.pathname === "/api/gantry/home" && init?.method === "POST") {
+        return jsonResponse({ ...position(), x: 400, y: 300, z: 88, work_x: 400, work_y: 300, work_z: 88 });
+      }
+      if (url.pathname === "/api/gantry/soft-limits" && init?.method === "POST") {
+        return jsonResponse({ status: "ok" });
+      }
+      return jsonResponse(position());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <CalibrationWizard
+        open
+        onClose={() => undefined}
+        gantry={{ filename: "multi.yaml", config: lowTravelMultiConfig() }}
+        position={position()}
+        onSaveCalibrated={onSaveCalibrated}
+      />,
+    );
+
+    await advanceToBlockHeightStep(user);
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    const setZ = await screen.findByRole("button", { name: "Set Z reference with asmi and retract" });
+
+    await user.click(setZ);
+    expect(await screen.findByText("retract failed")).toBeInTheDocument();
+
+    await user.click(setZ);
+    expect(await screen.findByText("Record Instruments")).toBeInTheDocument();
+    expect(setWorkCoordinateCount).toBe(2);
+    const workCoordinateBodies = fetchMock.mock.calls.filter(([input]) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      return url.pathname === "/api/gantry/work-coordinates";
+    }).map(([, init]) => JSON.parse(String(init?.body)));
+    expect(workCoordinateBodies).toHaveLength(2);
+    expect(workCoordinateBodies.filter((body) => "z" in body)).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: "Record pipette and retract" }));
+    expect(await screen.findByText("Measure And Save")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onSaveCalibrated).toHaveBeenCalled());
+    const savedConfig = onSaveCalibrated.mock.calls[0][1] as GantryConfig;
+    expect(savedConfig.working_volume.z_min).toBe(0);
+    expect(savedConfig.working_volume.z_max).toBe(88);
+  });
+
+  it("keeps focus inside the modal and closes with Escape when idle", async () => {
+    const onClose = vi.fn();
+    installFetch();
+    render(
+      <>
+        <button type="button">Background Home</button>
+        <CalibrationWizard
+          open
+          onClose={onClose}
+          gantry={{ filename: "multi.yaml", config: multiConfig() }}
+          position={position()}
+          onSaveCalibrated={async () => undefined}
+        />
+      </>,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Gantry calibration" });
+    await waitFor(() => expect(dialog).toHaveFocus());
+
+    fireEvent.keyDown(dialog, { key: "Tab" });
+    expect(screen.getByRole("button", { name: "Reset wizard" })).toHaveFocus();
+
+    fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+    expect(screen.getByRole("button", { name: "Background Home" })).not.toHaveFocus();
+
+    fireEvent.keyDown(dialog, { key: "Escape" });
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 });

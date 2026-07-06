@@ -8,7 +8,7 @@ import DeckEditor from "./components/editor/DeckEditor";
 import GantryEditor from "./components/editor/GantryEditor";
 import ProtocolEditor from "./components/editor/ProtocolEditor";
 import DataOutputPanel from "./components/data/DataOutputPanel";
-import { settingsApi, deckApi, protocolApi } from "./api/client";
+import { settingsApi, deckApi, protocolApi, gantryApi } from "./api/client";
 import { useDeckConfigs, useDeck, useSaveDeck } from "./hooks/useDeck";
 import {
   useGantryPosition,
@@ -17,8 +17,9 @@ import {
   useSaveGantry,
   useInstrumentTypes,
   useInstrumentSchemas,
+  useInstrumentMethods,
 } from "./hooks/useGantryPosition";
-import { useProtocolCommands, useProtocolConfigs, useProtocol, useSaveProtocol, useValidateProtocolSetup } from "./hooks/useProtocol";
+import { useProtocolCommands, useProtocolConfigs, useProtocol, useSaveProtocol, useValidateProtocolSetup, useRunStatus } from "./hooks/useProtocol";
 import { useExperimentData } from "./hooks/useExperimentData";
 import type {
   DeckResponse,
@@ -40,6 +41,15 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function errorHasStatus(error: unknown, status: number): boolean {
+  return (
+    typeof error === "object"
+    && error !== null
+    && "status" in error
+    && (error as { status?: unknown }).status === status
+  );
+}
+
 const WORKING_DECK_FILENAME = "panda-deck.yaml";
 
 export default function App() {
@@ -58,7 +68,6 @@ export default function App() {
   const [isRunning, setIsRunning] = useState(false);
   const [isCancelingRun, setIsCancelingRun] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
-  const runAbortControllerRef = useRef<AbortController | null>(null);
 
   // Load the local config directory on mount.
   React.useEffect(() => {
@@ -72,8 +81,25 @@ export default function App() {
     try {
       const browseResult = await settingsApi.browse();
       const selectedPath = configDirFromSettings(browseResult);
+      if (
+        selectedPath !== configDir
+        && !confirmDiscard(
+          unsavedConfigs.length > 0,
+          "Discard unsaved config changes and switch config directory?",
+        )
+      ) {
+        return;
+      }
       const savedSettings = await settingsApi.update(selectedPath);
-      setConfigDir(configDirFromSettings(savedSettings));
+      const nextConfigDir = configDirFromSettings(savedSettings);
+      setConfigDir(nextConfigDir);
+      if (nextConfigDir !== configDir) {
+        setDeckFile(null);
+        setGantryFile(null);
+        setProtocolFile(null);
+        setValidationResult(null);
+        setImportError(null);
+      }
       refreshAll();
     } catch (err) {
       // Distinguish cancellation (no selected path) from a real API failure.
@@ -92,15 +118,19 @@ export default function App() {
   const gantryConfigs = useGantryConfigs();
   const gantryQuery = useGantry(gantryFile);
   const saveGantry = useSaveGantry();
-  const gantryPosition = useGantryPosition(!isRunning);
   const instrumentTypes = useInstrumentTypes();
   const instrumentSchemas = useInstrumentSchemas();
+  const instrumentMethods = useInstrumentMethods();
 
   const protocolCommands = useProtocolCommands();
   const protocolConfigs = useProtocolConfigs();
   const protocolQuery = useProtocol(protocolFile);
   const saveProtocol = useSaveProtocol();
   const validateProtocolSetup = useValidateProtocolSetup();
+  const runStatus = useRunStatus();
+  const serverRunActive = runStatus.data?.active ?? false;
+  const protocolRunActive = isRunning || serverRunActive;
+  const gantryPosition = useGantryPosition(true);
   const experimentData = useExperimentData();
 
   // Local working copies of each editor's edits, kept in App state so
@@ -129,14 +159,14 @@ export default function App() {
       const result: Record<string, Record<string, WellPosition>> = {};
       for (const item of localDeck.labware) {
         if (item.config.type === "well_plate") {
-          try {
-            result[item.key] = await deckApi.previewWells(item.config);
-          } catch (err) {
-            // 400 = config still incomplete during editing — expected, skip silently.
-            const is400 = err instanceof Error && err.message.includes("400");
-            if (!is400) {
-              console.error("Unexpected well preview error for", item.key, err);
-            }
+	          try {
+	            result[item.key] = await deckApi.previewWells(item.config);
+	          } catch (err) {
+	            // 400 = config still incomplete during editing — expected, skip silently.
+	            const is400 = errorHasStatus(err, 400);
+	            if (!is400) {
+	              console.error("Unexpected well preview error for", item.key, err);
+	            }
           }
         }
       }
@@ -164,23 +194,33 @@ export default function App() {
   React.useEffect(() => {
     setLocalProtocolSteps(null);
     setLocalProtocolPositions(undefined);
+    setValidationResult(null);
+    setRunResult(null);
+    setRunError(null);
   }, [protocolFile]);
 
-  const displayDeck = useMemo(() => {
-    const base = localDeck ?? deckQuery.data ?? null;
-    if (!base) return null;
-    // Merge server-computed or preview wells into each labware item.
-    return {
-      ...base,
-      labware: base.labware.map((item) => ({
-        ...item,
-        wells: item.wells ?? previewWells[item.key] ?? null,
-      })),
-    };
-  }, [localDeck, deckQuery.data, previewWells]);
+  React.useEffect(() => {
+    if (!protocolRunActive) {
+      setIsCancelingRun(false);
+    }
+  }, [protocolRunActive]);
+
+	  const displayDeck = useMemo(() => {
+	    const base = localDeck ?? deckQuery.data ?? null;
+	    if (!base) return null;
+	    // Merge server-computed or preview wells into each labware item.
+	    return {
+	      ...base,
+	      labware: base.labware.map((item) => ({
+	        ...item,
+	        wells: localDeck ? previewWells[item.key] ?? item.wells ?? null : item.wells ?? previewWells[item.key] ?? null,
+	      })),
+	    };
+	  }, [localDeck, deckQuery.data, previewWells]);
 
   const displayGantry = localGantry ?? gantryQuery.data ?? null;
   const gantryConnected = gantryPosition.data?.connected ?? false;
+  const calibrationWarning = gantryPosition.data?.calibration_warning ?? null;
   const workingVolume: WorkingVolume | null = displayGantry?.config.working_volume ?? null;
   const yAxisMotion = displayGantry?.config.cnc?.y_axis_motion ?? "head";
   const machineXRange: [number, number] = workingVolume
@@ -217,7 +257,40 @@ export default function App() {
     setDeckImportedFrom(null);
   };
 
+  // Warn before the tab/window closes while any editor has unsaved edits —
+  // Run Protocol already blocks on this in-app, but a hard reload/close
+  // would otherwise silently drop the edits with no confirmation at all.
+  React.useEffect(() => {
+    if (unsavedConfigs.length === 0) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [unsavedConfigs.length]);
+
+  // Guard for switching away from a dirty editor via its file picker: only
+  // prompts when that specific tab actually has unsaved edits, so normal
+  // (non-dirty) selection and the editors' own post-save onSelectFile
+  // bookkeeping calls are never intercepted.
+  const confirmDiscard = (dirty: boolean, message: string): boolean => !dirty || window.confirm(message);
+
+  const handleImportGantry = (filename: string) => {
+    if (!confirmDiscard(gantryDirty, "Discard unsaved gantry changes?")) return;
+    setGantryFile(filename);
+  };
+
+  const handleImportProtocol = (filename: string) => {
+    if (!confirmDiscard(protocolDirty, "Discard unsaved protocol changes?")) return;
+    setProtocolFile(filename);
+  };
+
   const handleImportDeck = async (filename: string) => {
+    if (!confirmDiscard(
+      deckDirty,
+      `Discard unsaved deck changes and overwrite ${WORKING_DECK_FILENAME} with "${filename}"?`,
+    )) return;
     setImportError(null);
     try {
       const importedDeck = await deckApi.get(filename);
@@ -253,45 +326,40 @@ export default function App() {
       setRunError("Connect gantry before running a protocol.");
       return;
     }
+    if (calibrationWarning) {
+      setRunResult(null);
+      setRunError(calibrationWarning);
+      return;
+    }
     setIsRunning(true);
     setIsCancelingRun(false);
     setRunResult(null);
     setRunError(null);
-    const abortController = new AbortController();
-    runAbortControllerRef.current = abortController;
+    qc.setQueryData(["protocol", "run-status"], { active: true, protocol_file: protocolFile });
     try {
       const result = await protocolApi.run({
         gantry_file: gantryFile,
         deck_file: deckFile,
         protocol_file: protocolFile,
-      }, {
-        signal: abortController.signal,
       });
       setRunResult(result);
       qc.invalidateQueries({ queryKey: ["data", "campaigns"] });
     } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        setRunError("Protocol cancellation requested.");
-      } else {
-        setRunError(err instanceof Error ? err.message : String(err));
-      }
+      setRunError(err instanceof Error ? err.message : String(err));
     } finally {
-      if (runAbortControllerRef.current === abortController) {
-        runAbortControllerRef.current = null;
-      }
       setIsRunning(false);
       setIsCancelingRun(false);
+      qc.invalidateQueries({ queryKey: ["protocol", "run-status"] });
     }
   };
 
   const handleCancelRun = async () => {
-    if (!isRunning || isCancelingRun) return;
+    if (!protocolRunActive || isCancelingRun) return;
     setIsCancelingRun(true);
     setRunError(null);
     try {
-      await protocolApi.cancelRun();
-      runAbortControllerRef.current?.abort();
-      setRunError("Protocol cancellation requested.");
+      const result = await protocolApi.cancelRun();
+      setRunError(result.warning ? `Protocol cancellation requested: ${result.warning}` : "Protocol cancellation requested.");
     } catch (err: unknown) {
       setRunError(`Cancel failed: ${err instanceof Error ? err.message : String(err)}`);
       setIsCancelingRun(false);
@@ -333,6 +401,24 @@ export default function App() {
           </div>
         </label>
       </div>
+      {protocolRunActive && (
+        <div style={runStatusBannerStyle} role="status">
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <span>● Protocol running…</span>
+            {runError && (
+              <span style={runStatusWarningStyle}>{runError}</span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handleCancelRun}
+            disabled={isCancelingRun}
+            style={isCancelingRun ? { ...sidebarCancelButtonStyle, opacity: 0.65, cursor: "not-allowed" } : sidebarCancelButtonStyle}
+          >
+            {isCancelingRun ? "Cancelling..." : "Cancel"}
+          </button>
+        </div>
+      )}
       <div style={viewToggleStyle} aria-label="Workspace view">
         {(["Workflow", "Results"] as const).map((view) => (
           <button
@@ -393,6 +479,7 @@ export default function App() {
             onSelectFile={setDeckFile}
             onImportFile={handleImportDeck}
             deck={localDeck ?? deckQuery.data ?? null}
+            baseline={deckQuery.data ?? null}
             dirty={deckDirty}
             onSave={async (filename, body) => {
               await saveDeck.mutateAsync({ filename, body });
@@ -413,6 +500,7 @@ export default function App() {
             configs={gantryConfigs.data ?? []}
             selectedFile={gantryFile}
             onSelectFile={setGantryFile}
+            onImportFile={handleImportGantry}
             gantry={localGantry ?? gantryQuery.data ?? null}
             baseline={gantryQuery.data ?? null}
             instrumentTypes={instrumentTypes.data ?? []}
@@ -437,23 +525,39 @@ export default function App() {
             configs={protocolConfigs.data ?? []}
             selectedFile={protocolFile}
             onSelectFile={setProtocolFile}
+            onImportFile={handleImportProtocol}
             commands={protocolCommands.data ?? []}
             deck={(displayDeck ?? deckQuery.data)!}
             gantry={(displayGantry ?? gantryQuery.data)!}
+            instrumentMethods={instrumentMethods.data ?? {}}
             steps={localProtocolSteps ?? protocolQuery.data?.steps ?? null}
             positions={localProtocolPositions !== undefined ? localProtocolPositions : protocolQuery.data?.positions ?? null}
+            baseline={protocolQuery.data ?? null}
             onSave={async (filename, body) => {
               await saveProtocol.mutateAsync({ filename, body });
               setLocalProtocolSteps(null);
               setLocalProtocolPositions(undefined);
             }}
-            onLocalChange={setLocalProtocolSteps}
-            onPositionsChange={setLocalProtocolPositions}
+            onLocalChange={(steps) => {
+              setLocalProtocolSteps(steps);
+              setValidationResult(null);
+            }}
+            onPositionsChange={(positions) => {
+              setLocalProtocolPositions(positions);
+              setValidationResult(null);
+            }}
             onValidate={() => {
               if (!gantryFile || !deckFile || !protocolFile) {
                 setValidationResult({
                   valid: false,
                   errors: ["Select gantry, deck, and protocol files before setup validation."],
+                });
+                return;
+              }
+              if (unsavedConfigs.length > 0) {
+                setValidationResult({
+                  valid: false,
+                  errors: ["Save your changes first — Validate checks the saved files."],
                 });
                 return;
               }
@@ -463,6 +567,10 @@ export default function App() {
                 protocol_file: protocolFile,
               }, {
                 onSuccess: (res) => setValidationResult(res),
+                onError: (err) => setValidationResult({
+                  valid: false,
+                  errors: [String(err instanceof Error ? err.message : err)],
+                }),
               });
             }}
             validationErrors={validationResult?.errors ?? null}
@@ -471,8 +579,9 @@ export default function App() {
             onRun={handleRunProtocol}
             onCancelRun={handleCancelRun}
             unsavedConfigs={unsavedConfigs}
-            canRun={gantryConnected}
-            isRunning={isRunning}
+            canRun={gantryConnected && !calibrationWarning}
+            runDisabledReason={calibrationWarning}
+            isRunning={protocolRunActive}
             isCancelingRun={isCancelingRun}
             runResult={runResult}
             runError={runError}
@@ -514,10 +623,16 @@ export default function App() {
       workingVolume={workingVolume}
       gantryFile={displayGantry ? gantryFile : null}
       gantry={displayGantry}
+      isRunning={protocolRunActive}
       onSaveCalibrated={async (filename, body) => {
+        const previousGantryFile = gantryFile;
         const saved = await saveGantry.mutateAsync({ filename, body });
         setGantryFile(saved.filename);
         setLocalGantry(null);
+        if (previousGantryFile && saved.filename !== previousGantryFile) {
+          await gantryApi.disconnect();
+          await gantryApi.connect(saved.filename);
+        }
       }}
     />
   );
@@ -553,6 +668,38 @@ const browseButtonStyle: React.CSSProperties = {
   cursor: "pointer",
   fontSize: 12,
   whiteSpace: "nowrap",
+};
+
+const runStatusBannerStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 8,
+  marginBottom: 12,
+  padding: "8px 10px",
+  borderRadius: 4,
+  border: "1px solid #fbbf24",
+  background: "#fffbeb",
+  color: "#92400e",
+  fontSize: 12,
+  fontWeight: 600,
+};
+
+const sidebarCancelButtonStyle: React.CSSProperties = {
+  border: "1px solid #b45309",
+  background: "#fff7ed",
+  color: "#92400e",
+  borderRadius: 4,
+  padding: "4px 8px",
+  fontSize: 12,
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+};
+
+const runStatusWarningStyle: React.CSSProperties = {
+  color: "#991b1b",
+  fontWeight: 500,
+  lineHeight: 1.35,
 };
 
 const viewToggleStyle: React.CSSProperties = {

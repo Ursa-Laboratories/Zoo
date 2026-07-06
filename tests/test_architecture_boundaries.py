@@ -10,10 +10,21 @@ ROUTERS_ROOT = PROJECT_ROOT / "zoo" / "routers"
 
 
 def test_zoo_routers_do_not_own_gantry_session_primitives() -> None:
+    # NOTE: `threading.Lock` is deliberately allowed in gantry.py as of the
+    # backend session-safety hardening pass. It guards two Zoo-level,
+    # session-*lifecycle* concerns — not CubOS business/motion logic:
+    #   1. `_session_create_lock` serializes `_get_or_create_session()` so two
+    #      concurrent `/connect` calls can't each create a session and leak an
+    #      open serial port.
+    #   2. `_run_state_lock` guards the run-in-progress gate (`begin_run` /
+    #      `end_run` / `run_active`) that rejects motion requests with 409
+    #      while a protocol run holds CubOS's own session lock, instead of
+    #      letting them queue and fire as surprise motion after the run ends.
+    # Neither lock wraps calls into CubOS's `Gantry`/`GantrySession` internals
+    # (`_gantry`, `_serial_lock`, etc.), which remain forbidden below.
     forbidden = (
         "from gantry import Gantry",
         "from gantry.gantry import Gantry",
-        "threading.Lock",
         "_gantry:",
         "_gantry =",
         "._gantry",

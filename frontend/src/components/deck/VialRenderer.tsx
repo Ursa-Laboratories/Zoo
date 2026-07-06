@@ -1,5 +1,5 @@
 import type { VialConfig } from "../../types";
-import { machineToSvg } from "../../utils/coordinates";
+import { machineToSvg, mmToSvgPixels } from "../../utils/coordinates";
 
 interface Props {
   label: string;
@@ -26,7 +26,7 @@ export default function VialRenderer({
     machineXRange,
     machineYRange
   );
-  const r = Math.max(6, config.diameter * 0.5);
+  const r = Math.max(2, mmToSvgPixels(config.diameter * 0.5, svgWidth, svgHeight, machineXRange, machineYRange));
 
   return (
     <g>
@@ -41,4 +41,3 @@ export default function VialRenderer({
     </g>
   );
 }
-

@@ -15,6 +15,7 @@ interface Props {
   configs: string[];
   selectedFile: string | null;
   onSelectFile: (f: string) => void;
+  onImportFile: (f: string) => void;
   gantry: GantryResponse | null;
   /** The server-loaded config; used to decide which fields show the
    * amber "*" dirty marker. Differs from ``gantry`` when the parent
@@ -88,6 +89,7 @@ export default function GantryEditor({
   configs,
   selectedFile,
   onSelectFile,
+  onImportFile,
   gantry,
   baseline,
   instrumentTypes,
@@ -95,6 +97,7 @@ export default function GantryEditor({
   onSave,
   onLocalChange,
   dirty,
+  onRefresh,
 }: Props) {
   const [config, setConfig] = useState<GantryConfig | null>(() => (
     gantry ? structuredClone(gantry.config) : null
@@ -102,6 +105,7 @@ export default function GantryEditor({
   const [addType, setAddType] = useState<string>("");
   const [saveAs, setSaveAs] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   // GRBL lives under a collapsed "Advanced settings" panel. Start it
   // open only when GRBL already has unsaved edits (e.g. coming back to
   // this tab) so hidden changes are never silently buried.
@@ -113,6 +117,7 @@ export default function GantryEditor({
 
   const commit = (next: GantryConfig) => {
     setConfig(next);
+    setSaveError(null);
     onLocalChange?.({ filename: selectedFile ?? "unsaved", config: next });
   };
 
@@ -209,17 +214,25 @@ export default function GantryEditor({
       await Promise.resolve(onSave(normalized, config));
       onSelectFile(normalized);
       setSaveAs("");
+      setSaveError(null);
     } catch (err) {
-      console.error("Gantry save failed:", err);
+      setSaveError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
   };
 
+  const handleDiscard = () => {
+    if (!window.confirm("Discard unsaved gantry changes?")) return;
+    setConfig(baseline ? structuredClone(baseline.config) : null);
+    setSaveError(null);
+    onRefresh();
+  };
+
   return (
     <div>
       <div style={configPickerRowStyle}>
-        <ImportFromFile configs={configs} onSelectFile={onSelectFile} label="Import gantry config" />
+        <ImportFromFile configs={configs} onSelectFile={onImportFile} label="Import gantry config" />
         {!config && <button onClick={startNew} style={newConfigBtnStyle}>+ New config</button>}
       </div>
 
@@ -338,10 +351,7 @@ export default function GantryEditor({
                           : nextVendors[0] ?? inst.vendor;
                         updateInstrument(
                           key,
-                          applyInstrumentFieldDefaults(
-                            { ...inst, type: v, vendor: nextVendor },
-                            instrumentSchemas,
-                          ),
+                          rebuildInstrumentForType(inst, v, nextVendor, instrumentSchemas),
                         );
                       }}
                       dirty={isInstrumentFieldDirty(baseline, key, "type", inst.type)}
@@ -500,6 +510,9 @@ export default function GantryEditor({
               </UnsavedNotice>
             </div>
           )}
+          {saveError && (
+            <div style={saveErrorStyle}>Save failed: {saveError}</div>
+          )}
 
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12 }}>
             <input
@@ -509,6 +522,9 @@ export default function GantryEditor({
               style={filenameInputStyle}
             />
             <SaveButton onClick={handleSave} disabled={!canSave} />
+            {dirty && (
+              <button onClick={handleDiscard} style={discardBtnStyle}>Discard changes</button>
+            )}
           </div>
         </>
       )}
@@ -563,6 +579,31 @@ function fieldsForInstrument(
   vendor: string,
 ) {
   return instrumentSchemas[type]?.[vendor] ?? [];
+}
+
+// On a type change, stale fields from the old type's schema must not leak into
+// the saved YAML: keep core keys, carry over only values whose field names the
+// new type/vendor schema declares, then fill schema defaults.
+function rebuildInstrumentForType(
+  inst: InstrumentConfig,
+  type: string,
+  vendor: string,
+  instrumentSchemas: InstrumentSchemas,
+): InstrumentConfig {
+  const next: InstrumentConfig = {
+    type,
+    vendor,
+    offset_x: inst.offset_x,
+    offset_y: inst.offset_y,
+  };
+  if (inst.depth !== undefined) next.depth = inst.depth;
+  for (const field of fieldsForInstrument(instrumentSchemas, type, vendor)) {
+    const prev = (inst as Record<string, unknown>)[field.name];
+    if (prev !== undefined) {
+      (next as Record<string, unknown>)[field.name] = prev;
+    }
+  }
+  return applyInstrumentFieldDefaults(next, instrumentSchemas);
 }
 
 function applyInstrumentFieldDefaults(
@@ -791,4 +832,25 @@ const filenameInputStyle: React.CSSProperties = {
   borderRadius: 4,
   fontSize: 13,
   flex: 1,
+};
+
+const saveErrorStyle: React.CSSProperties = {
+  marginTop: 12,
+  padding: "6px 10px",
+  borderRadius: 4,
+  background: "#fef2f2",
+  border: "1px solid #fca5a5",
+  color: "#991b1b",
+  fontSize: 12,
+};
+
+const discardBtnStyle: React.CSSProperties = {
+  background: "transparent",
+  color: "#4b5563",
+  border: "1px solid #d1d5db",
+  padding: "6px 14px",
+  borderRadius: 4,
+  cursor: "pointer",
+  fontSize: 13,
+  fontWeight: 600,
 };

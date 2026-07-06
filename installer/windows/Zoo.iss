@@ -30,7 +30,7 @@ UninstallDisplayName=Zoo
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
-Name: "drivers\asmi"; Description: "ASMI Go Direct driver support (public godirect package, selected by default)"; GroupDescription: "Optional public hardware drivers:"
+Name: "asmi"; Description: "ASMI Go Direct driver support (public godirect package, selected by default)"; GroupDescription: "Optional public hardware drivers:"
 
 [Dirs]
 Name: "{localappdata}\UrsaLabs\Zoo\configs"
@@ -57,10 +57,16 @@ Name: "{group}\Export Diagnostics"; Filename: "powershell.exe"; Parameters: "-No
 Name: "{group}\Uninstall Zoo"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Zoo"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\Start-Zoo.ps1"" -InstallDir ""{app}"""; WorkingDir: "{app}"; Tasks: desktopicon
 
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}\venv"
+Type: filesandordirs; Name: "{app}\Python"
+Type: files; Name: "{app}\runtime-installed.txt"
+Type: files; Name: "{app}\driver-groups.txt"
+
 [Code]
 function GetDriverGroups(Param: String): String;
 begin
   Result := '';
-  if WizardIsTaskSelected('drivers\asmi') then
+  if WizardIsTaskSelected('asmi') then
     Result := 'asmi';
 end;

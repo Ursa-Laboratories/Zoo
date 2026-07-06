@@ -7,7 +7,7 @@ import type {
   InstrumentConfig,
   LabwareResponse,
 } from "../../types";
-import { SVG_PADDING } from "../../utils/coordinates";
+import { getSvgViewport, machineToSvg, SVG_PADDING } from "../../utils/coordinates";
 import GantryMarker from "./GantryMarker";
 import HolderRenderer from "./HolderRenderer";
 import InstrumentRenderer from "./InstrumentRenderer";
@@ -46,22 +46,23 @@ function CoordinateGrid({
   machineXRange: [number, number];
   machineYRange: [number, number];
 }) {
-  const drawW = svgWidth - 2 * SVG_PADDING;
-  const drawH = svgHeight - 2 * SVG_PADDING;
-  const xSpan = machineXRange[1] - machineXRange[0];
-  const ySpan = machineYRange[1] - machineYRange[0];
+  const viewport = getSvgViewport(svgWidth, svgHeight, machineXRange, machineYRange);
+  const xLeft = viewport.originX;
+  const xRight = viewport.originX + viewport.width;
+  const yTop = viewport.originY;
+  const yBottom = viewport.originY + viewport.height;
   const step = 50;
 
   const lines: React.ReactElement[] = [];
   const xStart = Math.ceil(machineXRange[0] / step) * step;
   const xEnd = Math.floor(machineXRange[1] / step) * step;
   for (let tick = xStart; tick <= xEnd; tick += step) {
-    const x = SVG_PADDING + ((tick - machineXRange[0]) / xSpan) * drawW;
+    const { sx: x } = machineToSvg(tick, machineYRange[0], svgWidth, svgHeight, machineXRange, machineYRange);
     lines.push(
-      <line key={`vx${tick}`} x1={x} y1={SVG_PADDING} x2={x} y2={SVG_PADDING + drawH} stroke="#e0e0e0" strokeWidth={0.5} />
+      <line key={`vx${tick}`} x1={x} y1={yTop} x2={x} y2={yBottom} stroke="#e0e0e0" strokeWidth={0.5} />
     );
     lines.push(
-      <text key={`lx${tick}`} x={x} y={SVG_PADDING + drawH + 14} fill="#999" fontSize={9} textAnchor="middle">
+      <text key={`lx${tick}`} x={x} y={yBottom + 14} fill="#999" fontSize={9} textAnchor="middle">
         {tick}
       </text>
     );
@@ -69,12 +70,12 @@ function CoordinateGrid({
   const yStart = Math.ceil(machineYRange[0] / step) * step;
   const yEnd = Math.floor(machineYRange[1] / step) * step;
   for (let tick = yStart; tick <= yEnd; tick += step) {
-    const y = SVG_PADDING + drawH - ((tick - machineYRange[0]) / ySpan) * drawH;
+    const { sy: y } = machineToSvg(machineXRange[0], tick, svgWidth, svgHeight, machineXRange, machineYRange);
     lines.push(
-      <line key={`vy${tick}`} x1={SVG_PADDING} y1={y} x2={SVG_PADDING + drawW} y2={y} stroke="#e0e0e0" strokeWidth={0.5} />
+      <line key={`vy${tick}`} x1={xLeft} y1={y} x2={xRight} y2={y} stroke="#e0e0e0" strokeWidth={0.5} />
     );
     lines.push(
-      <text key={`ly${tick}`} x={SVG_PADDING - 4} y={y + 3} fill="#999" fontSize={9} textAnchor="end">
+      <text key={`ly${tick}`} x={xLeft - 4} y={y + 3} fill="#999" fontSize={9} textAnchor="end">
         {tick}
       </text>
     );
@@ -102,9 +103,8 @@ export default function DeckVisualization({
   let deckTranslateY = 0;
   if (isBedMode && gantryPosition?.connected) {
     const gantryY = gantryPosition.work_y ?? gantryPosition.y ?? 0;
-    const drawH = SVG_H - 2 * SVG_PADDING;
-    const ySpan = visualYRange[1] - visualYRange[0];
-    deckTranslateY = -(gantryY / ySpan) * drawH;
+    const viewport = getSvgViewport(SVG_W, SVG_H, visualXRange, visualYRange);
+    deckTranslateY = -gantryY * viewport.scale;
   }
 
   // In bed mode, the gantry marker only moves in X (Y is fixed at 0).

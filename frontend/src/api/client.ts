@@ -4,6 +4,31 @@ export type SettingsResponse = {
   config_dir: string;
 };
 
+class ApiError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+function errorMessageFromResponse(statusText: string, text: string): string {
+  if (text) {
+    try {
+      const parsed = JSON.parse(text) as { detail?: unknown };
+      if (typeof parsed.detail === "string") {
+        return parsed.detail;
+      }
+    } catch {
+      // Fall back to the raw body below.
+    }
+    return text;
+  }
+  return statusText || "Request failed";
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -11,7 +36,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`${res.status}: ${text}`);
+    throw new ApiError(res.status, errorMessageFromResponse(res.statusText, text));
   }
   return res.json();
 }
@@ -20,7 +45,7 @@ async function download(path: string): Promise<Blob> {
   const res = await fetch(`${BASE}${path}`);
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`${res.status}: ${text}`);
+    throw new ApiError(res.status, errorMessageFromResponse(res.statusText, text));
   }
   return res.blob();
 }
@@ -51,6 +76,8 @@ export const gantryApi = {
     request<import("../types").PipetteModelInfo[]>("/gantry/pipette-models"),
   getInstrumentSchemas: () =>
     request<import("../types").InstrumentSchemas>("/gantry/instrument-schemas"),
+  getInstrumentMethods: () =>
+    request<import("../types").InstrumentMeasurementMethods>("/gantry/instrument-methods"),
   get: (filename: string) =>
     request<import("../types").GantryResponse>(`/gantry/${filename}`),
   put: (filename: string, body: import("../types").GantryConfig) =>
@@ -216,9 +243,11 @@ export const protocolApi = {
       signal: init?.signal,
     }),
   cancelRun: () =>
-    request<{ status: string }>("/protocol/cancel", {
+    request<{ status: string; warning?: string }>("/protocol/cancel", {
       method: "POST",
     }),
+  runStatus: () =>
+    request<import("../types").ProtocolRunStatus>("/protocol/run-status"),
 };
 
 // Settings
@@ -241,15 +270,6 @@ export const dataApi = {
     request<import("../types").CampaignSummary[]>("/data/campaigns"),
   exportCampaignMeasurementsZip: (campaignId: number) =>
     download(`/data/campaigns/${campaignId}/measurements.zip`),
-};
-
-// Raw YAML
-export const rawApi = {
-  get: (filename: string) =>
-    request<{ content: string }>(`/raw/${filename}`),
-  put: (filename: string, content: string) =>
-    request<{ content: string }>(`/raw/${filename}`, {
-      method: "PUT",
-      body: JSON.stringify({ content }),
-    }),
+  exportCampaignAsmiZip: (campaignId: number) =>
+    download(`/data/campaigns/${campaignId}/asmi.zip`),
 };

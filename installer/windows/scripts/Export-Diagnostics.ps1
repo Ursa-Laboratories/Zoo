@@ -6,6 +6,8 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 2.0
 
 $Python = Join-Path $InstallDir "Python\python.exe"
+$RuntimePython = Join-Path $InstallDir "venv\Scripts\python.exe"
+$RuntimeMarker = Join-Path $InstallDir "runtime-installed.txt"
 $UserRoot = Join-Path $env:LOCALAPPDATA "UrsaLabs\Zoo"
 $ConfigDir = if ($env:ZOO_CONFIG_DIR) { $env:ZOO_CONFIG_DIR } else { Join-Path $UserRoot "configs" }
 $LogDir = Join-Path $UserRoot "logs"
@@ -37,16 +39,27 @@ $RuntimeReport = Join-Path $WorkDir "runtime.txt"
 "ConfigDir: $ConfigDir" | Add-Content -Path $RuntimeReport
 "LogDir: $LogDir" | Add-Content -Path $RuntimeReport
 
-if (Test-Path $Python) {
+if (Test-Path $RuntimeMarker) {
+    "`nruntime-installed.txt" | Add-Content -Path $RuntimeReport
+    Get-Content -Path $RuntimeMarker -ErrorAction SilentlyContinue | Add-Content -Path $RuntimeReport
+}
+
+$DiagnosticsPython = $RuntimePython
+if (-not (Test-Path $RuntimePython)) {
+    "`nRuntime virtual environment python not found at $RuntimePython; falling back to $Python" | Add-Content -Path $RuntimeReport
+    $DiagnosticsPython = $Python
+}
+
+if (Test-Path $DiagnosticsPython) {
     "`npython --version" | Add-Content -Path $RuntimeReport
-    (& $Python --version 2>&1) | Add-Content -Path $RuntimeReport
+    (& $DiagnosticsPython --version 2>&1) | Add-Content -Path $RuntimeReport
     "`npip freeze" | Add-Content -Path $RuntimeReport
-    (& $Python -m pip freeze 2>&1) | Add-Content -Path $RuntimeReport
+    (& $DiagnosticsPython -m pip freeze 2>&1) | Add-Content -Path $RuntimeReport
     "`nimport check" | Add-Content -Path $RuntimeReport
-    (& $Python -c "import sys, zoo, gantry, deck, protocol_engine; print(sys.executable); print(zoo.__file__); print(gantry.__file__)" 2>&1) | Add-Content -Path $RuntimeReport
+    (& $DiagnosticsPython -c "import sys, zoo, gantry, deck, protocol_engine; print(sys.executable); print(zoo.__file__); print(gantry.__file__)" 2>&1) | Add-Content -Path $RuntimeReport
 }
 else {
-    "Python runtime not found at $Python" | Add-Content -Path $RuntimeReport
+    "Python runtime not found at $DiagnosticsPython" | Add-Content -Path $RuntimeReport
 }
 
 if (Test-Path $OutputZip) {

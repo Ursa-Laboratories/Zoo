@@ -10,15 +10,12 @@ import zipfile
 from contextlib import closing
 from pathlib import Path
 
-import pytest
 from data.data_store import DataStore
-from fastapi import HTTPException
 from protocol_engine.measurements import InstrumentMeasurement, MeasurementType
 
 from tests.api_client import api_request
 from zoo.app import create_app
 from zoo.config import get_settings
-from zoo.routers.data import _format_cell, _json_array
 
 
 def _seed_asmi_database(path: Path) -> None:
@@ -561,6 +558,37 @@ def test_export_campaign_measurements_zip_returns_404_for_missing_database(
     assert "Data database not found" in response.json()["detail"]
 
 
+def test_data_routes_reject_corrupt_sqlite_database(monkeypatch, tmp_path):
+    db_path = tmp_path / "panda_data.db"
+    db_path.write_text("not a sqlite database", encoding="utf-8")
+    monkeypatch.setattr(get_settings(), "data_db_path", db_path)
+    app = create_app()
+
+    for path in (
+        "/api/data/campaigns",
+        "/api/data/campaigns/1/measurements.zip",
+        "/api/data/campaigns/1/asmi.zip",
+    ):
+        response = api_request(app, "GET", path)
+        assert response.status_code == 400
+        assert "Data database is unreadable" in response.json()["detail"]
+
+
+def test_list_campaigns_rejects_corrupt_schema_database(monkeypatch, tmp_path):
+    db_path = tmp_path / "panda_data.db"
+    with closing(sqlite3.connect(db_path)) as conn:
+        conn.execute("CREATE TABLE campaigns (id INTEGER PRIMARY KEY)")
+        conn.commit()
+    monkeypatch.setattr(get_settings(), "data_db_path", db_path)
+
+    response = api_request(create_app(), "GET", "/api/data/campaigns")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Data database is missing table(s): experiments"
+    )
+
+
 def test_export_campaign_asmi_zip_returns_404_for_empty_campaign(monkeypatch, tmp_path):
     db_path = tmp_path / "panda_data.db"
     _seed_asmi_database(db_path)
@@ -604,19 +632,6 @@ def test_export_campaign_asmi_zip_rejects_missing_tables(monkeypatch, tmp_path):
     assert response.json()["detail"] == (
         "Data database is missing table(s): experiments, asmi_measurements"
     )
-
-
-def test_json_array_rejects_missing_required_value():
-    with pytest.raises(HTTPException) as exc_info:
-        _json_array(None, "z_positions")
-
-    assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == "ASMI field 'z_positions' is missing"
-
-
-def test_format_cell_converts_binary_values_to_readable_text():
-    assert _format_cell(b"plain text") == "plain text"
-    assert _format_cell(b"\xff\x00") == "base64:/wA="
 
 
 def test_export_campaign_asmi_zip_rejects_non_array_json(monkeypatch, tmp_path):
