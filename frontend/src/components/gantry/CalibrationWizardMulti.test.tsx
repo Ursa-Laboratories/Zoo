@@ -158,7 +158,7 @@ describe("CalibrationWizard multi-instrument block height step", () => {
     await user.clear(blockHeight);
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
-    expect(await screen.findByText(/Enter a calibration block height/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Enter a calibration reference height/i)).toBeInTheDocument();
     expect(screen.queryByText("Set Z Reference")).not.toBeInTheDocument();
   });
 

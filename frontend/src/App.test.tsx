@@ -600,7 +600,7 @@ describe("Zoo editor interactions", () => {
 
     await user.click(screen.getByRole("button", { name: "Home gantry" }));
 
-    const blockHeight = await screen.findByLabelText("Block height (mm)");
+    const blockHeight = await screen.findByLabelText("Reference height (mm)");
     expect(blockHeight).toHaveValue("35");
     expect(blockHeight).toBeEnabled();
     await user.clear(blockHeight);
@@ -665,11 +665,11 @@ describe("Zoo editor interactions", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await user.click(screen.getByRole("button", { name: "Home gantry" }));
 
-    const blockHeight = await screen.findByLabelText("Block height (mm)");
+    const blockHeight = await screen.findByLabelText("Reference height (mm)");
     await user.clear(blockHeight);
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
-    expect(await screen.findByText("Enter a calibration block height before continuing.")).toBeInTheDocument();
+    expect(await screen.findByText("Enter a calibration reference height before continuing.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Set origin and continue" })).not.toBeInTheDocument();
   });
 
@@ -684,12 +684,12 @@ describe("Zoo editor interactions", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await user.click(screen.getByRole("button", { name: "Home gantry" }));
 
-    const blockHeight = await screen.findByLabelText("Block height (mm)");
+    const blockHeight = await screen.findByLabelText("Reference height (mm)");
     await user.clear(blockHeight);
     await user.type(blockHeight, "0");
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
-    expect(await screen.findByText("Calibration block height must be greater than 0.")).toBeInTheDocument();
+    expect(await screen.findByText("Calibration reference height must be greater than 0.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Set origin and continue" })).not.toBeInTheDocument();
   });
 

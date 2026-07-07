@@ -461,7 +461,7 @@ export default function CalibrationWizard({
     const result = await gantryApi.prepareCalibrationOrigin();
     const homed = requirePosition(result);
     setCalibrationHome(homed);
-    setStatusNote(isMulti ? formatCaptured("Homed and ready to set origin", homed) : "Homed. Enter the calibration block height.");
+    setStatusNote(isMulti ? formatCaptured("Homed and ready to set origin", homed) : "Homed. Enter the calibration reference height.");
     setStep(2);
   });
 
@@ -868,13 +868,13 @@ export default function CalibrationWizard({
 
             {!isMulti && step === 2 && (
               <div>
-                <h3 style={sectionTitleStyle}>Calibration Block Height</h3>
+                <h3 style={sectionTitleStyle}>Calibration Reference Height</h3>
                 <p style={instructionStyle}>
-                  Enter the height of the calibration block you are using.
+                  Enter the height of your calibration reference above the deck — the calibration block height, or the height of the surface you will touch (for example the top of a well plate, measured from the deck).
                 </p>
                 <div style={fieldRowStyle}>
                   <label style={fieldStyle}>
-                    <span style={labelStyle}>Block height (mm)</span>
+                    <span style={labelStyle}>Reference height (mm)</span>
                     <input
                       value={blockHeight}
                       onChange={(event) => setBlockHeight(event.target.value)}
@@ -885,7 +885,7 @@ export default function CalibrationWizard({
                   </label>
                 </div>
                 <div style={actionRowStyle}>
-                  <button onClick={() => continueFromBlockHeight("Move to the calibration block.", 3)} disabled={controlsLocked} style={buttonStateStyle(primaryButtonStyle, controlsLocked)}>Continue</button>
+                  <button onClick={() => continueFromBlockHeight("Move to the calibration reference.", 3)} disabled={controlsLocked} style={buttonStateStyle(primaryButtonStyle, controlsLocked)}>Continue</button>
                 </div>
               </div>
             )}
@@ -894,7 +894,7 @@ export default function CalibrationWizard({
               <div>
                 <h3 style={sectionTitleStyle}>Set Origin</h3>
                 <p style={instructionStyle}>
-                  Place the calibration block at the front-left deck corner. Jog the tool until it just touches the top of the block, then continue.
+                  Place your calibration reference at the front-left-most point your protocols will use — the calibration block at the deck corner, or a fixed feature such as the corner-most well of a plate. Jog the tool until it just touches the top of the reference surface, then continue.
                 </p>
                 <JogPanel
                   xyStep={xyStep}
@@ -914,7 +914,7 @@ export default function CalibrationWizard({
                   zBelowMin={zBelowMin}
                 />
                 <div style={{ ...summaryGridStyle, marginTop: 14 }}>
-                  <Readout label="Block height" value={`${parseBlockHeight(blockHeight).toFixed(3)} mm`} />
+                  <Readout label="Reference height" value={`${parseBlockHeight(blockHeight).toFixed(3)} mm`} />
                 </div>
                 <div style={actionRowStyle}>
                   <button onClick={setSingleInstrumentOrigin} disabled={controlsLocked || !connected} style={buttonStateStyle(primaryButtonStyle, controlsLocked || !connected)}>Set origin and continue</button>
@@ -956,7 +956,7 @@ export default function CalibrationWizard({
               <div>
                 <h3 style={sectionTitleStyle}>Calibration Block Height</h3>
                 <p style={instructionStyle}>
-                  Enter the height of the calibration block you are using. This sets the Z reference and the saved calibration block height.
+                  Enter the height of the calibration block you are using (or any rigid, flat-topped reference every instrument can reach). This sets the Z reference and the saved calibration block height.
                 </p>
                 <div style={fieldRowStyle}>
                   <label style={fieldStyle}>
@@ -1319,11 +1319,11 @@ function parsePositiveStep(value: string): number | null {
 
 function parseBlockHeight(value: string): number {
   if (!value.trim()) {
-    throw new Error("Enter a calibration block height before continuing.");
+    throw new Error("Enter a calibration reference height before continuing.");
   }
   const height = Number(value);
   if (!Number.isFinite(height) || height <= 0) {
-    throw new Error("Calibration block height must be greater than 0.");
+    throw new Error("Calibration reference height must be greater than 0.");
   }
   return roundMm(height);
 }
@@ -1439,7 +1439,7 @@ function allInstrumentPositionsReady(
 function stepLabels(isMulti: boolean): string[] {
   return isMulti
     ? ["Prepare", "Home", "XY origin", "Block height", "Z reference", "Instruments", "Save"]
-    : ["Prepare", "Home", "Block height", "Set origin", "Save"];
+    : ["Prepare", "Home", "Reference height", "Set origin", "Save"];
 }
 
 const overlayStyle: React.CSSProperties = {

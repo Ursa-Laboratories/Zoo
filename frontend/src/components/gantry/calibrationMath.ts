@@ -84,7 +84,7 @@ export function calculateSingleInstrumentZCalibration({
     }
   }
   if (blockHeight <= 0) {
-    throw new Error("Calibration block height must be positive.");
+    throw new Error("Calibration reference height must be positive.");
   }
   if (factoryZTravel <= 0) {
     throw new Error("Factory Z travel must be positive.");
