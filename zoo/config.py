@@ -65,6 +65,9 @@ class ZooSettings(BaseSettings):
     # Production should leave this empty; tests add "testserver" (the Host
     # header httpx's ASGI transport sends) via zoo/tests conftest fixtures.
     trusted_hosts: List[str] = Field(default_factory=list)
+    # Where /api/protocol/run-bundle stages per-run YAML bundles + results.
+    # Defaults to a `bundle_runs` directory next to the active config dir.
+    bundle_run_dir: Path | None = None
 
     def __init__(self, **data):
         if "config_dir" not in data:
@@ -75,6 +78,13 @@ class ZooSettings(BaseSettings):
     @property
     def configs_dir(self) -> Path:
         return self.ensure_config_dir()
+
+    @property
+    def bundle_runs_dir(self) -> Path:
+        base = self.bundle_run_dir or self.configs_dir.parent / "bundle_runs"
+        base = base.expanduser().resolve()
+        base.mkdir(parents=True, exist_ok=True)
+        return base
 
     def ensure_config_dir(self) -> Path:
         path = self.config_dir.expanduser().resolve()

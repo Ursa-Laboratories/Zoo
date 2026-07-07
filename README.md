@@ -149,6 +149,19 @@ methods.
 The older `/api/protocol/validate` endpoint remains a command-schema check
 only; use the UI Validate action for full setup validation.
 
+### Sending YAML bundles from another machine
+
+`POST /api/protocol/run-bundle` accepts the PiCub_protocol_sender station
+contract: `run_id` plus inline `gantry_config`, `deck_config`, and
+`protocol_yaml` text (optional `mock_mode`, `metadata`). The bundle is staged
+under a per-run directory (`bundle_runs/<run_id>/` next to the active config
+dir, override with `ZOO_BUNDLE_RUN_DIR`) — never the shared config library —
+executed, and the result JSON is stored alongside the inputs. Real runs go
+through the persistent gantry session exactly like `/run` and share its
+one-run-at-a-time gate (409 when busy); `mock_mode` executes on CubOS offline
+drivers with no hardware. `GET /api/protocol/bundle-runs/{run_id}` returns the
+stored inputs/result/error for audit and replay.
+
 ## Results
 
 The Results view reads stored output through CubOS data export helpers from the
