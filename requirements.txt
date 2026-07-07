@@ -25,6 +25,7 @@ pyserial==3.5
 pytest==9.0.2
 python-dotenv==1.2.1
 PyYAML==6.0.3
+ruamel.yaml>=0.19.1
 starlette==0.52.1
 typing-inspection==0.4.2
 typing_extensions==4.15.0

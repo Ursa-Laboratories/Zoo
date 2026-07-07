@@ -469,7 +469,7 @@ describe("GantryPositionWidget manual move safety", () => {
     ]);
   });
 
-  it("uses preset step buttons for jog distances", async () => {
+  it("uses typed jog distances", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>(
       async () => jsonResponse({ status: "ok" }),
@@ -486,11 +486,13 @@ describe("GantryPositionWidget manual move safety", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Set XY step to 1 mm" }));
+    await user.clear(screen.getByLabelText("XY mm"));
+    await user.type(screen.getByLabelText("XY mm"), "1");
     fireEvent.mouseDown(screen.getByTitle("X+"));
     fireEvent.mouseUp(screen.getByTitle("X+"));
 
-    await user.click(screen.getByRole("button", { name: "Set Z step to 10 mm" }));
+    await user.clear(screen.getByLabelText("Z mm"));
+    await user.type(screen.getByLabelText("Z mm"), "10");
     fireEvent.mouseDown(screen.getByTitle("Z+"));
     fireEvent.mouseUp(screen.getByTitle("Z+"));
 

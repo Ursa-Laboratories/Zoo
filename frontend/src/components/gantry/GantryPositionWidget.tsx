@@ -564,7 +564,6 @@ export default function GantryPositionWidget({
                 onChange={(e) => setStepXY(e.target.value)}
                 style={{ ...inputStyle, width: 48, fontSize: 11, padding: "2px 4px", borderColor: parsedXYStep == null || xyBelowMin ? "#dc2626" : "#ccc" }}
               />
-              <StepPresetButtons onSelect={setStepXY} axisLabel="XY" />
             </label>
             <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
               <span style={{ color: "#888" }}>Z mm</span>
@@ -575,7 +574,6 @@ export default function GantryPositionWidget({
                 onChange={(e) => setStepZ(e.target.value)}
                 style={{ ...inputStyle, width: 48, fontSize: 11, padding: "2px 4px", borderColor: parsedZStep == null || zBelowMin ? "#dc2626" : "#ccc" }}
               />
-              <StepPresetButtons onSelect={setStepZ} axisLabel="Z" />
             </label>
             {(stepInvalid || xyBelowMin || zBelowMin) && (
               <span style={{ color: "#dc2626", fontSize: 10, alignSelf: "center" }}>
@@ -781,30 +779,6 @@ export default function GantryPositionWidget({
         onSaveCalibrated={handleSaveCalibrated}
       />
     </div>
-  );
-}
-
-function StepPresetButtons({
-  axisLabel,
-  onSelect,
-}: {
-  axisLabel: string;
-  onSelect: (value: string) => void;
-}) {
-  return (
-    <span style={stepPresetGroupStyle}>
-      {["0.1", "1", "10"].map((preset) => (
-        <button
-          key={preset}
-          type="button"
-          onClick={() => onSelect(preset)}
-          aria-label={`Set ${axisLabel} step to ${preset} mm`}
-          style={stepPresetButtonStyle}
-        >
-          {preset}
-        </button>
-      ))}
-    </span>
   );
 }
 
@@ -1075,22 +1049,6 @@ const calibrationBannerButtonStyle: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 700,
   marginLeft: "auto",
-};
-
-const stepPresetGroupStyle: React.CSSProperties = {
-  display: "inline-flex",
-  gap: 2,
-};
-
-const stepPresetButtonStyle: React.CSSProperties = {
-  border: "1px solid #d1d5db",
-  background: "#fff",
-  color: "#374151",
-  borderRadius: 3,
-  cursor: "pointer",
-  padding: "2px 4px",
-  fontSize: 10,
-  lineHeight: 1.2,
 };
 
 const settingsTableStyle: React.CSSProperties = {

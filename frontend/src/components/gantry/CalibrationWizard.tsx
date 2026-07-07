@@ -1202,7 +1202,6 @@ function JogPanel({
             inputMode="decimal"
             style={buttonStateStyle({ ...smallInputStyle, borderColor: xyStepInvalid || xyBelowMin ? "#dc2626" : undefined }, disabled || alarmed)}
           />
-          <StepPresetButtons axisLabel="XY" onSelect={setXyStep} disabled={disabled || alarmed} />
         </label>
         <label style={stepFieldStyle}>
           <span style={labelStyle}>Z mm</span>
@@ -1213,7 +1212,6 @@ function JogPanel({
             inputMode="decimal"
             style={buttonStateStyle({ ...smallInputStyle, borderColor: zStepInvalid || zBelowMin ? "#dc2626" : undefined }, disabled || alarmed)}
           />
-          <StepPresetButtons axisLabel="Z" onSelect={setZStep} disabled={disabled || alarmed} />
         </label>
         {(stepInvalid || xyBelowMin || zBelowMin) && (
           <div style={stepHintStyle}>
@@ -1222,33 +1220,6 @@ function JogPanel({
         )}
       </div>
     </div>
-  );
-}
-
-function StepPresetButtons({
-  axisLabel,
-  disabled,
-  onSelect,
-}: {
-  axisLabel: string;
-  disabled: boolean;
-  onSelect: (value: string) => void;
-}) {
-  return (
-    <span style={stepPresetGroupStyle}>
-      {["0.1", "1", "10"].map((preset) => (
-        <button
-          key={preset}
-          type="button"
-          disabled={disabled}
-          onClick={() => onSelect(preset)}
-          aria-label={`Set ${axisLabel} step to ${preset} mm`}
-          style={buttonStateStyle(stepPresetButtonStyle, disabled)}
-        >
-          {preset}
-        </button>
-      ))}
-    </span>
   );
 }
 
@@ -1777,22 +1748,6 @@ const stepFieldStyle: React.CSSProperties = {
 const stepHintStyle: React.CSSProperties = {
   color: "#b91c1c",
   fontSize: 11,
-};
-
-const stepPresetGroupStyle: React.CSSProperties = {
-  display: "inline-flex",
-  gap: 2,
-};
-
-const stepPresetButtonStyle: React.CSSProperties = {
-  border: "1px solid #cbd5e1",
-  background: "#fff",
-  color: "#334155",
-  borderRadius: 3,
-  cursor: "pointer",
-  padding: "3px 5px",
-  fontSize: 10,
-  lineHeight: 1.2,
 };
 
 const instrumentListStyle: React.CSSProperties = {
