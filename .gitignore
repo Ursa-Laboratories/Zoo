@@ -6,6 +6,7 @@ dist/
 node_modules/
 frontend/dist/
 installer/windows/build/
+installer/macos/build/
 .omx/
 .pi/
 .env

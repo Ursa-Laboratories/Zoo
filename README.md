@@ -187,6 +187,24 @@ Inno Setup 6:
 powershell -ExecutionPolicy Bypass -File .\installer\windows\build-installer.ps1
 ```
 
+## macOS Operator DMG
+
+The macOS DMG builder lives in `installer/macos/`. It clones Zoo `main` and
+CubOS `main`, builds the frontend, prepares an offline wheelhouse, embeds a
+private CPython runtime in `Zoo.app`, and emits a DMG. On first launch, the app
+creates or repairs a private venv under
+`~/Library/Application Support/UrsaLabs/Zoo/runtime`, seeds configs, starts Zoo
+on `127.0.0.1:8742`, and opens the browser. ASMI support is selected by default
+and installs the public `godirect` package; proprietary driver packages are not
+bundled.
+
+Build it on a macOS packaging machine with Git, Python 3, Node.js, Xcode
+command line tools, and internet access:
+
+```bash
+installer/macos/build-dmg.sh --zoo-source-dir "$PWD"
+```
+
 ## Repository Map
 
 | Path | Purpose |
