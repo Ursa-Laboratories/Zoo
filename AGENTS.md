@@ -1,3 +1,5 @@
+> Org-wide baseline: [`AGENTS.org.md`](./AGENTS.org.md) — this file takes precedence where they overlap.
+
 # Zoo Agent Guide
 
 Zoo is a thin UI layer over CubOS.
