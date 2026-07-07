@@ -7,6 +7,7 @@ so any new @protocol_command in CubOS is automatically available.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
@@ -38,6 +39,7 @@ from zoo.models.protocol import (
     ProtocolStepConfig,
     ProtocolValidationResponse,
 )
+from zoo.services.bundle_runs import BundleRunDir, run_bundle_mock, to_jsonable
 from zoo.services.yaml_io import list_configs, read_yaml, resolve_config_path, write_yaml
 
 router = APIRouter(prefix="/api/protocol", tags=["protocol"])
@@ -307,4 +309,141 @@ def run_protocol_endpoint(body: RunProtocolRequest) -> dict:
         "status": result.status,
         "steps_executed": result.steps_executed,
         "campaign_id": result.campaign_id,
+    }
+
+
+class RunBundleRequest(BaseModel):
+    run_id: str
+    gantry_config: str
+    deck_config: str
+    protocol_yaml: str
+    mock_mode: bool = False
+    metadata: Dict[str, Any] | None = None
+
+
+@router.post("/run-bundle")
+def run_bundle_endpoint(body: RunBundleRequest) -> dict:
+    """Execute a client-supplied gantry/deck/protocol YAML bundle.
+
+    Port of the PiCub_protocol_sender station-worker ``/run-protocol``
+    contract: the YAML texts are staged under a per-run directory (never the
+    shared config library), executed, and the result JSON is stored alongside
+    the inputs for replay/audit. Real runs go through the persistent gantry
+    session exactly like ``/run``; ``mock_mode`` executes on CubOS offline
+    drivers with no hardware.
+    """
+    from zoo.routers import gantry as gantry_router
+
+    settings = get_settings()
+    if not (
+        body.run_id.strip()
+        and body.gantry_config.strip()
+        and body.deck_config.strip()
+        and body.protocol_yaml.strip()
+    ):
+        raise HTTPException(
+            400, "run-bundle requires run_id, gantry_config, deck_config, protocol_yaml"
+        )
+
+    try:
+        run_dir = BundleRunDir(settings.bundle_runs_dir, body.run_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    gantry_router.begin_run(protocol_file=f"bundle:{run_dir.name}")
+    started = time.time()
+    try:
+        digests = run_dir.write_inputs(
+            gantry_yaml=body.gantry_config,
+            deck_yaml=body.deck_config,
+            protocol_yaml=body.protocol_yaml,
+        )
+        run_dir.write_meta(
+            {
+                "run_id": body.run_id,
+                "sanitized_run_id": run_dir.name,
+                "mock_mode": body.mock_mode,
+                "started_at": started,
+                "metadata": body.metadata or {},
+                **digests,
+            }
+        )
+        try:
+            if body.mock_mode:
+                results = run_bundle_mock(
+                    gantry_path=run_dir.gantry_path,
+                    deck_path=run_dir.deck_path,
+                    protocol_path=run_dir.protocol_path,
+                )
+                status = "ok"
+                steps_executed = len(results)
+                campaign_id = None
+            else:
+                result = gantry_router.run_protocol_on_session(
+                    gantry_path=str(run_dir.gantry_path),
+                    deck_path=str(run_dir.deck_path),
+                    protocol_path=str(run_dir.protocol_path),
+                    gantry_file=f"bundle:{run_dir.name}/gantry.yaml",
+                    deck_file=f"bundle:{run_dir.name}/deck.yaml",
+                    protocol_file=f"bundle:{run_dir.name}/protocol.yaml",
+                    db_path=settings.data_db_path,
+                )
+                results = result.results
+                status = result.status
+                steps_executed = result.steps_executed
+                campaign_id = result.campaign_id
+        except HTTPException:
+            raise
+        except (GantryNotConnectedError, GantrySessionHealthCheckError) as exc:
+            raise HTTPException(400, "Gantry is not connected") from exc
+        except CalibrationBlockedError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except (SetupValidationError, ValidationError, ValueError) as exc:
+            raise HTTPException(400, f"{type(exc).__name__}: {exc}") from exc
+        except GantrySessionError as exc:
+            raise HTTPException(500, f"Execution failed: {exc}") from exc
+        except Exception as exc:
+            logging.exception("Bundle run %s failed", run_dir.name)
+            raise HTTPException(
+                500, f"Execution failed: {type(exc).__name__}: {exc}"
+            ) from exc
+    except HTTPException as exc:
+        run_dir.write_error(f"{exc.status_code}: {exc.detail}")
+        raise
+    finally:
+        gantry_router.end_run()
+
+    payload = {
+        "status": status,
+        "run_id": body.run_id,
+        "steps_executed": steps_executed,
+        "campaign_id": campaign_id,
+        "mock_mode": body.mock_mode,
+        "results": to_jsonable(results),
+        "protocol_sha256": digests["protocol_sha256"],
+        "artifacts": {"run_dir": str(run_dir.dir)},
+        "started_at": started,
+        "finished_at": time.time(),
+    }
+    run_dir.write_result(payload)
+    return payload
+
+
+@router.get("/bundle-runs/{run_id}")
+def get_bundle_run(run_id: str) -> dict:
+    """Return the stored inputs/result of a past bundle run for audit/replay."""
+    settings = get_settings()
+    try:
+        run_dir = BundleRunDir(settings.bundle_runs_dir, run_id, create=False)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if not run_dir.exists:
+        raise HTTPException(404, f"No such bundle run: {run_id}")
+    return {
+        "run_id": run_id,
+        "run_dir": str(run_dir.dir),
+        "meta": run_dir.read_meta(),
+        "result": run_dir.read_result(),
+        "error": run_dir.read_error(),
+        "protocol_yaml": run_dir.read_protocol(),
     }
