@@ -407,13 +407,14 @@ def test_export_campaign_measurements_zip_includes_all_cubos_measurement_tables(
             "intensities",
             "integration_time_s",
             "timestamp",
+            "experiment_labware_key",
             "experiment_labware_name",
             "experiment_well_id",
             "experiment_contents",
             "experiment_created_at",
         ]
         assert uvvis_rows[1][2:5] == ["[400.0, 500.0]", "[0.1, 0.2]", "0.24"]
-        assert uvvis_rows[1][6:8] == ["plate", "A1"]
+        assert uvvis_rows[1][6:9] == ["plate", "plate", "A1"]
 
         potentiostat_rows = list(csv.reader(io.StringIO(
             archive.read("measurements/potentiostat_measurements.csv").decode()
@@ -434,7 +435,13 @@ def test_export_campaign_measurements_zip_includes_all_cubos_measurement_tables(
             archive.read("experiments.csv").decode()
         )))
         assert experiments_rows[0] == [
-            "id", "campaign_id", "labware_name", "well_id", "contents", "created_at",
+            "id",
+            "campaign_id",
+            "labware_key",
+            "labware_name",
+            "well_id",
+            "contents",
+            "created_at",
         ]
         assert len(experiments_rows) == 7
 

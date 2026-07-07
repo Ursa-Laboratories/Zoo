@@ -14,7 +14,8 @@ hidapi==0.15.0
 idna==3.11
 iniconfig==2.3.0
 packaging==26.0
-cubos @ git+https://github.com/Ursa-Laboratories/CubOS.git@main
+# TODO: repin to a tagged release once new-docs merges.
+cubos @ git+https://github.com/Ursa-Laboratories/CubOS.git@new-docs
 pluggy==1.6.0
 pydantic==2.12.5
 pydantic-settings==2.13.0
