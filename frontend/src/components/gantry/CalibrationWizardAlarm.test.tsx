@@ -60,6 +60,7 @@ function position(status = "Idle"): GantryPosition {
     work_z: 20,
     status,
     connected: true,
+    calibration_active: false,
   };
 }
 
@@ -204,6 +205,70 @@ describe("CalibrationWizard alarm recovery", () => {
     await waitFor(() => expect(screen.queryByText("GANTRY ALARM")).not.toBeInTheDocument());
     expect(await screen.findByText(/Recovered from limit switch after 1 attempt/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Z-" })).not.toBeDisabled();
+  });
+
+  it("does not auto-recover a poll alarm during a blocking action with a stale jog delta", async () => {
+    const user = userEvent.setup();
+    const restore = deferredResponse();
+    let recoverCallCount = 0;
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        "http://localhost",
+      );
+      if (url.pathname === "/api/gantry/calibration/prepare-origin" && init?.method === "POST") {
+        return jsonResponse(position());
+      }
+      if (url.pathname === "/api/gantry/jog" && init?.method === "POST") {
+        return jsonResponse({ status: "ok" });
+      }
+      if (url.pathname === "/api/gantry/position") {
+        return jsonResponse(position());
+      }
+      if (url.pathname === "/api/gantry/work-coordinates" && init?.method === "POST") {
+        return jsonResponse(position());
+      }
+      if (url.pathname === "/api/gantry/calibration/restore-soft-limits" && init?.method === "POST") {
+        return restore.promise;
+      }
+      if (url.pathname === "/api/gantry/calibration/recover-limit" && init?.method === "POST") {
+        recoverCallCount++;
+        return jsonResponse({
+          status: "recovered",
+          attempts: 1,
+          pull_off: { x: 0, y: 0, z: 5 },
+          messages: ["recovered"],
+        });
+      }
+      return jsonResponse(position());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const props = {
+      open: true,
+      onClose: () => undefined,
+      gantry: { filename: "cubos.yaml", config: gantryConfig() },
+      onSaveCalibrated: async () => undefined,
+    };
+    const { rerender } = render(<CalibrationWizard {...props} position={position()} />);
+
+    const zDown = await advanceToOriginJog(user);
+    await user.click(zDown);
+    await user.click(screen.getByRole("button", { name: "Set origin and continue" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/calibration/restore-soft-limits",
+      expect.objectContaining({ method: "POST" }),
+    ));
+
+    rerender(<CalibrationWizard {...props} position={position("ALARM:1")} />);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(recoverCallCount).toBe(0);
+
+    restore.resolve(jsonResponse(position()));
+
+    expect(await screen.findByText(/no recent jog direction/i)).toBeInTheDocument();
+    expect(recoverCallCount).toBe(0);
   });
 
   it("recovers when a reset-to-continue error fires during a jog", async () => {

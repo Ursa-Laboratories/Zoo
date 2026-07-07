@@ -1,5 +1,6 @@
 param(
-    [string]$InstallDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+    [string]$InstallDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
+    [string[]]$DriverGroups = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,23 +27,50 @@ function Invoke-LoggedNative {
     )
 
     Write-Log "> $FilePath $($Arguments -join ' ')"
-    & $FilePath @Arguments 2>&1 | Tee-Object -FilePath $LogPath -Append
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $FilePath @Arguments 2>&1 | Tee-Object -FilePath $LogPath -Append
+    }
+    finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "$FilePath $($Arguments -join ' ') failed with exit code $LASTEXITCODE"
     }
 }
 
 $Python = Join-Path $InstallDir "Python\python.exe"
+$VenvDir = Join-Path $InstallDir "venv"
+$VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 $Wheelhouse = Join-Path $InstallDir "wheelhouse"
 $Requirements = Join-Path $InstallDir "requirements\runtime-requirements.txt"
+$DriverRequirementsDir = Join-Path $InstallDir "requirements\drivers"
 $Marker = Join-Path $InstallDir "runtime-installed.txt"
+$DriverGroupsFile = Join-Path $InstallDir "driver-groups.txt"
+$DriverGroupsExplicitlyProvided = @($DriverGroups | Where-Object { $_ -and $_.Trim() }).Count -gt 0
+$SelectedDriverGroups = @(
+    $DriverGroups |
+        ForEach-Object { $_ -split "," } |
+        Where-Object { $_ -and $_.Trim() } |
+        ForEach-Object { $_.Trim().ToLowerInvariant() } |
+        Where-Object { $_ -ne 'none' } |
+        Select-Object -Unique
+)
 
 try {
     Write-Log "Installing Zoo runtime"
     Write-Log "Install directory: $InstallDir"
     Write-Log "Expected Python: $Python"
+    Write-Log "Runtime virtual environment: $VenvDir"
     Write-Log "Wheelhouse: $Wheelhouse"
     Write-Log "Requirements: $Requirements"
+    Write-Log "Selected public driver groups: $(if ($SelectedDriverGroups.Count) { $SelectedDriverGroups -join ', ' } else { 'none' })"
+
+    if ($DriverGroupsExplicitlyProvided) {
+        Set-Content -Path $DriverGroupsFile -Value ($SelectedDriverGroups -join ",") -Encoding UTF8
+        Write-Log "Persisted selected driver groups to $DriverGroupsFile"
+    }
 
     if (-not (Test-Path $Python)) {
         throw "Python runtime not found at $Python"
@@ -56,12 +84,35 @@ try {
         throw "Runtime requirements file not found at $Requirements"
     }
 
-    Invoke-LoggedNative $Python @("-m", "pip", "install", "--no-index", "--find-links", $Wheelhouse, "-r", $Requirements)
-    Invoke-LoggedNative $Python @("-m", "pip", "install", "--no-index", "--find-links", $Wheelhouse, "--no-deps", "cubos", "zoo")
-    Invoke-LoggedNative $Python @("-m", "pip", "check")
-    Invoke-LoggedNative $Python @("-c", "import zoo, gantry, deck, protocol_engine; print('Zoo runtime import check passed')")
+    if (-not (Test-Path $VenvPython)) {
+        Write-Log "Creating runtime virtual environment"
+        Invoke-LoggedNative $Python @("-m", "venv", $VenvDir)
+    }
 
-    "Installed $(Get-Date -Format o)" | Set-Content -Path $Marker -Encoding UTF8
+    if (-not (Test-Path $VenvPython)) {
+        throw "Virtual environment creation completed but python.exe was not found at $VenvPython"
+    }
+
+    Invoke-LoggedNative $VenvPython @("-m", "pip", "install", "--no-index", "--find-links", $Wheelhouse, "-r", $Requirements)
+
+    foreach ($DriverGroup in $SelectedDriverGroups) {
+        $DriverRequirements = Join-Path $DriverRequirementsDir "$DriverGroup.txt"
+        if (-not (Test-Path $DriverRequirements)) {
+            throw "No public driver requirements file found for '$DriverGroup' at $DriverRequirements"
+        }
+        Write-Log "Installing public driver group '$DriverGroup'"
+        Invoke-LoggedNative $VenvPython @("-m", "pip", "install", "--no-index", "--find-links", $Wheelhouse, "-r", $DriverRequirements)
+    }
+
+    Invoke-LoggedNative $VenvPython @("-m", "pip", "install", "--no-index", "--find-links", $Wheelhouse, "--no-deps", "--force-reinstall", "cubos", "zoo")
+    Invoke-LoggedNative $VenvPython @("-m", "pip", "check")
+    Invoke-LoggedNative $VenvPython @("-c", "import zoo, gantry, deck, protocol_engine; print('Zoo runtime import check passed')")
+
+    @(
+        "Installed $(Get-Date -Format o)",
+        "Python=$VenvPython",
+        "DriverGroups=$(if ($SelectedDriverGroups.Count) { $SelectedDriverGroups -join ',' } else { 'none' })"
+    ) | Set-Content -Path $Marker -Encoding UTF8
     Write-Log "Runtime install complete"
     exit 0
 }

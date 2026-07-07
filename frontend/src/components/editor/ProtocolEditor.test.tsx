@@ -1,8 +1,8 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import ProtocolEditor from "./ProtocolEditor";
-import type { CommandInfo, DeckResponse, GantryResponse, ProtocolStep } from "../../types";
+import type { CommandInfo, DeckResponse, GantryResponse, ProtocolResponse, ProtocolStep } from "../../types";
 
 const COMMANDS: CommandInfo[] = [
   {
@@ -90,11 +90,13 @@ function renderProtocol(overrides: Partial<React.ComponentProps<typeof ProtocolE
     configs: ["move.yaml"],
     selectedFile: "move.yaml",
     onSelectFile: vi.fn(),
+    onImportFile: vi.fn(),
     commands: COMMANDS,
     deck: DECK,
     gantry: GANTRY,
     steps: STEPS,
     positions: null,
+    baseline: null,
     onSave: vi.fn(),
     onLocalChange: vi.fn(),
     onPositionsChange: vi.fn(),
@@ -120,7 +122,11 @@ describe("ProtocolEditor", () => {
   it("shows the empty state when no steps are loaded", () => {
     renderProtocol({ steps: null });
     expect(screen.getByText("Load a protocol or add steps.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Run Protocol" })).not.toBeInTheDocument();
+    // The action bar itself always renders (so Discard stays reachable
+    // and the user isn't stranded), but Run/Save are disabled with a hint.
+    expect(screen.getByRole("button", { name: "Run Protocol" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.getByText(/Add at least one step/i)).toBeInTheDocument();
   });
 
   it("prompts to save the protocol itself and marks the Save button when protocol is dirty", () => {
@@ -192,9 +198,40 @@ describe("ProtocolEditor", () => {
     );
   });
 
+  it("matches step validation errors exactly and displays legacy indices as 1-based", () => {
+    const manySteps = Array.from({ length: 11 }, () => STEPS[0]);
+    renderProtocol({
+      steps: manySteps,
+      validationErrors: [
+        "Step 1 (move): second-card problem",
+        "Step 10 (move): eleventh-card problem",
+      ],
+    });
+
+    expect(screen.getAllByText("Step 2 (move): second-card problem")).toHaveLength(2);
+    expect(screen.getAllByText("Step 11 (move): eleventh-card problem")).toHaveLength(2);
+    expect(screen.queryByText("Step 10 (move): eleventh-card problem")).not.toBeInTheDocument();
+  });
+
   it("adds, reorders, and removes steps", async () => {
     const user = userEvent.setup();
     const props = renderProtocol();
+    const moveStep = STEPS[0];
+    const scanStep = {
+      command: "scan",
+      args: {
+        plate: "plate_1",
+        instrument: "asmi",
+        method: "indentation",
+        measurement_height: 0,
+        method_kwargs: {
+          step_size: 0.1,
+          force_limit: 10,
+          baseline_samples: 10,
+          measure_with_return: false,
+        },
+      },
+    };
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Add step" }), "scan");
     await user.click(screen.getByRole("button", { name: "Add" }));
@@ -204,7 +241,8 @@ describe("ProtocolEditor", () => {
     // Buttons are labelled by their glyph (↓ / ✕), not the title.
     await user.click(screen.getAllByRole("button", { name: "↓" })[0]);
     await user.click(screen.getAllByRole("button", { name: "✕" })[0]);
-    expect(props.onLocalChange).toHaveBeenCalledTimes(3);
+    expect(props.onLocalChange).toHaveBeenNthCalledWith(2, [scanStep, moveStep]);
+    expect(props.onLocalChange).toHaveBeenNthCalledWith(3, [moveStep]);
   });
 
   it("adds and removes named positions", async () => {
@@ -235,6 +273,22 @@ describe("ProtocolEditor", () => {
     await user.clear(screen.getByLabelText("Force limit (N)"));
     await user.type(screen.getByLabelText("Force limit (N)"), "12");
     expect(props.onLocalChange).toHaveBeenCalled();
+  });
+
+  it("uses the CubOS-provided instrument method map before the fallback map", async () => {
+    const user = userEvent.setup();
+    renderProtocol({
+      steps: [],
+      instrumentMethods: {
+        asmi: ["measure"],
+      },
+    });
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Add step" }), "scan");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(await screen.findByLabelText(/^Measurement \*$/)).toHaveValue("measure");
+    expect(screen.queryByLabelText("Force limit (N)")).not.toBeInTheDocument();
   });
 
   it("hides ASMI-only indentation limit for uv curing measure steps", () => {
@@ -303,8 +357,13 @@ describe("ProtocolEditor", () => {
     // Append (don't clear) so "park" -> "park2" is a single rename that
     // can be propagated into the referencing step.
     await user.type(screen.getByLabelText("Position 1 name"), "2");
-    expect(props.onPositionsChange).toHaveBeenCalled();
-    expect(props.onLocalChange).toHaveBeenCalled();
+    expect(props.onLocalChange).toHaveBeenLastCalledWith([
+      {
+        command: "move",
+        args: expect.objectContaining({ position: "park2" }),
+      },
+    ]);
+    expect(props.onPositionsChange).toHaveBeenLastCalledWith({ park2: [1, 2, 3] });
   });
 
   it("renders run results and errors", () => {
@@ -318,6 +377,62 @@ describe("ProtocolEditor", () => {
     render(<ProtocolEditor {...baseProps()} runError="boom" />);
     expect(screen.getByText("boom")).toBeInTheDocument();
   });
+
+  it("shows a save-failed banner and clears it on the next edit or successful save", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn()
+      .mockRejectedValueOnce(new Error("400: bad protocol"))
+      .mockResolvedValueOnce(undefined);
+    renderProtocol({ onSave });
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(/Save failed/i)).toHaveTextContent("400: bad protocol");
+
+    // Editing again clears the stale error even before the retry.
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    expect(screen.queryByText(/Save failed/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText(/Save failed/i)).not.toBeInTheDocument();
+  });
+
+  it("discards local edits back to the last-saved baseline and notifies the parent", async () => {
+    const user = userEvent.setup();
+    const baseline: ProtocolResponse = { filename: "move.yaml", steps: STEPS, positions: null };
+    const onRefresh = vi.fn();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderProtocol({ unsavedConfigs: ["Protocol"], baseline, onRefresh });
+
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    expect(screen.getAllByText(/^Step \d:$/)).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(onRefresh).toHaveBeenCalled();
+    expect(screen.getAllByText(/^Step \d:$/)).toHaveLength(1);
+
+    confirmSpy.mockRestore();
+  });
+
+  it("keeps edits when the user cancels the discard confirm", async () => {
+    const user = userEvent.setup();
+    const baseline: ProtocolResponse = { filename: "move.yaml", steps: STEPS, positions: null };
+    const onRefresh = vi.fn();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderProtocol({ unsavedConfigs: ["Protocol"], baseline, onRefresh });
+
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    expect(screen.getAllByText(/^Step \d:$/)).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+
+    expect(onRefresh).not.toHaveBeenCalled();
+    expect(screen.getAllByText(/^Step \d:$/)).toHaveLength(2);
+
+    confirmSpy.mockRestore();
+  });
 });
 
 function baseProps(): React.ComponentProps<typeof ProtocolEditor> {
@@ -325,11 +440,13 @@ function baseProps(): React.ComponentProps<typeof ProtocolEditor> {
     configs: ["move.yaml"],
     selectedFile: "move.yaml",
     onSelectFile: vi.fn(),
+    onImportFile: vi.fn(),
     commands: COMMANDS,
     deck: DECK,
     gantry: GANTRY,
     steps: STEPS,
     positions: null,
+    baseline: null,
     onSave: vi.fn(),
     onLocalChange: vi.fn(),
     onPositionsChange: vi.fn(),

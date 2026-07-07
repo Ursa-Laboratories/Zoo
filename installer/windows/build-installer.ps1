@@ -112,6 +112,7 @@ $Wheelhouse = Join-Path $Stage "wheelhouse"
 $RequirementsDir = Join-Path $Stage "requirements"
 $PythonInstaller = Join-Path $Stage "python-installer.exe"
 $RuntimeRequirements = Join-Path $PSScriptRoot "runtime-requirements.txt"
+$DriverRequirementsDir = Join-Path $PSScriptRoot "requirements\drivers"
 
 Remove-Item -Path $Work, $Stage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $Work, $Stage, $Dist, $Downloads, $Wheelhouse, $RequirementsDir | Out-Null
@@ -153,6 +154,9 @@ $PythonPrefixArgs = [string[]]$BuildPython.Args
 
 Invoke-Checked $PythonExe ($PythonPrefixArgs + @("-m", "pip", "install", "--upgrade", "pip", "build", "wheel"))
 Invoke-Checked $PythonExe ($PythonPrefixArgs + @("-m", "pip", "download", "--only-binary", ":all:", "--dest", $Wheelhouse, "-r", $RuntimeRequirements))
+foreach ($DriverRequirements in Get-ChildItem -Path $DriverRequirementsDir -Filter "*.txt") {
+    Invoke-Checked $PythonExe ($PythonPrefixArgs + @("-m", "pip", "download", "--only-binary", ":all:", "--dest", $Wheelhouse, "-r", $DriverRequirements.FullName))
+}
 Invoke-Checked $PythonExe ($PythonPrefixArgs + @("-m", "pip", "wheel", "--no-deps", "--wheel-dir", $Wheelhouse, $CubOSClone))
 Invoke-Checked $PythonExe ($PythonPrefixArgs + @("-m", "pip", "wheel", "--no-deps", "--wheel-dir", $Wheelhouse, $ZooSource))
 
@@ -160,6 +164,7 @@ Invoke-RobocopyChecked $ZooSource (Join-Path $Stage "app\Zoo")
 Invoke-RobocopyChecked $CubOSClone (Join-Path $Stage "app\CubOS")
 Invoke-RobocopyChecked (Join-Path $PSScriptRoot "scripts") (Join-Path $Stage "scripts")
 Copy-Item $RuntimeRequirements (Join-Path $RequirementsDir "runtime-requirements.txt") -Force
+Copy-Item (Join-Path $PSScriptRoot "requirements\*") $RequirementsDir -Recurse -Force
 
 $PythonUrl = "https://www.python.org/ftp/python/$PythonVersion/python-$PythonVersion-amd64.exe"
 $DownloadedPython = Join-Path $Downloads "python-$PythonVersion-amd64.exe"

@@ -51,8 +51,19 @@ VALID_GANTRY = {
 
 
 class FakeSession:
-    def __init__(self, snapshot: GantryPositionSnapshot | None = None):
-        self.connected = True
+    def __init__(
+        self,
+        snapshot: GantryPositionSnapshot | None = None,
+        *,
+        connected: bool = True,
+    ):
+        # Defaults to True because most tests assign a FakeSession directly
+        # to gantry_router._session to simulate an *already connected*
+        # session. Tests that go through the connect() flow (via a
+        # GantrySession factory) should pass connected=False, mirroring
+        # CubOS's real GantrySession where `.connected` reflects whether
+        # `_gantry` has been set by a successful connect() call.
+        self.connected = connected
         self.snapshot = snapshot or GantryPositionSnapshot(
             x=1.0,
             y=2.0,
@@ -75,6 +86,7 @@ class FakeSession:
 
     def connect(self, path=None, *, filename=None):
         self.calls.append(("connect", (path, filename)))
+        self.connected = True
         return replace(self.snapshot, calibration_warning=None)
 
     def disconnect(self):
@@ -202,6 +214,7 @@ def test_position_returns_not_connected_without_session():
     assert response.status_code == 200
     assert response.json()["connected"] is False
     assert response.json()["status"] == "Not connected"
+    assert response.json()["calibration_active"] is False
 
 
 def test_list_configs_and_schema_metadata(monkeypatch, tmp_path):
@@ -242,7 +255,21 @@ def test_connected_position_delegates_to_session(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["connected"] is True
+    assert response.json()["calibration_active"] is False
     assert ("position", None) in session.calls
+
+
+def test_connected_position_reports_active_calibration_flags(monkeypatch):
+    session = FakeSession()
+    session._calibration_jog_bypass_working_volume = True
+    session._calibration_restore_soft_limits = False
+    monkeypatch.setattr(gantry_router, "_session", session)
+
+    response = api_request(create_app(), "GET", "/api/gantry/position")
+
+    assert response.status_code == 200
+    assert response.json()["connected"] is True
+    assert response.json()["calibration_active"] is True
 
 
 def test_protected_endpoint_requires_connected_session(monkeypatch):
@@ -266,7 +293,7 @@ def test_connect_uses_selected_gantry_config(monkeypatch, tmp_path):
 
     class FakeSessionFactory(FakeSession):
         def __init__(self):
-            super().__init__()
+            super().__init__(connected=False)
             created.append(self)
 
     monkeypatch.setattr(gantry_router, "GantrySession", FakeSessionFactory)
@@ -294,7 +321,7 @@ def test_connect_uses_first_config_when_filename_is_omitted(monkeypatch, tmp_pat
 
     class FakeSessionFactory(FakeSession):
         def __init__(self):
-            super().__init__()
+            super().__init__(connected=False)
             created.append(self)
 
     monkeypatch.setattr(gantry_router, "GantrySession", FakeSessionFactory)
@@ -313,7 +340,7 @@ def test_connect_without_any_config_calls_session_with_none(monkeypatch, tmp_pat
 
     class FakeSessionFactory(FakeSession):
         def __init__(self):
-            super().__init__()
+            super().__init__(connected=False)
             created.append(self)
 
     monkeypatch.setattr(gantry_router, "GantrySession", FakeSessionFactory)
@@ -348,6 +375,9 @@ def test_connect_surfaces_session_validation_errors(monkeypatch, tmp_path):
     monkeypatch.setattr(get_settings(), "config_dir", config_dir)
 
     class BadSession(FakeSession):
+        def __init__(self):
+            super().__init__(connected=False)
+
         def connect(self, path=None, *, filename=None):
             raise ValueError("bad current schema")
 
@@ -372,6 +402,9 @@ def test_connect_surfaces_unexpected_session_errors(monkeypatch, tmp_path):
     monkeypatch.setattr(get_settings(), "config_dir", config_dir)
 
     class BadSession(FakeSession):
+        def __init__(self):
+            super().__init__(connected=False)
+
         def connect(self, path=None, *, filename=None):
             raise RuntimeError("serial failed")
 
@@ -465,6 +498,39 @@ def test_put_gantry_persists_current_schema_and_refreshes_session(monkeypatch, t
     saved = read_yaml(gantry_dir / "test.yaml")
     assert saved["cnc"]["calibration_block_height_mm"] == 36.25
     assert session.calls[-1][0] == "refresh_connected_config"
+
+
+def test_raw_put_valid_gantry_refreshes_connected_session(monkeypatch, tmp_path):
+    config_dir = tmp_path / "configs"
+    gantry_dir = config_dir / "gantry"
+    gantry_dir.mkdir(parents=True)
+    write_yaml(gantry_dir / "test.yaml", VALID_GANTRY)
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+    session = FakeSession()
+    monkeypatch.setattr(gantry_router, "_session", session)
+
+    updated = {
+        **VALID_GANTRY,
+        "cnc": {
+            **VALID_GANTRY["cnc"],
+            "calibration_block_height_mm": 36.25,
+        },
+    }
+    raw_path = tmp_path / "updated_gantry.yaml"
+    write_yaml(raw_path, updated)
+
+    response = api_request(
+        create_app(),
+        "PUT",
+        "/api/raw/test.yaml",
+        json={"content": raw_path.read_text(encoding="utf-8")},
+    )
+
+    assert response.status_code == 200
+    assert session.calls[-1][0] == "refresh_connected_config"
+    _, (filename, config) = session.calls[-1]
+    assert filename == "test.yaml"
+    assert config["cnc"]["calibration_block_height_mm"] == 36.25
 
 
 def test_put_gantry_rejects_invalid_current_schema(monkeypatch, tmp_path):
@@ -580,6 +646,93 @@ def test_session_error_mapping_branches(monkeypatch):
         assert text in response.text
 
 
+@pytest.mark.parametrize(
+    ("method", "path", "session_method", "json_body"),
+    [
+        ("POST", "/api/gantry/feed-hold", "feed_hold", None),
+        ("POST", "/api/gantry/jog-cancel", "jog_cancel", None),
+        ("POST", "/api/gantry/unlock", "unlock", None),
+        ("POST", "/api/gantry/reset-unlock", "reset_and_unlock", None),
+        (
+            "POST",
+            "/api/gantry/calibration/prepare-origin",
+            "prepare_calibration_origin",
+            None,
+        ),
+        (
+            "POST",
+            "/api/gantry/calibration/home-and-center",
+            "calibration_home_and_center",
+            None,
+        ),
+        (
+            "POST",
+            "/api/gantry/calibration/restore-soft-limits",
+            "restore_calibration_soft_limits",
+            None,
+        ),
+        ("GET", "/api/gantry/grbl-settings", "read_grbl_settings", None),
+        (
+            "POST",
+            "/api/gantry/grbl-settings",
+            "set_grbl_setting",
+            {"setting": "$20", "value": "0"},
+        ),
+        ("POST", "/api/gantry/jog", "jog", {"x": 1, "y": 0, "z": 0}),
+        (
+            "POST",
+            "/api/gantry/jog-blocking",
+            "jog_blocking",
+            {"x": 0, "y": 1, "z": 0, "timeout_s": 1},
+        ),
+        (
+            "POST",
+            "/api/gantry/work-coordinates",
+            "set_work_coordinates",
+            {"x": 1},
+        ),
+        (
+            "POST",
+            "/api/gantry/soft-limits",
+            "configure_soft_limits",
+            {
+                "max_travel_x": 300,
+                "max_travel_y": 200,
+                "max_travel_z": 90,
+            },
+        ),
+        ("POST", "/api/gantry/disconnect", "disconnect", None),
+    ],
+)
+@pytest.mark.parametrize(
+    ("exc", "status_code", "detail"),
+    [
+        (GantryAlarmError("alarm"), 409, "alarm"),
+        (GantrySessionError("boom"), 500, "boom"),
+    ],
+)
+def test_hardware_endpoint_error_paths(
+    monkeypatch,
+    method,
+    path,
+    session_method,
+    json_body,
+    exc,
+    status_code,
+    detail,
+):
+    def fail(self, *_args, **_kwargs):
+        raise exc
+
+    monkeypatch.setattr(FakeSession, session_method, fail)
+    monkeypatch.setattr(gantry_router, "_session", FakeSession())
+
+    response = api_request(create_app(), method, path, json=json_body)
+
+    assert response.status_code == status_code
+    assert detail in response.text
+
+
 def test_missing_working_volume_maps_to_conflict(monkeypatch):
     session = FakeSession()
 
@@ -657,6 +810,47 @@ def test_limit_recovery_alarm_error_maps_to_409(monkeypatch):
     assert "Limit recovery did not clear" in response.text
 
 
+def test_limit_recovery_generic_runtime_error_maps_to_500(monkeypatch):
+    session = FakeSession()
+
+    def fail(**_kwargs):
+        raise RuntimeError("serial died")
+
+    session.recover_calibration_limit = fail
+    monkeypatch.setattr(gantry_router, "_session", session)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/calibration/recover-limit",
+        json={"x": 0, "y": 0, "z": -1},
+    )
+
+    assert response.status_code == 500
+    assert "Limit recovery failed" in response.text
+
+
+def test_limit_recovery_missing_delta_maps_to_400(monkeypatch):
+    session = FakeSession()
+
+    def fail(**_kwargs):
+        raise ValueError("Limit recovery requires the failed jog delta.")
+
+    session.recover_calibration_limit = fail
+    monkeypatch.setattr(gantry_router, "_session", session)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/calibration/recover-limit",
+        json={},
+    )
+
+    assert response.status_code == 400
+    assert "Limit recovery requires the failed jog delta." in response.text
+    assert "E-stop" not in response.text
+
+
 def test_finalize_origin_accepts_dataclass_result(monkeypatch):
     from gantry.session import FinalizeOriginResult
 
@@ -688,6 +882,31 @@ def test_finalize_origin_accepts_dataclass_result(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["homing_pull_off_mm"] == 1.0
+
+
+def test_finalize_origin_calibration_blocked_maps_to_400(monkeypatch):
+    session = FakeSession()
+
+    def finalize(**_kwargs):
+        raise CalibrationBlockedError("calibration warning is active")
+
+    session.finalize_calibration_origin = finalize
+    monkeypatch.setattr(gantry_router, "_session", session)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/calibration/finalize-origin",
+        json={
+            "home_z": 80,
+            "block_touch_z": 10,
+            "block_height": 10,
+            "factory_z_travel": 90,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "calibration warning is active" in response.text
 
 
 def test_advanced_gantry_actions_delegate_to_session(monkeypatch):
@@ -765,6 +984,115 @@ def test_interrupt_timeout_translation_keeps_cancel_shape():
     }
 
 
+def test_connect_returns_409_when_already_connected(monkeypatch):
+    session = FakeSession()
+    assert session.connected is True
+    monkeypatch.setattr(gantry_router, "_session", session)
+
+    response = api_request(create_app(), "POST", "/api/gantry/connect")
+
+    assert response.status_code == 409
+    assert "already connected" in response.text.lower()
+    assert not any(name == "connect" for name, _ in session.calls)
+
+
+def test_get_or_create_session_creation_is_race_safe(monkeypatch):
+    import threading
+
+    created: list[FakeSession] = []
+
+    class CountingSession(FakeSession):
+        def __init__(self):
+            super().__init__()
+            created.append(self)
+
+    monkeypatch.setattr(gantry_router, "GantrySession", CountingSession)
+
+    barrier = threading.Barrier(8)
+
+    def worker():
+        barrier.wait()
+        gantry_router._get_or_create_session()
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(created) == 1
+
+
+def test_reset_session_clears_module_global(monkeypatch):
+    session = FakeSession()
+    monkeypatch.setattr(gantry_router, "_session", session)
+
+    gantry_router.reset_session()
+
+    assert gantry_router.current_session() is None
+
+
+def test_motion_and_calibration_endpoints_reject_while_run_active(monkeypatch):
+    session = FakeSession()
+    monkeypatch.setattr(gantry_router, "_session", session)
+    gantry_router.begin_run(protocol_file="running.yaml")
+    try:
+        endpoints = [
+            ("POST", "/api/gantry/home", None),
+            ("POST", "/api/gantry/jog", {"x": 1, "y": 0, "z": 0}),
+            ("POST", "/api/gantry/move-to", {"x": 1, "y": 2, "z": 3}),
+            ("POST", "/api/gantry/move-to-blocking", {"x": 1, "y": 2, "z": 3}),
+            (
+                "POST",
+                "/api/gantry/jog-blocking",
+                {"x": 0, "y": 1, "z": 0, "timeout_s": 1},
+            ),
+            ("POST", "/api/gantry/calibration/prepare-origin", None),
+            ("POST", "/api/gantry/calibration/home-and-center", None),
+            ("POST", "/api/gantry/calibration/restore-soft-limits", None),
+            (
+                "POST",
+                "/api/gantry/calibration/finalize-origin",
+                {
+                    "home_z": 80,
+                    "block_touch_z": 10,
+                    "block_height": 10,
+                    "factory_z_travel": 90,
+                },
+            ),
+        ]
+        for method, path, json_body in endpoints:
+            response = api_request(create_app(), method, path, json=json_body)
+            assert response.status_code == 409, f"{path} should be gated"
+            assert "busy running a protocol" in response.text
+    finally:
+        gantry_router.end_run()
+
+    assert session.calls == []
+
+
+def test_stop_recovery_and_observability_endpoints_stay_available_during_run(
+    monkeypatch,
+):
+    session = FakeSession()
+    monkeypatch.setattr(gantry_router, "_session", session)
+    gantry_router.begin_run(protocol_file="running.yaml")
+    try:
+        endpoints = [
+            ("POST", "/api/gantry/feed-hold", None),
+            ("POST", "/api/gantry/jog-cancel", None),
+            ("GET", "/api/gantry/position", None),
+            ("POST", "/api/gantry/unlock", None),
+            ("POST", "/api/gantry/reset-unlock", None),
+            ("POST", "/api/gantry/disconnect", None),
+        ]
+        for method, path, json_body in endpoints:
+            response = api_request(create_app(), method, path, json=json_body)
+            assert response.status_code == 200, f"{path} should not be gated"
+    finally:
+        gantry_router.end_run()
+
+
 def test_gantry_exposes_instrument_registry_endpoints():
     response = api_request(create_app(), "GET", "/api/gantry/instrument-types")
 
@@ -772,3 +1100,14 @@ def test_gantry_exposes_instrument_registry_endpoints():
     types = {entry["type"]: entry for entry in response.json()}
     assert "asmi" in types
     assert "vernier" in types["asmi"]["vendors"]
+
+
+def test_gantry_exposes_protocol_measurement_methods_from_cubos_registry():
+    response = api_request(create_app(), "GET", "/api/gantry/instrument-methods")
+
+    assert response.status_code == 200
+    methods = response.json()
+    assert methods["asmi"][:2] == ["indentation", "measure"]
+    assert "measure" in methods["filmetrics"]
+    assert "measure" in methods["uvvis_ccs"]
+    assert methods["pipette"] == []

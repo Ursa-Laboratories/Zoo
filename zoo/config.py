@@ -1,10 +1,51 @@
+import json
+import os
 from pathlib import Path
+from typing import Any, List
 
 from data import default_database_path
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 DEFAULT_CONFIG_DIR = Path(__file__).resolve().parent.parent / "configs"
+USER_SETTINGS_FILE = Path.home() / ".zoo" / "settings.json"
+
+
+def _user_settings_file() -> Path:
+    override = os.environ.get("ZOO_SETTINGS_FILE")
+    if override:
+        return Path(override).expanduser()
+    return USER_SETTINGS_FILE
+
+
+def _env_config_dir_is_set() -> bool:
+    return "ZOO_CONFIG_DIR" in os.environ
+
+
+def _load_user_settings() -> dict[str, Any]:
+    if _env_config_dir_is_set():
+        return {}
+    path = _user_settings_file()
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    config_dir = data.get("config_dir")
+    if not isinstance(config_dir, str) or not config_dir:
+        return {}
+    return {"config_dir": Path(config_dir)}
+
+
+def persist_user_settings(*, config_dir: Path) -> None:
+    path = _user_settings_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"config_dir": str(config_dir.expanduser().resolve())}
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    tmp_path.replace(path)
 
 
 class ZooSettings(BaseSettings):
@@ -19,8 +60,15 @@ class ZooSettings(BaseSettings):
     port: int = 8742
     open_browser: bool = True
     data_db_path: Path = default_database_path()
+    # Extra Host/Origin values accepted by the Origin/Host-checking middleware,
+    # on top of the configured host:port and localhost/127.0.0.1 equivalents.
+    # Production should leave this empty; tests add "testserver" (the Host
+    # header httpx's ASGI transport sends) via zoo/tests conftest fixtures.
+    trusted_hosts: List[str] = Field(default_factory=list)
 
     def __init__(self, **data):
+        if "config_dir" not in data:
+            data = {**_load_user_settings(), **data}
         super().__init__(**data)
         self.ensure_config_dir()
 

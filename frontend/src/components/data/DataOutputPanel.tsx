@@ -10,24 +10,35 @@ interface Props {
   onRefresh: () => void;
 }
 
+type ExportKind = "measurements" | "asmi";
+
+type ExportingState = {
+  campaignId: number;
+  kind: ExportKind;
+};
+
 export default function DataOutputPanel({
   campaigns,
   isLoading,
   error,
   onRefresh,
 }: Props) {
-  const [exportingId, setExportingId] = useState<number | null>(null);
+  const [exporting, setExporting] = useState<ExportingState | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
-  const handleExport = async (campaign: CampaignSummary) => {
-    setExportingId(campaign.campaign_id);
+  const handleExport = async (campaign: CampaignSummary, kind: ExportKind) => {
+    setExporting({ campaignId: campaign.campaign_id, kind });
     setExportError(null);
     try {
-      const blob = await dataApi.exportCampaignMeasurementsZip(campaign.campaign_id);
+      const blob = kind === "measurements"
+        ? await dataApi.exportCampaignMeasurementsZip(campaign.campaign_id)
+        : await dataApi.exportCampaignAsmiZip(campaign.campaign_id);
       const href = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = href;
-      link.download = `campaign_${campaign.campaign_id}_measurements.zip`;
+      link.download = kind === "measurements"
+        ? `campaign_${campaign.campaign_id}_measurements.zip`
+        : `campaign_${campaign.campaign_id}_asmi_raw_csvs.zip`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -35,7 +46,7 @@ export default function DataOutputPanel({
     } catch (err) {
       setExportError(err instanceof Error ? err.message : String(err));
     } finally {
-      setExportingId(null);
+      setExporting(null);
     }
   };
 
@@ -59,7 +70,7 @@ export default function DataOutputPanel({
       )}
       {isLoading && <div style={emptyStyle}>Loading campaigns...</div>}
       {!isLoading && campaigns.length === 0 && (
-        <div style={emptyStyle}>No campaigns found.</div>
+        <div style={emptyStyle}>No campaigns yet — run a protocol to create one.</div>
       )}
       {!isLoading && campaigns.length > 0 && (
         <div style={tableFrameStyle}>
@@ -67,7 +78,7 @@ export default function DataOutputPanel({
             <thead>
               <tr>
                 <th style={thStyle}>Campaign</th>
-                <th style={thStyle}>Run time</th>
+                <th style={thStyle}>Last measured</th>
                 <th style={thStyle}>Experiments</th>
                 <th style={thStyle}>Wells</th>
                 <th style={thStyle}>Measurements</th>
@@ -76,28 +87,41 @@ export default function DataOutputPanel({
             </thead>
             <tbody>
               {campaigns.map((campaign) => {
-                const exportDisabled = campaign.measurement_count === 0 || exportingId !== null;
+                const measurementsDisabled = campaign.measurement_count === 0 || exporting !== null;
+                const asmiDisabled = campaign.asmi_measurement_count === 0 || exporting !== null;
+                const timestamp = campaign.latest_measurement_at ?? campaign.created_at;
                 return (
                   <tr key={campaign.campaign_id}>
                     <td style={tdStyle}>
                       <div style={strongTextStyle}>Campaign #{campaign.campaign_id}</div>
                       <div style={metaTextStyle}>{campaign.campaign_description}</div>
                     </td>
-                    <td style={tdStyle}>{campaign.latest_measurement_at ?? campaign.created_at}</td>
+                    <td style={tdStyle}>{formatTimestamp(timestamp)}</td>
                     <td style={tdStyle}>{campaign.experiment_count}</td>
                     <td style={tdStyle}>{campaign.well_count}</td>
                     <td style={tdStyle}>{campaign.measurement_count}</td>
                     <td style={tdStyle}>
                       <button
-                        onClick={() => void handleExport(campaign)}
-                        disabled={exportDisabled}
+                        onClick={() => void handleExport(campaign, "measurements")}
+                        disabled={measurementsDisabled}
                         style={{
                           ...primaryButtonStyle,
-                          opacity: exportDisabled ? 0.55 : 1,
-                          cursor: exportDisabled ? "default" : "pointer",
+                          opacity: measurementsDisabled ? 0.55 : 1,
+                          cursor: measurementsDisabled ? "default" : "pointer",
                         }}
                       >
-                        {exportingId === campaign.campaign_id ? "Exporting..." : "Export ZIP"}
+                        {isExporting(exporting, campaign.campaign_id, "measurements") ? "Exporting..." : "Measurements ZIP"}
+                      </button>
+                      <button
+                        onClick={() => void handleExport(campaign, "asmi")}
+                        disabled={asmiDisabled}
+                        style={{
+                          ...secondaryExportButtonStyle,
+                          opacity: asmiDisabled ? 0.55 : 1,
+                          cursor: asmiDisabled ? "default" : "pointer",
+                        }}
+                      >
+                        {isExporting(exporting, campaign.campaign_id, "asmi") ? "Exporting..." : "ASMI ZIP"}
                       </button>
                     </td>
                   </tr>
@@ -109,6 +133,18 @@ export default function DataOutputPanel({
       )}
     </section>
   );
+}
+
+function isExporting(exporting: ExportingState | null, campaignId: number, kind: ExportKind): boolean {
+  return exporting?.campaignId === campaignId && exporting.kind === kind;
+}
+
+function formatTimestamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString();
 }
 
 const panelStyle: CSSProperties = {
@@ -191,6 +227,16 @@ const primaryButtonStyle: CSSProperties = {
   background: "#2563eb",
   color: "#fff",
   border: "1px solid #1d4ed8",
+  borderRadius: 4,
+  padding: "5px 10px",
+  fontSize: 12,
+  marginRight: 6,
+};
+
+const secondaryExportButtonStyle: CSSProperties = {
+  background: "#fff",
+  color: "#1f2937",
+  border: "1px solid #d1d5db",
   borderRadius: 4,
   padding: "5px 10px",
   fontSize: 12,

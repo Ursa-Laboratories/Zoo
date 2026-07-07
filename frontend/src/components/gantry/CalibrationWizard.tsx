@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { TouchEvent } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, TouchEvent } from "react";
 import { gantryApi } from "../../api/client";
 import type { GantryConfig, GantryPosition, GantryResponse } from "../../types";
 import {
@@ -28,6 +28,18 @@ type JogDelta = {
   x: number;
   y: number;
   z: number;
+};
+
+type PendingSingleOrigin = {
+  blockTouch: CapturedPosition;
+  zReference: CapturedPosition;
+};
+
+type PendingZReference = {
+  blockTouch: CapturedPosition;
+  zReference: CapturedPosition;
+  calibration: ZCalibrationResult;
+  lowestInstrument: string;
 };
 
 const JOG_INTERVAL_MS = 150;
@@ -69,9 +81,16 @@ export default function CalibrationWizard({
   const [lowestInstrument, setLowestInstrument] = useState("");
   const [resolvedAlarmStatus, setResolvedAlarmStatus] = useState<string | null>(null);
   const jogTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const jogRequestCount = useRef(0);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
   const recoveryInProgress = useRef(false);
   const lastJogDelta = useRef<JogDelta | null>(null);
   const recoveryAttemptKey = useRef<string | null>(null);
+  const previousOpen = useRef(false);
+  const previousStep = useRef(step);
+  const pendingSingleOrigin = useRef<PendingSingleOrigin | null>(null);
+  const pendingZReference = useRef<PendingZReference | null>(null);
 
   const filename = gantry?.filename ?? "";
   const config = gantry?.config ?? null;
@@ -113,7 +132,9 @@ export default function CalibrationWizard({
   const controlsLocked = busy || !!alarmRecoveryMessage;
 
   useEffect(() => {
-    if (!open) return;
+    const wasOpen = previousOpen.current;
+    previousOpen.current = open;
+    if (!open || wasOpen) return;
     setStep(0);
     setBusy(false);
     setOperation(null);
@@ -136,14 +157,34 @@ export default function CalibrationWizard({
     setBlockHeight(formatOptionalNumber(config?.cnc.calibration_block_height_mm));
     setResolvedAlarmStatus(null);
     lastJogDelta.current = null;
+    jogRequestCount.current = 0;
     recoveryAttemptKey.current = null;
+    pendingSingleOrigin.current = null;
+    pendingZReference.current = null;
   }, [config?.cnc.calibration_block_height_mm, contactInstruments, filename, open]);
 
+  useEffect(() => {
+    const priorStep = previousStep.current;
+    previousStep.current = step;
+    if (priorStep === step) return;
+    if (step !== 3) {
+      pendingSingleOrigin.current = null;
+    }
+    if (step !== 4) {
+      pendingZReference.current = null;
+    }
+  }, [step]);
+
   const stopJog = useCallback(() => {
+    const shouldCancelJog = jogTimer.current !== null && jogRequestCount.current > 1;
     if (jogTimer.current) {
       clearInterval(jogTimer.current);
       jogTimer.current = null;
     }
+    if (shouldCancelJog) {
+      gantryApi.jogCancel().catch(() => undefined);
+    }
+    jogRequestCount.current = 0;
   }, []);
 
   const rememberJogDelta = useCallback((delta: JogDelta) => {
@@ -158,6 +199,15 @@ export default function CalibrationWizard({
       recoveryAttemptKey.current = null;
     }
   }, [rawIsAlarm, resolvedAlarmStatus]);
+
+  useEffect(() => {
+    if (resolvedAlarmStatus === null) return;
+    const timer = window.setTimeout(() => {
+      setResolvedAlarmStatus(null);
+      recoveryAttemptKey.current = null;
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [resolvedAlarmStatus]);
 
   const recoverFromLimitAlarm = useCallback(async (delta: JogDelta, err: unknown, resolvedStatus?: string) => {
     if (recoveryInProgress.current) return;
@@ -195,7 +245,7 @@ export default function CalibrationWizard({
   }, [stopJog]);
 
   useEffect(() => {
-    if (!open || !connected || !isAlarm || alarmPrompt || recoveryInProgress.current) return;
+    if (!open || !connected || busy || !isAlarm || alarmPrompt || recoveryInProgress.current) return;
     stopJog();
     const delta = lastJogDelta.current;
     if (!delta || isZeroDelta(delta)) {
@@ -208,7 +258,7 @@ export default function CalibrationWizard({
     if (recoveryAttemptKey.current === key) return;
     recoveryAttemptKey.current = key;
     void recoverFromLimitAlarm(delta, new Error(status), status);
-  }, [alarmPrompt, connected, isAlarm, open, recoverFromLimitAlarm, status, stopJog]);
+  }, [alarmPrompt, busy, connected, isAlarm, open, recoverFromLimitAlarm, status, stopJog]);
 
   const reportError = useCallback((err: unknown) => {
     stopJog();
@@ -221,6 +271,11 @@ export default function CalibrationWizard({
     setError(message);
   }, [stopJog]);
 
+  const clearPendingCaptures = () => {
+    pendingSingleOrigin.current = null;
+    pendingZReference.current = null;
+  };
+
   const resetFlow = () => {
     setStep(0);
     setOperation(null);
@@ -230,6 +285,8 @@ export default function CalibrationWizard({
     setXyOrigin(null);
     setZReference(null);
     setBlockTouch(null);
+    setCalibrationHome(null);
+    setZCalibration(null);
     setXyBounds(null);
     setCenterPosition(null);
     setMeasuredVolume(null);
@@ -238,6 +295,27 @@ export default function CalibrationWizard({
     setOutputFile(defaultOutputFilename(filename));
     setReferenceInstrument(contactInstruments[0] ?? "");
     setLowestInstrument(contactInstruments[0] ?? "");
+    setResolvedAlarmStatus(null);
+    clearPendingCaptures();
+    lastJogDelta.current = null;
+    jogRequestCount.current = 0;
+    recoveryAttemptKey.current = null;
+  };
+
+  const reset = async () => {
+    if (busy) return;
+    stopJog();
+    if (connected) {
+      try {
+        await gantryApi.restoreCalibrationSoftLimits();
+      } catch (err) {
+        setError(
+          `Failed to restore soft limits: ${err instanceof Error ? err.message : String(err)}. Reconnect before running protocols.`,
+        );
+        return;
+      }
+    }
+    resetFlow();
   };
 
   const close = async () => {
@@ -258,7 +336,65 @@ export default function CalibrationWizard({
     onClose();
   };
 
+  useEffect(() => {
+    if (!open || step < 2) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+      return "";
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [open, step]);
+
+  useEffect(() => {
+    if (!open) return;
+    previousFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const focusTimer = window.setTimeout(() => {
+      dialogRef.current?.focus();
+    }, 0);
+    return () => {
+      window.clearTimeout(focusTimer);
+      previousFocusRef.current?.focus();
+    };
+  }, [open]);
+
+  const handleDialogKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (!busy) {
+        void close();
+      }
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const focusable = getFocusableElements(dialog);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      dialog.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const activeIsFocusable = active ? focusable.includes(active) : false;
+    if (event.shiftKey && (!activeIsFocusable || active === first)) {
+      event.preventDefault();
+      last.focus();
+      return;
+    }
+    if (!event.shiftKey && (!activeIsFocusable || active === last)) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   const runAction = async (label: string, action: () => Promise<void>) => {
+    lastJogDelta.current = null;
     setBusy(true);
     setOperation(label);
     setError(null);
@@ -325,34 +461,25 @@ export default function CalibrationWizard({
     const result = await gantryApi.prepareCalibrationOrigin();
     const homed = requirePosition(result);
     setCalibrationHome(homed);
-    setStatusNote(isMulti ? formatCaptured("Homed and ready to set origin", homed) : "Homed. Enter the calibration block height.");
+    setStatusNote(isMulti ? formatCaptured("Homed and ready to set origin", homed) : "Homed. Enter the calibration reference height.");
     setStep(2);
   });
 
   const setXY = () => runAction(
-    isMulti
-      ? "Setting XY origin, re-homing, capturing XY bounds, and moving to deck center"
-      : "Restoring soft limits and setting XY origin",
+    "Setting XY origin, re-homing, capturing XY bounds, and moving to deck center",
     async () => {
-    if (!isMulti) {
-      await gantryApi.restoreCalibrationSoftLimits();
-    }
     const result = await gantryApi.setWorkCoordinates({ x: 0, y: 0 });
     const captured = requirePosition(result);
     setXyOrigin(captured);
-    if (isMulti) {
-      const centered = await gantryApi.homeAndCenterForCalibration();
-      const bounds = capturedFromPlain(centered.xy_bounds);
-      const center = capturedFromPlain(centered.position);
-      setXyBounds(bounds);
-      setCenterPosition(center);
-      setStatusNote(
-        `XY origin set. Homed bounds X=${bounds.x.toFixed(3)} Y=${bounds.y.toFixed(3)} Z=${bounds.z.toFixed(3)}; moved to center X=${center.x.toFixed(3)} Y=${center.y.toFixed(3)} Z=${center.z.toFixed(3)}.`,
-      );
-      setStep(3);
-    } else {
-      setStatusNote(formatCaptured("XY origin set — now jog to the block and set Z", captured));
-    }
+    const centered = await gantryApi.homeAndCenterForCalibration();
+    const bounds = capturedFromPlain(centered.xy_bounds);
+    const center = capturedFromPlain(centered.position);
+    setXyBounds(bounds);
+    setCenterPosition(center);
+    setStatusNote(
+      `XY origin set. Homed bounds X=${bounds.x.toFixed(3)} Y=${bounds.y.toFixed(3)} Z=${bounds.z.toFixed(3)}; moved to center X=${center.x.toFixed(3)} Y=${center.y.toFixed(3)} Z=${center.z.toFixed(3)}.`,
+    );
+    setStep(3);
   });
 
   // Shared "Block height" step handler for both flows: validate the
@@ -371,15 +498,24 @@ export default function CalibrationWizard({
 
   const setSingleInstrumentOrigin = () => runAction("Setting origin", async () => {
     if (!config) throw new Error("No gantry config is loaded.");
-    const height = parseBlockHeight(blockHeight);
-    const blockTouch = requirePosition(await gantryApi.getPosition());
-    // Set WPos before restoring soft limits: if setWorkCoordinates fails, soft
-    // limits stay disabled so the operator can still jog freely and retry.
-    const result = await gantryApi.setWorkCoordinates({ x: 0, y: 0, z: height });
+    let pending = pendingSingleOrigin.current;
+    if (!pending) {
+      const height = parseBlockHeight(blockHeight);
+      const blockTouch = requirePosition(await gantryApi.getPosition());
+      // Set WPos before restoring soft limits: if setWorkCoordinates fails,
+      // soft limits stay disabled so the operator can still jog freely and
+      // retry. Once this succeeds, retries must not re-capture in the shifted
+      // frame.
+      const result = await gantryApi.setWorkCoordinates({ x: 0, y: 0, z: height });
+      pending = {
+        blockTouch,
+        zReference: requirePosition(result),
+      };
+      pendingSingleOrigin.current = pending;
+    }
     await gantryApi.restoreCalibrationSoftLimits();
-    const captured = requirePosition(result);
-    setBlockTouch(blockTouch);
-    setZReference(captured);
+    setBlockTouch(pending.blockTouch);
+    setZReference(pending.zReference);
     setZCalibration(null);
     setStatusNote("Origin set. Ready to measure and save.");
     setStep(4);
@@ -391,34 +527,42 @@ export default function CalibrationWizard({
       : "Setting Z reference",
     async () => {
     if (!config) throw new Error("No gantry config is loaded.");
-    const height = parseBlockHeight(blockHeight);
-    const factoryZTravel = getFactoryZTravel(config);
-    const blockTouch = requirePosition(await gantryApi.getPosition());
-    const homeZ = isMulti
-      ? requireCaptured(xyBounds, "Homed XY bounds")
-      : requireCaptured(calibrationHome, "Home position");
-    const calibration = calculateSingleInstrumentZCalibration({
-      homeZ,
-      blockTouchZ: blockTouch.z,
-      blockHeight: height,
-      factoryZTravel,
-    });
-    const zReferenceValue = height;
-    const result = await gantryApi.setWorkCoordinates({ z: zReferenceValue });
-    const captured = requirePosition(result);
-    setZReference(captured);
-    setZCalibration(calibration);
-    if (isMulti && selectedLowest) {
-      setInstrumentPositions((prev) => ({ ...prev, [selectedLowest]: captured }));
+    let pending = pendingZReference.current;
+    if (!pending) {
+      const height = parseBlockHeight(blockHeight);
+      const factoryZTravel = getFactoryZTravel(config);
+      const blockTouch = requirePosition(await gantryApi.getPosition());
+      const homeZ = isMulti
+        ? requireCaptured(xyBounds, "Homed XY bounds")
+        : requireCaptured(calibrationHome, "Home position");
+      const calibration = calculateSingleInstrumentZCalibration({
+        homeZ,
+        blockTouchZ: blockTouch.z,
+        blockHeight: height,
+        factoryZTravel,
+      });
+      const result = await gantryApi.setWorkCoordinates({ z: height });
+      pending = {
+        blockTouch,
+        zReference: requirePosition(result),
+        calibration,
+        lowestInstrument: selectedLowest,
+      };
+      pendingZReference.current = pending;
+    }
+    setZReference(pending.zReference);
+    setZCalibration(pending.calibration);
+    if (isMulti && pending.lowestInstrument) {
+      setInstrumentPositions((prev) => ({ ...prev, [pending.lowestInstrument]: pending.zReference }));
       const recovered = await jogBlockingWithRecovery({ x: 0, y: 0, z: 15 }, 15);
       setStatusNote(
         recovered
-          ? `${formatCaptured(`Recorded ${selectedLowest}`, captured)}; recovered from a limit during Z retract.`
-          : formatCaptured(`Recorded ${selectedLowest} and retracted Z`, captured),
+          ? `${formatCaptured(`Recorded ${pending.lowestInstrument}`, pending.zReference)}; recovered from a limit during Z retract.`
+          : formatCaptured(`Recorded ${pending.lowestInstrument} and retracted Z`, pending.zReference),
       );
     } else {
       setStatusNote(
-        `${formatCaptured("Z reference set", captured)}; home-to-block travel=${calibration.homeToBlockTravel.toFixed(3)} mm; z min=${calibration.zMin.toFixed(3)} mm; expected home Z=${calibration.zMax.toFixed(3)} mm.`,
+        `${formatCaptured("Z reference set", pending.zReference)}; home-to-block travel=${pending.calibration.homeToBlockTravel.toFixed(3)} mm; z min=${pending.calibration.zMin.toFixed(3)} mm; expected home Z=${pending.calibration.zMax.toFixed(3)} mm.`,
       );
     }
     setStep(isMulti ? 5 : 3);
@@ -558,6 +702,7 @@ export default function CalibrationWizard({
   const jog = useCallback((x: number, y: number, z: number) => {
     if (!connected || busy || alarmRecoveryMessage || recoveryInProgress.current) return;
     rememberJogDelta({ x, y, z });
+    jogRequestCount.current += 1;
     gantryApi.jog(x, y, z).catch((err) => {
       if (looksLikeAlarm(errorMessage(err))) {
         void recoverFromLimitAlarm({ x, y, z }, err);
@@ -569,18 +714,35 @@ export default function CalibrationWizard({
 
   const startJog = (x: number, y: number, z: number) => {
     if (busy || alarmRecoveryMessage || recoveryInProgress.current) return;
-    stopJog();
+    if (jogTimer.current) {
+      stopJog();
+    } else {
+      jogRequestCount.current = 0;
+    }
     jog(x, y, z);
     jogTimer.current = setInterval(() => jog(x, y, z), JOG_INTERVAL_MS);
   };
 
-  const xy = Math.max(MIN_STEP, parseFloat(xyStep) || 0.5);
-  const z = Math.max(MIN_STEP, parseFloat(zStep) || 0.5);
+  const parsedXyStep = parsePositiveStep(xyStep);
+  const parsedZStep = parsePositiveStep(zStep);
+  const xy = parsedXyStep == null ? MIN_STEP : Math.max(MIN_STEP, parsedXyStep);
+  const z = parsedZStep == null ? MIN_STEP : Math.max(MIN_STEP, parsedZStep);
+  const stepInvalid = parsedXyStep == null || parsedZStep == null;
+  const xyBelowMin = parsedXyStep != null && parsedXyStep < MIN_STEP;
+  const zBelowMin = parsedZStep != null && parsedZStep < MIN_STEP;
 
   if (!open) return null;
 
   return (
-    <div style={overlayStyle} role="dialog" aria-modal="true" aria-label="Gantry calibration">
+    <div
+      ref={dialogRef}
+      style={overlayStyle}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Gantry calibration"
+      tabIndex={-1}
+      onKeyDown={handleDialogKeyDown}
+    >
       <div style={modalStyle}>
         <div style={headerStyle}>
           <div>
@@ -589,14 +751,23 @@ export default function CalibrationWizard({
               {filename || "No file selected"} · {isMulti ? "multi-instrument board" : "single-instrument deck origin"}
             </div>
           </div>
-          <button
-            onClick={close}
-            disabled={busy}
-            style={buttonStateStyle(closeButtonStyle, busy)}
-            aria-label="Close calibration"
-          >
-            ×
-          </button>
+          <div style={headerActionsStyle}>
+            <button
+              onClick={() => void reset()}
+              disabled={busy}
+              style={buttonStateStyle(buttonStyle, busy)}
+            >
+              Reset wizard
+            </button>
+            <button
+              onClick={close}
+              disabled={busy}
+              style={buttonStateStyle(closeButtonStyle, busy)}
+              aria-label="Close calibration"
+            >
+              ×
+            </button>
+          </div>
         </div>
 
         <div style={bodyStyle}>
@@ -644,7 +815,7 @@ export default function CalibrationWizard({
                   <label style={fieldStyle}>
                     <span style={labelStyle}>Output YAML</span>
                     <input
-                      value={normalizedOutput}
+                      value={outputFile}
                       onChange={(event) => setOutputFile(event.target.value)}
                       disabled={controlsLocked}
                       style={buttonStateStyle(inputStyle, controlsLocked)}
@@ -679,7 +850,6 @@ export default function CalibrationWizard({
                 </div>
                 <div style={actionRowStyle}>
                   <button onClick={goToHome} disabled={controlsLocked || !filename || instruments.length === 0} style={buttonStateStyle(primaryButtonStyle, controlsLocked || !filename || instruments.length === 0)}>Continue</button>
-                  <button onClick={resetFlow} disabled={busy} style={buttonStateStyle(buttonStyle, busy)}>Reset wizard</button>
                 </div>
               </div>
             )}
@@ -698,13 +868,13 @@ export default function CalibrationWizard({
 
             {!isMulti && step === 2 && (
               <div>
-                <h3 style={sectionTitleStyle}>Calibration Block Height</h3>
+                <h3 style={sectionTitleStyle}>Calibration Reference Height</h3>
                 <p style={instructionStyle}>
-                  Enter the height of the calibration block you are using.
+                  Enter the height of your calibration reference above the deck — the calibration block height, or the height of the surface you will touch (for example the top of a well plate, measured from the deck).
                 </p>
                 <div style={fieldRowStyle}>
                   <label style={fieldStyle}>
-                    <span style={labelStyle}>Block height (mm)</span>
+                    <span style={labelStyle}>Reference height (mm)</span>
                     <input
                       value={blockHeight}
                       onChange={(event) => setBlockHeight(event.target.value)}
@@ -715,7 +885,7 @@ export default function CalibrationWizard({
                   </label>
                 </div>
                 <div style={actionRowStyle}>
-                  <button onClick={() => continueFromBlockHeight("Move to the calibration block.", 3)} disabled={controlsLocked} style={buttonStateStyle(primaryButtonStyle, controlsLocked)}>Continue</button>
+                  <button onClick={() => continueFromBlockHeight("Move to the calibration reference.", 3)} disabled={controlsLocked} style={buttonStateStyle(primaryButtonStyle, controlsLocked)}>Continue</button>
                 </div>
               </div>
             )}
@@ -724,7 +894,7 @@ export default function CalibrationWizard({
               <div>
                 <h3 style={sectionTitleStyle}>Set Origin</h3>
                 <p style={instructionStyle}>
-                  Place the calibration block at the front-left deck corner. Jog the tool until it just touches the top of the block, then continue.
+                  Place your calibration reference at the front-left-most point your protocols will use — the calibration block at the deck corner, or a fixed feature such as the corner-most well of a plate. Jog the tool until it just touches the top of the reference surface, then continue.
                 </p>
                 <JogPanel
                   xyStep={xyStep}
@@ -737,9 +907,14 @@ export default function CalibrationWizard({
                   onStopJog={stopJog}
                   xy={xy}
                   z={z}
+                  stepInvalid={stepInvalid}
+                  xyStepInvalid={parsedXyStep == null}
+                  zStepInvalid={parsedZStep == null}
+                  xyBelowMin={xyBelowMin}
+                  zBelowMin={zBelowMin}
                 />
                 <div style={{ ...summaryGridStyle, marginTop: 14 }}>
-                  <Readout label="Block height" value={`${parseBlockHeight(blockHeight).toFixed(3)} mm`} />
+                  <Readout label="Reference height" value={`${parseBlockHeight(blockHeight).toFixed(3)} mm`} />
                 </div>
                 <div style={actionRowStyle}>
                   <button onClick={setSingleInstrumentOrigin} disabled={controlsLocked || !connected} style={buttonStateStyle(primaryButtonStyle, controlsLocked || !connected)}>Set origin and continue</button>
@@ -764,6 +939,11 @@ export default function CalibrationWizard({
                   onStopJog={stopJog}
                   xy={xy}
                   z={z}
+                  stepInvalid={stepInvalid}
+                  xyStepInvalid={parsedXyStep == null}
+                  zStepInvalid={parsedZStep == null}
+                  xyBelowMin={xyBelowMin}
+                  zBelowMin={zBelowMin}
                 />
                 <div style={actionRowStyle}>
                   <button onClick={setXY} disabled={controlsLocked || !connected} style={buttonStateStyle(primaryButtonStyle, controlsLocked || !connected)}>Set XY origin and continue</button>
@@ -776,7 +956,7 @@ export default function CalibrationWizard({
               <div>
                 <h3 style={sectionTitleStyle}>Calibration Block Height</h3>
                 <p style={instructionStyle}>
-                  Enter the height of the calibration block you are using. This sets the Z reference and the saved calibration block height.
+                  Enter the height of the calibration block you are using (or any rigid, flat-topped reference every instrument can reach). This sets the Z reference and the saved calibration block height.
                 </p>
                 <div style={fieldRowStyle}>
                   <label style={fieldStyle}>
@@ -819,6 +999,11 @@ export default function CalibrationWizard({
                   onStopJog={stopJog}
                   xy={xy}
                   z={z}
+                  stepInvalid={stepInvalid}
+                  xyStepInvalid={parsedXyStep == null}
+                  zStepInvalid={parsedZStep == null}
+                  xyBelowMin={xyBelowMin}
+                  zBelowMin={zBelowMin}
                 />
                 <div style={actionRowStyle}>
                   <button onClick={setZ} disabled={controlsLocked || !connected || !xyOrigin} style={buttonStateStyle(primaryButtonStyle, controlsLocked || !connected || !xyOrigin)}>
@@ -890,6 +1075,11 @@ export default function CalibrationWizard({
                       onStopJog={stopJog}
                       xy={xy}
                       z={z}
+                      stepInvalid={stepInvalid}
+                      xyStepInvalid={parsedXyStep == null}
+                      zStepInvalid={parsedZStep == null}
+                      xyBelowMin={xyBelowMin}
+                      zBelowMin={zBelowMin}
                     />
                     <div style={actionRowStyle}>
                       <button
@@ -950,6 +1140,11 @@ function JogPanel({
   onStopJog,
   xy,
   z,
+  stepInvalid,
+  xyStepInvalid,
+  zStepInvalid,
+  xyBelowMin,
+  zBelowMin,
 }: {
   xyStep: string;
   zStep: string;
@@ -961,14 +1156,20 @@ function JogPanel({
   onStopJog: () => void;
   xy: number;
   z: number;
+  stepInvalid: boolean;
+  xyStepInvalid: boolean;
+  zStepInvalid: boolean;
+  xyBelowMin: boolean;
+  zBelowMin: boolean;
 }) {
+  const jogLocked = disabled || alarmed || stepInvalid;
   const props = (x: number, y: number, dz: number) => ({
-    onMouseDown: () => !disabled && !alarmed && onStartJog(x, y, dz),
+    onMouseDown: () => !jogLocked && onStartJog(x, y, dz),
     onMouseUp: onStopJog,
     onMouseLeave: onStopJog,
     onTouchStart: (event: TouchEvent) => {
       event.preventDefault();
-      if (!disabled && !alarmed) onStartJog(x, y, dz);
+      if (!jogLocked) onStartJog(x, y, dz);
     },
     onTouchEnd: onStopJog,
   });
@@ -977,19 +1178,19 @@ function JogPanel({
     <div style={jogPanelStyle}>
       <div style={dpadStyle}>
         <div />
-        <button style={buttonStateStyle(jogButtonStyle, disabled || alarmed)} disabled={disabled || alarmed} {...props(0, xy, 0)} title="Y+">↑</button>
+        <button style={buttonStateStyle(jogButtonStyle, jogLocked)} disabled={jogLocked} {...props(0, xy, 0)} title="Y+">↑</button>
         <div />
-        <button style={buttonStateStyle(jogButtonStyle, disabled || alarmed)} disabled={disabled || alarmed} {...props(-xy, 0, 0)} title="X-">←</button>
+        <button style={buttonStateStyle(jogButtonStyle, jogLocked)} disabled={jogLocked} {...props(-xy, 0, 0)} title="X-">←</button>
         <div style={padCenterStyle}>XY</div>
-        <button style={buttonStateStyle(jogButtonStyle, disabled || alarmed)} disabled={disabled || alarmed} {...props(xy, 0, 0)} title="X+">→</button>
+        <button style={buttonStateStyle(jogButtonStyle, jogLocked)} disabled={jogLocked} {...props(xy, 0, 0)} title="X+">→</button>
         <div />
-        <button style={buttonStateStyle(jogButtonStyle, disabled || alarmed)} disabled={disabled || alarmed} {...props(0, -xy, 0)} title="Y-">↓</button>
+        <button style={buttonStateStyle(jogButtonStyle, jogLocked)} disabled={jogLocked} {...props(0, -xy, 0)} title="Y-">↓</button>
         <div />
       </div>
       <div style={zPadStyle}>
-        <button style={buttonStateStyle(jogButtonStyle, disabled || alarmed)} disabled={disabled || alarmed} {...props(0, 0, z)} title="Z+">Z+</button>
+        <button style={buttonStateStyle(jogButtonStyle, jogLocked)} disabled={jogLocked} {...props(0, 0, z)} title="Z+">Z+</button>
         <div style={padCenterStyle}>Z</div>
-        <button style={buttonStateStyle(jogButtonStyle, disabled || alarmed)} disabled={disabled || alarmed} {...props(0, 0, -z)} title="Z-">Z-</button>
+        <button style={buttonStateStyle(jogButtonStyle, jogLocked)} disabled={jogLocked} {...props(0, 0, -z)} title="Z-">Z-</button>
       </div>
       <div style={stepFieldsStyle}>
         <label style={stepFieldStyle}>
@@ -999,8 +1200,9 @@ function JogPanel({
             onChange={(event) => setXyStep(event.target.value)}
             disabled={disabled || alarmed}
             inputMode="decimal"
-            style={buttonStateStyle(smallInputStyle, disabled || alarmed)}
+            style={buttonStateStyle({ ...smallInputStyle, borderColor: xyStepInvalid || xyBelowMin ? "#dc2626" : undefined }, disabled || alarmed)}
           />
+          <StepPresetButtons axisLabel="XY" onSelect={setXyStep} disabled={disabled || alarmed} />
         </label>
         <label style={stepFieldStyle}>
           <span style={labelStyle}>Z mm</span>
@@ -1009,11 +1211,44 @@ function JogPanel({
             onChange={(event) => setZStep(event.target.value)}
             disabled={disabled || alarmed}
             inputMode="decimal"
-            style={buttonStateStyle(smallInputStyle, disabled || alarmed)}
+            style={buttonStateStyle({ ...smallInputStyle, borderColor: zStepInvalid || zBelowMin ? "#dc2626" : undefined }, disabled || alarmed)}
           />
+          <StepPresetButtons axisLabel="Z" onSelect={setZStep} disabled={disabled || alarmed} />
         </label>
+        {(stepInvalid || xyBelowMin || zBelowMin) && (
+          <div style={stepHintStyle}>
+            {stepInvalid ? "Enter step sizes greater than 0." : `Minimum jog step is ${MIN_STEP} mm.`}
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+function StepPresetButtons({
+  axisLabel,
+  disabled,
+  onSelect,
+}: {
+  axisLabel: string;
+  disabled: boolean;
+  onSelect: (value: string) => void;
+}) {
+  return (
+    <span style={stepPresetGroupStyle}>
+      {["0.1", "1", "10"].map((preset) => (
+        <button
+          key={preset}
+          type="button"
+          disabled={disabled}
+          onClick={() => onSelect(preset)}
+          aria-label={`Set ${axisLabel} step to ${preset} mm`}
+          style={buttonStateStyle(stepPresetButtonStyle, disabled)}
+        >
+          {preset}
+        </button>
+      ))}
+    </span>
   );
 }
 
@@ -1077,13 +1312,18 @@ function formatOptionalNumber(value: number | null | undefined): string {
   return value == null ? "" : String(value);
 }
 
+function parsePositiveStep(value: string): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 function parseBlockHeight(value: string): number {
   if (!value.trim()) {
-    throw new Error("Enter a calibration block height before continuing.");
+    throw new Error("Enter a calibration reference height before continuing.");
   }
   const height = Number(value);
   if (!Number.isFinite(height) || height <= 0) {
-    throw new Error("Calibration block height must be greater than 0.");
+    throw new Error("Calibration reference height must be greater than 0.");
   }
   return roundMm(height);
 }
@@ -1155,6 +1395,19 @@ function pluralize(count: number, noun: string): string {
   return count === 1 ? noun : `${noun}s`;
 }
 
+function getFocusableElements(root: HTMLElement): HTMLElement[] {
+  const selector = [
+    "button:not([disabled])",
+    "input:not([disabled])",
+    "select:not([disabled])",
+    "textarea:not([disabled])",
+    "a[href]",
+    "[tabindex]:not([tabindex='-1'])",
+  ].join(",");
+  return Array.from(root.querySelectorAll<HTMLElement>(selector))
+    .filter((element) => element.getAttribute("aria-hidden") !== "true");
+}
+
 function buttonStateStyle(base: React.CSSProperties, disabled: boolean): React.CSSProperties {
   if (!disabled) return base;
   return {
@@ -1186,7 +1439,7 @@ function allInstrumentPositionsReady(
 function stepLabels(isMulti: boolean): string[] {
   return isMulti
     ? ["Prepare", "Home", "XY origin", "Block height", "Z reference", "Instruments", "Save"]
-    : ["Prepare", "Home", "Block height", "Set origin", "Save"];
+    : ["Prepare", "Home", "Reference height", "Set origin", "Save"];
 }
 
 const overlayStyle: React.CSSProperties = {
@@ -1216,8 +1469,16 @@ const headerStyle: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "flex-start",
+  gap: 12,
   padding: "16px 18px",
   borderBottom: "1px solid #e5e7eb",
+};
+
+const headerActionsStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  flexShrink: 0,
 };
 
 const bodyStyle: React.CSSProperties = {
@@ -1511,6 +1772,27 @@ const stepFieldStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 6,
+};
+
+const stepHintStyle: React.CSSProperties = {
+  color: "#b91c1c",
+  fontSize: 11,
+};
+
+const stepPresetGroupStyle: React.CSSProperties = {
+  display: "inline-flex",
+  gap: 2,
+};
+
+const stepPresetButtonStyle: React.CSSProperties = {
+  border: "1px solid #cbd5e1",
+  background: "#fff",
+  color: "#334155",
+  borderRadius: 3,
+  cursor: "pointer",
+  padding: "3px 5px",
+  fontSize: 10,
+  lineHeight: 1.2,
 };
 
 const instrumentListStyle: React.CSSProperties = {

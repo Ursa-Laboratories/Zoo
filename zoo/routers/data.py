@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from pathlib import Path
+from sqlite3 import DatabaseError
 
 from data import (
     CampaignNotFoundError,
@@ -16,8 +17,6 @@ from data import (
     export_campaign_measurements_zip as cubos_export_campaign_measurements_zip,
     list_campaign_summaries,
 )
-from data.exports import _format_cell as _cubos_format_cell
-from data.exports import _json_array as _cubos_json_array
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 
@@ -43,8 +42,12 @@ def list_campaigns() -> list[CampaignSummary]:
     """Return campaign rows with simple measurement metadata."""
     try:
         summaries = list_campaign_summaries(_data_db_path())
+    except DataDatabaseNotFoundError:
+        return []
     except DataExportError as exc:
         raise _data_http_exception(exc) from exc
+    except DatabaseError as exc:
+        raise _unreadable_database_exception(exc) from exc
     return [CampaignSummary(**asdict(summary)) for summary in summaries]
 
 
@@ -58,6 +61,8 @@ def export_campaign_measurements_zip(campaign_id: int) -> Response:
         )
     except DataExportError as exc:
         raise _data_http_exception(exc) from exc
+    except DatabaseError as exc:
+        raise _unreadable_database_exception(exc) from exc
     filename = f"campaign_{campaign_id}_measurements.zip"
     return Response(
         content=content,
@@ -73,6 +78,8 @@ def export_campaign_asmi_zip(campaign_id: int) -> Response:
         content = cubos_export_campaign_asmi_zip(_data_db_path(), campaign_id)
     except DataExportError as exc:
         raise _data_http_exception(exc) from exc
+    except DatabaseError as exc:
+        raise _unreadable_database_exception(exc) from exc
     filename = f"campaign_{campaign_id}_asmi_raw_csvs.zip"
     return Response(
         content=content,
@@ -106,12 +113,5 @@ def _data_http_exception(exc: DataExportError) -> HTTPException:
     return HTTPException(500, str(exc))
 
 
-def _format_cell(value):
-    return _cubos_format_cell(value)
-
-
-def _json_array(value, field_name: str):
-    try:
-        return _cubos_json_array(value, field_name)
-    except MeasurementDataError as exc:
-        raise HTTPException(400, str(exc)) from exc
+def _unreadable_database_exception(exc: DatabaseError) -> HTTPException:
+    return HTTPException(400, f"Data database is unreadable: {exc}")

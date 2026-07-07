@@ -191,14 +191,14 @@ describe("calculateSingleInstrumentZCalibration", () => {
       blockTouchZ: 60,
       blockHeight: 0,
       factoryZTravel: 110,
-    })).toThrow("Calibration block height must be positive");
+    })).toThrow("Calibration reference height must be positive");
 
     expect(() => calculateSingleInstrumentZCalibration({
       homeZ: 110,
       blockTouchZ: 60,
       blockHeight: -5,
       factoryZTravel: 110,
-    })).toThrow("Calibration block height must be positive");
+    })).toThrow("Calibration reference height must be positive");
   });
 
   it("throws when factoryZTravel is zero or negative", () => {

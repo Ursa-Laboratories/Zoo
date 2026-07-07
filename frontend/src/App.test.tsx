@@ -7,9 +7,13 @@ import type {
   DeckConfig,
   DeckResponse,
   GantryConfig,
+  GantryPosition,
   GantryResponse,
   ProtocolConfig,
   ProtocolResponse,
+  ProtocolRunStatus,
+  WellPlateConfig,
+  WellPosition,
 } from "./types";
 
 type ApiState = {
@@ -20,6 +24,10 @@ type ApiState = {
 
 type FetchMockOptions = {
   protocolRun?: (init?: RequestInit) => Promise<Response>;
+  protocolCancel?: () => Response | Promise<Response>;
+  runStatus?: () => ProtocolRunStatus;
+  validateSetup?: () => Response | Promise<Response>;
+  calibrationWarning?: string | null;
 };
 
 function createState(): ApiState {
@@ -111,9 +119,25 @@ function toDeckResponse(filename: string, body: DeckConfig): DeckResponse {
     labware: Object.entries(body.labware).map(([key, config]) => ({
       key,
       config,
-      wells: null,
+      wells: config.type === "well_plate" ? previewWells(config) : null,
     })),
   };
+}
+
+function previewWells(config: WellPlateConfig): Record<string, WellPosition> {
+  const a1 = config.calibration.a1 ?? config.a1 ?? { x: 0, y: 0, z: 0 };
+  const wells: Record<string, WellPosition> = {};
+  for (let row = 0; row < config.rows; row += 1) {
+    const rowName = String.fromCharCode("A".charCodeAt(0) + row);
+    for (let column = 0; column < config.columns; column += 1) {
+      wells[`${rowName}${column + 1}`] = {
+        x: a1.x + column * config.x_offset,
+        y: a1.y - row * config.y_offset,
+        z: a1.z,
+      };
+    }
+  }
+  return wells;
 }
 
 function toGantryResponse(filename: string, body: GantryConfig): GantryResponse {
@@ -133,7 +157,7 @@ function toProtocolResponse(filename: string, body: ProtocolConfig): ProtocolRes
 
 function installFetchMock(state: ApiState, options: FetchMockOptions = {}) {
   let gantryConnected = false;
-  const gantryPosition = (x = 0, y = 0, z = 0) => ({
+  const gantryPosition = (x = 0, y = 0, z = 0): GantryPosition => ({
     x,
     y,
     z,
@@ -142,6 +166,8 @@ function installFetchMock(state: ApiState, options: FetchMockOptions = {}) {
     work_z: z,
     status: "Idle",
     connected: gantryConnected,
+    calibration_active: false,
+    calibration_warning: options.calibrationWarning ?? null,
   });
 
   const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -183,6 +209,15 @@ function installFetchMock(state: ApiState, options: FetchMockOptions = {}) {
         },
       });
     }
+    if (path === "/api/gantry/instrument-methods") {
+      return jsonResponse({
+        asmi: ["indentation", "measure"],
+        filmetrics: ["measure"],
+        pipette: [],
+        uv_curing: ["measure"],
+        uvvis_ccs: ["measure"],
+      });
+    }
     if (path === "/api/protocol/commands") {
       return jsonResponse([
         {
@@ -214,9 +249,14 @@ function installFetchMock(state: ApiState, options: FetchMockOptions = {}) {
       return jsonResponse({ status: "complete", steps_executed: 1, campaign_id: 123 });
     }
     if (path === "/api/protocol/cancel" && method === "POST") {
+      if (options.protocolCancel) return options.protocolCancel();
       return jsonResponse({ status: "cancel_requested" });
     }
+    if (path === "/api/protocol/run-status") {
+      return jsonResponse(options.runStatus ? options.runStatus() : { active: false, protocol_file: null });
+    }
     if (path === "/api/protocol/validate-setup" && method === "POST") {
+      if (options.validateSetup) return options.validateSetup();
       return jsonResponse({
         valid: true,
         errors: [],
@@ -228,6 +268,10 @@ function installFetchMock(state: ApiState, options: FetchMockOptions = {}) {
     }
     if (path === "/api/gantry/connect" && method === "POST") {
       gantryConnected = true;
+      return jsonResponse(gantryPosition());
+    }
+    if (path === "/api/gantry/disconnect" && method === "POST") {
+      gantryConnected = false;
       return jsonResponse(gantryPosition());
     }
     if (path === "/api/gantry/calibration/prepare-origin" && method === "POST") {
@@ -277,7 +321,7 @@ function installFetchMock(state: ApiState, options: FetchMockOptions = {}) {
       return jsonResponse({ status: "ok" });
     }
     if (path === "/api/deck/preview-wells" && method === "POST") {
-      return jsonResponse({});
+      return jsonResponse(previewWells(body as WellPlateConfig));
     }
 
     const [, api, kind, filename] = path.split("/");
@@ -377,6 +421,52 @@ describe("Zoo editor interactions", () => {
     await waitFor(() => expect(screen.getByDisplayValue("/mock/Zoo/selected-configs")).toBeInTheDocument());
   });
 
+  it("clears loaded config selections when the config directory changes", async () => {
+    const user = userEvent.setup();
+    installFetchMock(createState());
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+    expect(await screen.findByLabelText("Travel Z")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Browse" }));
+
+    await waitFor(() => expect(screen.getByDisplayValue("/mock/Zoo/selected-configs")).toBeInTheDocument());
+    expect(await screen.findByText("Please load Gantry, Deck configs first.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Travel Z")).not.toBeInTheDocument();
+  });
+
+  it("guards dirty config-directory changes", async () => {
+    const user = userEvent.setup();
+    const fetchMock = installFetchMock(createState());
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderApp();
+    await waitForSettingsLoad();
+
+    await user.click(screen.getByRole("button", { name: "Deck" }));
+    await importConfig(user, "Import deck config", "deck.yaml");
+    const nameField = await screen.findByDisplayValue("Deck Plate");
+    await user.clear(nameField);
+    await user.type(nameField, "Edited Plate");
+
+    await user.click(screen.getByRole("button", { name: "Browse" }));
+
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalledWith(
+      "Discard unsaved config changes and switch config directory?",
+    ));
+    expect(screen.getByDisplayValue("/mock/Zoo/configs")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Edited Plate")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/settings",
+      expect.objectContaining({ method: "PUT" }),
+    );
+
+    confirmSpy.mockRestore();
+  });
+
   it("loads and saves a gantry config across tab switches", async () => {
     const user = userEvent.setup();
     renderApp();
@@ -425,7 +515,27 @@ describe("Zoo editor interactions", () => {
 
     expect(await screen.findByDisplayValue("Deck Plate")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByPlaceholderText("panda-deck.yaml")).toBeInTheDocument());
-    expect(state.decks["panda-deck.yaml"]?.labware).toEqual(state.decks["deck.yaml"]?.labware);
+    expect(
+      state.decks["panda-deck.yaml"]?.labware.map(({ key, config }) => ({ key, config })),
+    ).toEqual(
+      state.decks["deck.yaml"]?.labware.map(({ key, config }) => ({ key, config })),
+    );
+  });
+
+  it("uses live preview wells for loaded deck edits before saving", async () => {
+    const user = userEvent.setup();
+    installFetchMock(createState());
+    renderApp();
+    await waitForSettingsLoad();
+
+    await user.click(screen.getByRole("button", { name: "Deck" }));
+    await importConfig(user, "Import deck config", "deck.yaml");
+    expect(await screen.findByText("A1: (10, 20, 30)")).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText("Calibration A1 X"));
+    await user.type(screen.getByLabelText("Calibration A1 X"), "111");
+
+    expect(await screen.findByText("A1: (111, 20, 30)")).toBeInTheDocument();
   });
 
   it("loads and saves gantry instruments across tab switches", async () => {
@@ -490,7 +600,7 @@ describe("Zoo editor interactions", () => {
 
     await user.click(screen.getByRole("button", { name: "Home gantry" }));
 
-    const blockHeight = await screen.findByLabelText("Block height (mm)");
+    const blockHeight = await screen.findByLabelText("Reference height (mm)");
     expect(blockHeight).toHaveValue("35");
     expect(blockHeight).toBeEnabled();
     await user.clear(blockHeight);
@@ -555,11 +665,11 @@ describe("Zoo editor interactions", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await user.click(screen.getByRole("button", { name: "Home gantry" }));
 
-    const blockHeight = await screen.findByLabelText("Block height (mm)");
+    const blockHeight = await screen.findByLabelText("Reference height (mm)");
     await user.clear(blockHeight);
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
-    expect(await screen.findByText("Enter a calibration block height before continuing.")).toBeInTheDocument();
+    expect(await screen.findByText("Enter a calibration reference height before continuing.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Set origin and continue" })).not.toBeInTheDocument();
   });
 
@@ -574,13 +684,49 @@ describe("Zoo editor interactions", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await user.click(screen.getByRole("button", { name: "Home gantry" }));
 
-    const blockHeight = await screen.findByLabelText("Block height (mm)");
+    const blockHeight = await screen.findByLabelText("Reference height (mm)");
     await user.clear(blockHeight);
     await user.type(blockHeight, "0");
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
-    expect(await screen.findByText("Calibration block height must be greater than 0.")).toBeInTheDocument();
+    expect(await screen.findByText("Calibration reference height must be greater than 0.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Set origin and continue" })).not.toBeInTheDocument();
+  });
+
+  it("reconnects after saving calibrated output to a different gantry filename", async () => {
+    const user = userEvent.setup();
+    const state = createState();
+    const fetchMock = installFetchMock(state);
+    renderApp();
+    await waitForSettingsLoad();
+
+    await importConfig(user, "Import gantry config", "cubos.yaml");
+    await user.click(await screen.findByRole("button", { name: "Calibrate" }));
+
+    const outputYaml = screen.getByLabelText("Output YAML");
+    await user.clear(outputYaml);
+    await user.type(outputYaml, "calibrated.yaml");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: "Home gantry" }));
+    await user.click(await screen.findByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByRole("button", { name: "Set origin and continue" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Gantry calibration" })).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/calibrated.yaml",
+      expect.objectContaining({ method: "PUT" }),
+    ));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/disconnect",
+      expect.objectContaining({ method: "POST" }),
+    ));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/gantry/connect",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ filename: "calibrated.yaml" }),
+      }),
+    ));
   });
 
   it("loads and saves a protocol config across tab switches", async () => {
@@ -673,6 +819,95 @@ describe("Zoo editor interactions", () => {
     );
   });
 
+  it("clears stale validation and blocks Validate while protocol edits are unsaved", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(fetch);
+
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+    await user.click(await screen.findByRole("button", { name: "Validate" }));
+    expect(await screen.findByText("Protocol is valid.")).toBeInTheDocument();
+
+    const travelZField = await screen.findByLabelText("Travel Z");
+    await user.clear(travelZField);
+    await user.type(travelZField, "12");
+
+    expect(screen.queryByText("Protocol is valid.")).not.toBeInTheDocument();
+
+    const callsBeforeDirtyValidate = fetchMock.mock.calls.length;
+    await user.click(screen.getByRole("button", { name: "Validate" }));
+
+    expect(await screen.findByText("Save your changes first — Validate checks the saved files.")).toBeInTheDocument();
+    const validateCallsAfterDirtyValidate = fetchMock.mock.calls
+      .slice(callsBeforeDirtyValidate)
+      .filter(([input]) => {
+        const url = new URL(
+          typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+          "http://localhost",
+        );
+        return url.pathname === "/api/protocol/validate-setup";
+      });
+    expect(validateCallsAfterDirtyValidate).toHaveLength(0);
+  });
+
+  it("surfaces Validate setup request failures", async () => {
+    const user = userEvent.setup();
+    installFetchMock(createState(), {
+      validateSetup: () => new Response(JSON.stringify({ detail: "validator unavailable" }), {
+        status: 500,
+        statusText: "Internal Server Error",
+        headers: { "Content-Type": "application/json" },
+      }),
+    });
+
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+    await user.click(await screen.findByRole("button", { name: "Validate" }));
+
+    expect(await screen.findByText("validator unavailable")).toBeInTheDocument();
+  });
+
+  it("guards Validate when no protocol file is selected", async () => {
+    const user = userEvent.setup();
+
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await user.click(await screen.findByRole("button", { name: "Validate" }));
+
+    expect(await screen.findByText("Select gantry, deck, and protocol files before setup validation.")).toBeInTheDocument();
+  });
+
+  it("surfaces saved-setup validation errors from CubOS", async () => {
+    const user = userEvent.setup();
+    installFetchMock(createState(), {
+      validateSetup: () => jsonResponse({
+        valid: false,
+        errors: ["step 2: unknown position"],
+      }),
+    });
+
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+    await user.click(await screen.findByRole("button", { name: "Validate" }));
+
+    expect(await screen.findByText("step 2: unknown position")).toBeInTheDocument();
+  });
+
   it("keeps Run Protocol disabled while the gantry is disconnected", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.mocked(fetch);
@@ -691,6 +926,26 @@ describe("Zoo editor interactions", () => {
       "/api/protocol/run",
       expect.anything(),
     );
+  });
+
+  it("disables Run Protocol and shows the calibration warning while connected", async () => {
+    const user = userEvent.setup();
+    const fetchMock = installFetchMock(createState(), {
+      calibrationWarning: "Finish gantry calibration before running protocols.",
+    });
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+    await connectGantry(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+
+    expect(await screen.findAllByText("Finish gantry calibration before running protocols.")).not.toHaveLength(0);
+    const runButton = screen.getByRole("button", { name: "Run Protocol" });
+    expect(runButton).toBeDisabled();
+    await user.click(runButton);
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/protocol/run", expect.anything());
   });
 
   it("blocks Run Protocol after editing a loaded protocol until the change is saved", async () => {
@@ -744,13 +999,42 @@ describe("Zoo editor interactions", () => {
     expect(screen.getByLabelText("Last Campaign")).toHaveValue("#123");
   });
 
-  it("shows a red cancel control while a protocol run is pending", async () => {
+  it("surfaces protocol run failures and re-enables Run Protocol", async () => {
     const user = userEvent.setup();
+    installFetchMock(createState(), {
+      protocolRun: async () => new Response("Gantry lost connection", {
+        status: 500,
+        statusText: "Internal Server Error",
+      }),
+    });
+
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+    await connectGantry(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+    await user.click(await screen.findByRole("button", { name: "Run Protocol" }));
+
+    expect(await screen.findByText("Gantry lost connection")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Run Protocol" })).toBeEnabled());
+    expect(screen.queryByRole("button", { name: "Running..." })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancelling..." })).not.toBeInTheDocument();
+  });
+
+  it("keeps the run pending after cancel until the protocol request settles", async () => {
+    const user = userEvent.setup();
+    let resolveRun!: (response: Response) => void;
+    let runSignal: AbortSignal | undefined;
     const fetchMock = installFetchMock(createState(), {
-      protocolRun: (init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener("abort", () => {
-          reject(new DOMException("Aborted", "AbortError"));
-        });
+      protocolRun: (init?: RequestInit) => new Promise<Response>((resolve) => {
+        runSignal = init?.signal ?? undefined;
+        resolveRun = resolve;
+      }),
+      protocolCancel: () => jsonResponse({
+        status: "cancel_requested",
+        warning: "sent but not acknowledged",
       }),
     });
     renderApp();
@@ -772,7 +1056,35 @@ describe("Zoo editor interactions", () => {
       "/api/protocol/cancel",
       expect.objectContaining({ method: "POST" }),
     ));
-    expect(await screen.findByText("Protocol cancellation requested.")).toBeInTheDocument();
+    expect(runSignal).toBeUndefined();
+    expect(await screen.findAllByText(/sent but not acknowledged/i)).not.toHaveLength(0);
+    expect(screen.getAllByRole("button", { name: "Cancelling..." }).every((button) => button.hasAttribute("disabled"))).toBe(true);
+    expect(screen.getByRole("button", { name: "Cancelling — waiting for protocol to stop" })).toBeDisabled();
+
+    resolveRun(jsonResponse({ status: "complete", steps_executed: 1, campaign_id: 123 }));
+
+    expect(await screen.findByText(/campaign #123 created/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancelling — waiting for protocol to stop" })).not.toBeInTheDocument();
+  });
+
+  it("shows a protocol-running sidebar banner outside the Protocol tab", async () => {
+    const user = userEvent.setup();
+    const fetchMock = installFetchMock(createState(), {
+      runStatus: () => ({ active: true, protocol_file: "move.yaml" }),
+    });
+    renderApp();
+    await waitForSettingsLoad();
+
+    await user.click(screen.getByRole("button", { name: "Deck" }));
+
+    expect(await screen.findByText("● Protocol running…")).toBeInTheDocument();
+    expect(screen.getByText("Protocol running — manual control locked")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/protocol/cancel",
+      expect.objectContaining({ method: "POST" }),
+    ));
   });
 
   it("blocks Run Protocol when an unsaved edit lives in another tab (Deck)", async () => {
@@ -872,5 +1184,134 @@ describe("Zoo editor interactions", () => {
     expect(screen.getByLabelText(/Instrument/)).toHaveValue("asmi");
     expect(screen.getByLabelText(/^Measurement \*$/)).toHaveValue("indentation");
     expect(screen.getByLabelText("Force limit (N)")).toHaveValue("10");
+  });
+
+  it("guards discarding unsaved deck edits when switching the imported file", async () => {
+    const user = userEvent.setup();
+    const state = createState();
+    state.decks["deck2.yaml"] = {
+      filename: "deck2.yaml",
+      labware: [
+        {
+          key: "plate_2",
+          config: { ...state.decks["deck.yaml"].labware[0].config, name: "Second Deck Plate" },
+          wells: null,
+        },
+      ],
+    };
+    installFetchMock(state);
+    renderApp();
+    await waitForSettingsLoad();
+
+    await user.click(screen.getByRole("button", { name: "Deck" }));
+    await importConfig(user, "Import deck config", "deck.yaml");
+    const nameField = await screen.findByDisplayValue("Deck Plate");
+    await user.clear(nameField);
+    await user.type(nameField, "Edited Plate");
+
+    // Cancelling the confirm keeps the edits and the current file.
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    await importConfig(user, "Import deck config", "deck2.yaml");
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(confirmSpy.mock.calls[0][0]).toContain("panda-deck.yaml");
+    expect(screen.getByDisplayValue("Edited Plate")).toBeInTheDocument();
+
+    // Confirming discards the edit and switches to the newly imported file.
+    confirmSpy.mockReturnValueOnce(true);
+    await importConfig(user, "Import deck config", "deck2.yaml");
+    expect(await screen.findByDisplayValue("Second Deck Plate")).toBeInTheDocument();
+
+    confirmSpy.mockRestore();
+  });
+
+  it("guards discarding unsaved gantry edits when switching the imported file", async () => {
+    const user = userEvent.setup();
+    const state = createState();
+    state.gantries["cubos2.yaml"] = {
+      filename: "cubos2.yaml",
+      config: { ...state.gantries["cubos.yaml"].config, serial_port: "/dev/ttyUSB-second" },
+    };
+    installFetchMock(state);
+    renderApp();
+    await waitForSettingsLoad();
+
+    await importConfig(user, "Import gantry config", "cubos.yaml");
+    const serialPort = await screen.findByLabelText("Serial port");
+    await user.type(serialPort, "-edited");
+
+    // Cancelling the confirm keeps the edits and the current file. (The
+    // field now shows a per-field amber "*" since it differs from the
+    // saved baseline, so match loosely.)
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    await importConfig(user, "Import gantry config", "cubos2.yaml");
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(screen.getByLabelText(/^Serial port/)).toHaveValue("-edited");
+
+    // Confirming discards the edit and switches to the newly imported file.
+    confirmSpy.mockReturnValueOnce(true);
+    await importConfig(user, "Import gantry config", "cubos2.yaml");
+    await waitFor(() => expect(screen.getByLabelText("Serial port")).toHaveValue("/dev/ttyUSB-second"));
+
+    confirmSpy.mockRestore();
+  });
+
+  it("guards discarding unsaved protocol edits when switching the imported file", async () => {
+    const user = userEvent.setup();
+    const state = createState();
+    state.protocols["move2.yaml"] = {
+      filename: "move2.yaml",
+      positions: { staging: [5, 5, 5] },
+      steps: [{ command: "move", args: { instrument: "pipette_1", position: "plate_1.A1", travel_z: 9 } }],
+    };
+    installFetchMock(state);
+    renderApp();
+    await waitForSettingsLoad();
+    await loadRequiredProtocolDependencies(user);
+
+    await user.click(screen.getByRole("button", { name: "Protocol" }));
+    await importConfig(user, "Import protocol config", "move.yaml");
+    const travelZField = await screen.findByLabelText("Travel Z");
+    await user.clear(travelZField);
+    await user.type(travelZField, "77");
+
+    // Cancelling the confirm keeps the edits and the current file.
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    await importConfig(user, "Import protocol config", "move2.yaml");
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(screen.getByLabelText("Travel Z")).toHaveValue("77");
+
+    // Confirming discards the edit and switches to the newly imported file.
+    confirmSpy.mockReturnValueOnce(true);
+    await importConfig(user, "Import protocol config", "move2.yaml");
+    await waitFor(() => expect(screen.getByLabelText("Travel Z")).toHaveValue("9"));
+
+    confirmSpy.mockRestore();
+  });
+
+  it("guards page unload while any editor has unsaved edits", async () => {
+    const user = userEvent.setup();
+    installFetchMock(createState());
+    renderApp();
+    await waitForSettingsLoad();
+
+    const cleanEvent = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(cleanEvent);
+    expect(cleanEvent.defaultPrevented).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Deck" }));
+    await importConfig(user, "Import deck config", "deck.yaml");
+    const nameField = await screen.findByDisplayValue("Deck Plate");
+    await user.type(nameField, "!");
+
+    const dirtyEvent = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(dirtyEvent);
+    expect(dirtyEvent.defaultPrevented).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+
+    const afterSaveEvent = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(afterSaveEvent);
+    expect(afterSaveEvent.defaultPrevented).toBe(false);
   });
 });

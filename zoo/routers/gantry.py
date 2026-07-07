@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import inspect
 import logging
+import threading
 from dataclasses import asdict, is_dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, get_origin, get_type_hints
 
 import yaml
 from fastapi import APIRouter, HTTPException
@@ -20,6 +21,7 @@ from gantry.session import (
     InterruptFeedHoldTimeoutError,
     MovementOutOfBoundsError,
 )
+from gantry.limit_recovery import looks_like_limit_alarm
 from gantry.yaml_schema import GantryYamlSchema
 from instruments.base_instrument import BaseInstrument
 from instruments.pipette.models import PIPETTE_MODELS
@@ -37,6 +39,21 @@ from zoo.services.yaml_io import list_configs, read_yaml, resolve_config_path, w
 router = APIRouter(prefix="/api/gantry", tags=["gantry"])
 
 _session: GantrySession | None = None
+
+# Session-lifecycle locking (not business logic): guards creation of the
+# module-level session against concurrent /connect calls, and the run-state
+# gate below guards against motion requests queuing behind a long-running
+# protocol. See tests/test_architecture_boundaries.py for the rationale
+# behind why this is allowed despite the general router-lock ban.
+_session_create_lock = threading.Lock()
+
+# Run-in-progress gate: `session.run_protocol` holds the CubOS session lock
+# for the whole run (hours). Without this gate, motion endpoints would block
+# on that lock as sync `def`s on the AnyIO threadpool and then fire *after*
+# the run finishes — surprise motion. Endpoints check `run_active()` and
+# reject with 409 instead of queuing.
+_run_state: Dict[str, Any] = {"active": False, "campaign_id": None, "protocol_file": None}
+_run_state_lock = threading.Lock()
 
 _PRIMITIVE_TYPES = {str, int, float, bool}
 _BASE_PARAMS = {
@@ -162,9 +179,10 @@ def current_session() -> GantrySession | None:
 
 def _get_or_create_session() -> GantrySession:
     global _session
-    if _session is None:
-        _session = GantrySession()
-    return _session
+    with _session_create_lock:
+        if _session is None:
+            _session = GantrySession()
+        return _session
 
 
 def _require_session() -> GantrySession:
@@ -174,8 +192,68 @@ def _require_session() -> GantrySession:
     return session
 
 
-def _position_response(snapshot: GantryPositionSnapshot) -> GantryPosition:
-    return GantryPosition(**asdict(snapshot))
+def reset_session() -> None:
+    """Clear the module-level session. Used by app lifespan on shutdown."""
+    global _session
+    _session = None
+
+
+def begin_run(*, campaign_id: Any = None, protocol_file: str | None = None) -> None:
+    """Mark a protocol run as in-progress. Raises 409 if one is already active."""
+    with _run_state_lock:
+        if _run_state["active"]:
+            raise HTTPException(409, "A protocol run is already in progress")
+        _run_state["active"] = True
+        _run_state["campaign_id"] = campaign_id
+        _run_state["protocol_file"] = protocol_file
+
+
+def end_run() -> None:
+    """Clear the run-in-progress gate."""
+    with _run_state_lock:
+        _run_state["active"] = False
+        _run_state["campaign_id"] = None
+        _run_state["protocol_file"] = None
+
+
+def run_active() -> bool:
+    with _run_state_lock:
+        return _run_state["active"]
+
+
+def run_status() -> Dict[str, Any]:
+    with _run_state_lock:
+        return {
+            "active": _run_state["active"],
+            "protocol_file": _run_state["protocol_file"],
+        }
+
+
+def _reject_if_run_active() -> None:
+    if run_active():
+        raise HTTPException(409, "Gantry is busy running a protocol")
+
+
+def _session_calibration_active(session: GantrySession | None) -> bool:
+    if session is None:
+        return False
+    # CubOS does not expose a public calibration-state accessor yet. Zoo only
+    # reflects these session flags so a refreshed UI can warn before motion.
+    return bool(
+        getattr(session, "_calibration_jog_bypass_working_volume", False)
+        or getattr(session, "_calibration_restore_soft_limits", False)
+    )
+
+
+def _position_response(
+    snapshot: GantryPositionSnapshot,
+    *,
+    session: GantrySession | None = None,
+) -> GantryPosition:
+    return GantryPosition(
+        **asdict(snapshot),
+        calibration_active=_session_calibration_active(session or current_session()),
+    )
 
 
 def _session_http_exception(exc: Exception, *, default_action: str) -> HTTPException:
@@ -188,7 +266,7 @@ def _session_http_exception(exc: Exception, *, default_action: str) -> HTTPExcep
     if isinstance(exc, GantrySessionHealthCheckError):
         return HTTPException(400, str(exc))
     if isinstance(exc, MovementOutOfBoundsError):
-        status_code = 409 if "require" in str(exc).lower() else 400
+        status_code = 409 if _movement_requires_operator_reconnect(exc) else 400
         return HTTPException(status_code, str(exc))
     if isinstance(exc, GantryAlarmError):
         return HTTPException(409, str(exc))
@@ -197,6 +275,19 @@ def _session_http_exception(exc: Exception, *, default_action: str) -> HTTPExcep
     if isinstance(exc, GantrySessionError):
         return HTTPException(500, str(exc))
     return HTTPException(500, f"{default_action} failed: {exc}")
+
+
+def _movement_requires_operator_reconnect(exc: MovementOutOfBoundsError) -> bool:
+    message = str(exc).lower()
+    return any(
+        token in message
+        for token in (
+            "require a loaded gantry working_volume",
+            "requires a loaded gantry working_volume",
+            "checks require current gantry position",
+            "checks require finite current gantry",
+        )
+    )
 
 
 def _type_name(annotation: Any) -> str:
@@ -242,6 +333,59 @@ def _build_instrument_fields(type_key: str, vendor: str) -> List[InstrumentField
             )
         )
     return fields
+
+
+def _return_annotation(method: Any) -> Any:
+    try:
+        return get_type_hints(method).get(
+            "return",
+            inspect.signature(method).return_annotation,
+        )
+    except Exception:
+        return inspect.signature(method).return_annotation
+
+
+def _is_protocol_measurement_return(annotation: Any) -> bool:
+    if annotation is inspect.Signature.empty or annotation is None or annotation is type(None):
+        return False
+
+    origin = get_origin(annotation)
+    if annotation is dict or origin is dict:
+        return True
+
+    module = getattr(annotation, "__module__", "")
+    name = getattr(annotation, "__name__", "")
+    if module == "instruments.asmi.models" and name == "MeasurementResult":
+        return True
+    if module == "instruments.filmetrics.models" and name == "MeasurementResult":
+        return True
+    if module == "instruments.uv_curing.models" and name == "CureResult":
+        return True
+    if module == "instruments.uvvis_ccs.models" and name == "UVVisSpectrum":
+        return True
+    if module == "instruments.potentiostat.models" and hasattr(annotation, "technique"):
+        return True
+    return False
+
+
+def _measurement_method_sort_key(name: str) -> tuple[int, str]:
+    if name == "indentation":
+        return (0, name)
+    if name == "measure":
+        return (1, name)
+    return (2, name)
+
+
+def _measurement_methods_for_type(type_key: str) -> List[str]:
+    methods: set[str] = set()
+    for vendor in get_supported_vendors(type_key):
+        cls = get_instrument_class(type_key, vendor)
+        for method_name, method in inspect.getmembers(cls, predicate=inspect.isfunction):
+            if method_name.startswith("_"):
+                continue
+            if _is_protocol_measurement_return(_return_annotation(method)):
+                methods.add(method_name)
+    return sorted(methods, key=_measurement_method_sort_key)
 
 
 def _validated_gantry_config(data: Dict[str, Any]) -> GantryYamlSchema:
@@ -308,6 +452,14 @@ def get_instrument_schemas() -> Dict[str, Dict[str, List[InstrumentFieldInfo]]]:
     }
 
 
+@router.get("/instrument-methods")
+def get_instrument_methods() -> Dict[str, List[str]]:
+    return {
+        type_key: _measurement_methods_for_type(type_key)
+        for type_key in get_supported_types()
+    }
+
+
 @router.get("/position")
 def get_position() -> GantryPosition:
     session = current_session()
@@ -318,14 +470,17 @@ def get_position() -> GantryPosition:
 
 @router.post("/home")
 def home() -> GantryPosition:
+    _reject_if_run_active()
+    session = _require_session()
     try:
-        return _position_response(_require_session().home())
+        return _position_response(session.home(), session=session)
     except Exception as exc:
         raise _session_http_exception(exc, default_action="Homing") from exc
 
 
 @router.post("/jog")
 def jog(req: JogRequest) -> dict:
+    _reject_if_run_active()
     try:
         _require_session().jog(x=req.x, y=req.y, z=req.z)
     except Exception as exc:
@@ -336,6 +491,7 @@ def jog(req: JogRequest) -> dict:
 
 @router.post("/move-to")
 def move_to(req: MoveToRequest) -> dict:
+    _reject_if_run_active()
     try:
         _require_session().move_to(x=req.x, y=req.y, z=req.z)
     except Exception as exc:
@@ -345,9 +501,12 @@ def move_to(req: MoveToRequest) -> dict:
 
 @router.post("/move-to-blocking")
 def move_to_blocking(req: MoveToRequest) -> GantryPosition:
+    _reject_if_run_active()
+    session = _require_session()
     try:
         return _position_response(
-            _require_session().move_to_blocking(x=req.x, y=req.y, z=req.z)
+            session.move_to_blocking(x=req.x, y=req.y, z=req.z),
+            session=session,
         )
     except Exception as exc:
         raise _session_http_exception(exc, default_action="Move") from exc
@@ -355,14 +514,17 @@ def move_to_blocking(req: MoveToRequest) -> GantryPosition:
 
 @router.post("/jog-blocking")
 def jog_blocking(req: JogBlockingRequest) -> GantryPosition:
+    _reject_if_run_active()
+    session = _require_session()
     try:
         return _position_response(
-            _require_session().jog_blocking(
+            session.jog_blocking(
                 x=req.x,
                 y=req.y,
                 z=req.z,
                 timeout_s=req.timeout_s,
-            )
+            ),
+            session=session,
         )
     except Exception as exc:
         raise _session_http_exception(exc, default_action="Jog") from exc
@@ -370,9 +532,11 @@ def jog_blocking(req: JogBlockingRequest) -> GantryPosition:
 
 @router.post("/work-coordinates")
 def set_work_coordinates(req: SetWorkCoordinatesRequest) -> GantryPosition:
+    session = _require_session()
     try:
         return _position_response(
-            _require_session().set_work_coordinates(x=req.x, y=req.y, z=req.z)
+            session.set_work_coordinates(x=req.x, y=req.y, z=req.z),
+            session=session,
         )
     except Exception as exc:
         raise _session_http_exception(
@@ -401,8 +565,10 @@ def configure_soft_limits(req: ConfigureSoftLimitsRequest) -> dict:
 
 @router.post("/calibration/prepare-origin")
 def prepare_calibration_origin() -> GantryPosition:
+    _reject_if_run_active()
+    session = _require_session()
     try:
-        return _position_response(_require_session().prepare_calibration_origin())
+        return _position_response(session.prepare_calibration_origin(), session=session)
     except Exception as exc:
         raise _session_http_exception(
             exc, default_action="Calibration preparation"
@@ -411,6 +577,7 @@ def prepare_calibration_origin() -> GantryPosition:
 
 @router.post("/calibration/home-and-center")
 def calibration_home_and_center() -> CalibrationCenterResponse:
+    _reject_if_run_active()
     try:
         result = _require_session().calibration_home_and_center()
     except Exception as exc:
@@ -423,8 +590,13 @@ def calibration_home_and_center() -> CalibrationCenterResponse:
 
 @router.post("/calibration/restore-soft-limits")
 def restore_calibration_soft_limits() -> GantryPosition:
+    _reject_if_run_active()
+    session = _require_session()
     try:
-        return _position_response(_require_session().restore_calibration_soft_limits())
+        return _position_response(
+            session.restore_calibration_soft_limits(),
+            session=session,
+        )
     except Exception as exc:
         raise _session_http_exception(
             exc, default_action="Soft-limit restore"
@@ -433,6 +605,7 @@ def restore_calibration_soft_limits() -> GantryPosition:
 
 @router.post("/calibration/finalize-origin")
 def finalize_calibration_origin(req: FinalizeOriginRequest) -> FinalizeOriginResponse:
+    _reject_if_run_active()
     try:
         result = _require_session().finalize_calibration_origin(
             home_z=req.home_z,
@@ -465,8 +638,16 @@ def recover_calibration_limit(req: LimitRecoveryRequest) -> LimitRecoveryRespons
             pull_off_mm=req.pull_off_mm,
             feed_rate=req.feed_rate,
         )
+    except ValueError as exc:
+        raise _session_http_exception(exc, default_action="Limit recovery") from exc
+    except GantryAlarmError as exc:
+        raise HTTPException(
+            409,
+            "Limit recovery did not clear the gantry alarm. "
+            f"Use E-stop/controller reset before continuing: {exc}",
+        ) from exc
     except Exception as exc:
-        if "alarm" in str(exc).lower() or "limit" in str(exc).lower():
+        if looks_like_limit_alarm(exc):
             raise HTTPException(
                 409,
                 "Limit recovery did not clear the gantry alarm. "
@@ -483,32 +664,36 @@ def recover_calibration_limit(req: LimitRecoveryRequest) -> LimitRecoveryRespons
 
 @router.post("/unlock")
 def unlock() -> GantryPosition:
+    session = _require_session()
     try:
-        return _position_response(_require_session().unlock())
+        return _position_response(session.unlock(), session=session)
     except Exception as exc:
         raise _session_http_exception(exc, default_action="Unlock") from exc
 
 
 @router.post("/reset-unlock")
 def reset_and_unlock() -> GantryPosition:
+    session = _require_session()
     try:
-        return _position_response(_require_session().reset_and_unlock())
+        return _position_response(session.reset_and_unlock(), session=session)
     except Exception as exc:
         raise _session_http_exception(exc, default_action="Reset and unlock") from exc
 
 
 @router.post("/feed-hold")
 def feed_hold() -> GantryPosition:
+    session = _require_session()
     try:
-        return _position_response(_require_session().feed_hold())
+        return _position_response(session.feed_hold(), session=session)
     except Exception as exc:
         raise _session_http_exception(exc, default_action="Feed hold") from exc
 
 
 @router.post("/jog-cancel")
 def jog_cancel() -> GantryPosition:
+    session = _require_session()
     try:
-        return _position_response(_require_session().jog_cancel())
+        return _position_response(session.jog_cancel(), session=session)
     except Exception as exc:
         raise _session_http_exception(exc, default_action="Jog cancel") from exc
 
@@ -534,6 +719,8 @@ def set_grbl_setting(req: SetGrblSettingRequest) -> GrblSettingsResponse:
 @router.post("/connect")
 def connect(body: Optional[ConnectRequest] = None) -> GantryPosition:
     session = _get_or_create_session()
+    if session.connected:
+        raise HTTPException(409, "Gantry already connected; disconnect first")
     try:
         filename, path = _selected_gantry_path(body.filename if body else None)
         snapshot = session.connect(path, filename=filename)
@@ -543,7 +730,7 @@ def connect(body: Optional[ConnectRequest] = None) -> GantryPosition:
         raise HTTPException(400, f"Invalid gantry config: {exc}") from exc
     except Exception as exc:
         raise HTTPException(500, f"Failed to connect: {exc}") from exc
-    return _position_response(snapshot)
+    return _position_response(snapshot, session=session)
 
 
 @router.post("/disconnect")
@@ -552,14 +739,17 @@ def disconnect() -> GantryPosition:
     if session is None:
         return GantryPosition(connected=False, status="Disconnected")
     try:
-        return _position_response(session.disconnect())
+        return _position_response(session.disconnect(), session=session)
     except Exception as exc:
         raise _session_http_exception(exc, default_action="Disconnect") from exc
 
 
 @router.get("/{filename}")
 def get_gantry(filename: str) -> GantryResponse:
-    path = resolve_config_path(get_settings().configs_dir, "gantry", filename)
+    try:
+        path = resolve_config_path(get_settings().configs_dir, "gantry", filename)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     if not path.is_file():
         raise HTTPException(404, f"Config not found: {filename}")
     try:
@@ -572,8 +762,8 @@ def get_gantry(filename: str) -> GantryResponse:
 
 @router.put("/{filename}")
 def put_gantry(filename: str, body: dict) -> GantryResponse:
-    path = resolve_config_path(get_settings().configs_dir, "gantry", filename)
     try:
+        path = resolve_config_path(get_settings().configs_dir, "gantry", filename)
         config = _validated_gantry_config(body)
     except (ValueError, ValidationError) as exc:
         raise HTTPException(400, str(exc)) from exc

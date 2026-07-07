@@ -44,6 +44,14 @@ export function useInstrumentSchemas() {
   });
 }
 
+export function useInstrumentMethods() {
+  return useQuery({
+    queryKey: ["gantry", "instrument-methods"],
+    queryFn: gantryApi.getInstrumentMethods,
+    staleTime: Infinity,
+  });
+}
+
 export function useGantry(filename: string | null) {
   return useQuery({
     queryKey: ["gantry", filename],

@@ -28,7 +28,14 @@ function Invoke-LoggedNative {
     )
 
     Write-Log "> $FilePath $($Arguments -join ' ')"
-    & $FilePath @Arguments 2>&1 | Tee-Object -FilePath $LogPath -Append
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $FilePath @Arguments 2>&1 | Tee-Object -FilePath $LogPath -Append
+    }
+    finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "$FilePath $($Arguments -join ' ') failed with exit code $LASTEXITCODE"
     }

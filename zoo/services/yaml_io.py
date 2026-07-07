@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
+from collections.abc import MutableMapping
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import yaml
+from ruamel.yaml import YAML
+from ruamel.yaml.error import YAMLError
 
 log = logging.getLogger(__name__)
+_yaml = YAML(typ="rt")
+_yaml.default_flow_style = False
+_yaml.preserve_quotes = True
 
 
 class YamlConfigError(ValueError):
@@ -18,19 +25,60 @@ class YamlConfigError(ValueError):
 def read_yaml(path: Path) -> Dict[str, Any]:
     try:
         with path.open() as f:
-            data = yaml.safe_load(f)
-    except yaml.YAMLError as exc:
+            data = _yaml.load(f)
+    except YAMLError as exc:
         raise YamlConfigError(f"Invalid YAML in {path.name}: {exc}") from exc
-    return data if data is not None else {}
+    if data is None:
+        return {}
+    if not isinstance(data, MutableMapping):
+        raise YamlConfigError(f"{path.name} is not a YAML mapping")
+    return data
 
 
 def write_yaml(path: Path, data: Dict[str, Any]) -> None:
-    with path.open("w") as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            delete=False,
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+            _yaml.dump(data, tmp)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path is not None and tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
 
 
-def classify_config(data: Dict[str, Any]) -> Optional[str]:
+def atomic_write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            delete=False,
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+            tmp.write(content)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path is not None and tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+
+
+def classify_config(data: Any) -> Optional[str]:
     """Classify a YAML config by its top-level keys."""
+    if not isinstance(data, MutableMapping):
+        return None
     if "labware" in data:
         return "deck"
     if "working_volume" in data:
@@ -40,8 +88,27 @@ def classify_config(data: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def safe_filename(filename: str) -> str:
+    """Validate that ``filename`` is a bare filename with no path components.
+
+    Raises ``ValueError`` if ``filename`` is empty, ``.``/``..``, or contains
+    any path separator (including a backslash, which pathlib on POSIX treats
+    as a plain character but which Windows treats as a directory separator —
+    URL-encoded backslashes otherwise slip through route matching and let a
+    ``configs_dir / filename`` join escape the configs directory).
+    """
+    if filename in ("", ".", ".."):
+        raise ValueError(f"Invalid filename: {filename!r}")
+    if "/" in filename or "\\" in filename:
+        raise ValueError(f"Invalid filename: {filename!r}")
+    if Path(filename).name != filename:
+        raise ValueError(f"Invalid filename: {filename!r}")
+    return filename
+
+
 def resolve_config_path(configs_dir: Path, kind: str, filename: str) -> Path:
     """Return the full path for a config file, using the subdirectory if it exists."""
+    filename = safe_filename(filename)
     sub = configs_dir / kind
     if sub.is_dir():
         return sub / filename

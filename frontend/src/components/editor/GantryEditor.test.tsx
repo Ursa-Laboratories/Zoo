@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -73,6 +73,7 @@ function renderGantry(overrides: Partial<React.ComponentProps<typeof GantryEdito
     configs: ["cubos.yaml"],
     selectedFile: "cubos.yaml" as string | null,
     onSelectFile: vi.fn(),
+    onImportFile: vi.fn(),
     gantry,
     baseline: gantry,
     instrumentTypes: INSTRUMENT_TYPES,
@@ -99,6 +100,7 @@ function renderStatefulGantry(initial: GantryResponse = gantryFixture()) {
         configs={["cubos.yaml"]}
         selectedFile="cubos.yaml"
         onSelectFile={onSelectFile}
+        onImportFile={vi.fn()}
         gantry={gantry}
         baseline={initial}
         instrumentTypes={INSTRUMENT_TYPES}
@@ -236,6 +238,35 @@ describe("GantryEditor", () => {
     expect(await screen.findByLabelText(/Dll Path/)).toHaveValue("/opt/asmi.dll");
   });
 
+  it("remaps vendor and schema defaults when an instrument type changes", async () => {
+    const { onLocalChange } = renderStatefulGantry();
+
+    const asmiType = screen
+      .getAllByLabelText(/^Type/)
+      .find((input) => (input as HTMLInputElement).value === "asmi");
+    expect(asmiType).toBeDefined();
+
+    fireEvent.change(asmiType!, { target: { value: "pipette" } });
+
+    await waitFor(() => expect(onLocalChange).toHaveBeenCalled());
+
+    const lastPayload = onLocalChange.mock.lastCall?.[0] as GantryResponse;
+    expect(lastPayload.config.instruments.asmi_1).toEqual(expect.objectContaining({
+      type: "pipette",
+      vendor: "opentrons",
+      offset_x: 0,
+      offset_y: 0,
+      depth: 0,
+      port: "/dev/ttyUSB0",
+    }));
+    expect(lastPayload.config.instruments.asmi_1.vendor).not.toBe("vernier");
+    // Stale ASMI-only schema fields must not leak into the pipette instrument.
+    expect(lastPayload.config.instruments.asmi_1).not.toHaveProperty("mode");
+    expect(lastPayload.config.instruments.asmi_1).not.toHaveProperty("enabled");
+    expect(lastPayload.config.instruments.asmi_1).not.toHaveProperty("gain");
+    expect(lastPayload.config.instruments.asmi_1).not.toHaveProperty("label");
+  });
+
   it("disables Save when the working volume is invalid", async () => {
     const user = userEvent.setup();
     renderGantry();
@@ -254,6 +285,65 @@ describe("GantryEditor", () => {
     expect(props.onSave).toHaveBeenCalledWith("cubos.yaml", expect.objectContaining({ serial_port: "/dev/ttyUSB0" }));
     expect(props.onSelectFile).toHaveBeenCalledWith("cubos.yaml");
   });
+
+  it("shows a save-failed banner and clears it on the next edit or successful save", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn()
+      .mockRejectedValueOnce(new Error("400: bad gantry"))
+      .mockResolvedValueOnce(undefined);
+    renderGantry({ onSave });
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(/Save failed/i)).toHaveTextContent("400: bad gantry");
+
+    // Any further edit clears the stale error, even before a retry.
+    await user.type(screen.getByLabelText("Serial port"), "9");
+    expect(screen.queryByText(/Save failed/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText(/Save failed/i)).not.toBeInTheDocument();
+  });
+
+  it("discards local edits back to the last-saved baseline and notifies the parent", async () => {
+    const user = userEvent.setup();
+    const onRefresh = vi.fn();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderGantry({ dirty: true, onRefresh });
+
+    // Per-field dirty markers (an amber "*") append to the accessible
+    // name once the value diverges from baseline, hence the loose match.
+    const serialPort = screen.getByLabelText("Serial port");
+    await user.clear(serialPort);
+    await user.type(serialPort, "/dev/ttyUSB9");
+    expect(screen.getByLabelText(/^Serial port/)).toHaveValue("/dev/ttyUSB9");
+
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(onRefresh).toHaveBeenCalled();
+    expect(screen.getByLabelText("Serial port")).toHaveValue("/dev/ttyUSB0");
+
+    confirmSpy.mockRestore();
+  });
+
+  it("keeps edits when the user cancels the discard confirm", async () => {
+    const user = userEvent.setup();
+    const onRefresh = vi.fn();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderGantry({ dirty: true, onRefresh });
+
+    const serialPort = screen.getByLabelText("Serial port");
+    await user.clear(serialPort);
+    await user.type(serialPort, "/dev/ttyUSB9");
+
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+
+    expect(onRefresh).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(/^Serial port/)).toHaveValue("/dev/ttyUSB9");
+
+    confirmSpy.mockRestore();
+  });
 });
 
 function renderProps() {
@@ -262,6 +352,7 @@ function renderProps() {
     configs: ["cubos.yaml"],
     selectedFile: "cubos.yaml" as string | null,
     onSelectFile: vi.fn(),
+    onImportFile: vi.fn(),
     gantry,
     baseline: gantry,
     instrumentTypes: INSTRUMENT_TYPES,

@@ -1,5 +1,5 @@
 import type { WellPlateConfig, WellPosition } from "../../types";
-import { machineToSvg } from "../../utils/coordinates";
+import { machineToSvg, mmToSvgPixels } from "../../utils/coordinates";
 
 interface Props {
   config: WellPlateConfig;
@@ -18,7 +18,7 @@ export default function WellPlateRenderer({
   machineXRange,
   machineYRange,
 }: Props) {
-  const wellRadius = 3;
+  const wellRadius = Math.max(1.5, mmToSvgPixels(3, svgWidth, svgHeight, machineXRange, machineYRange));
   const wellEntries = Object.values(wells);
   if (wellEntries.length === 0) return null;
 
@@ -78,4 +78,3 @@ export default function WellPlateRenderer({
     </g>
   );
 }
-

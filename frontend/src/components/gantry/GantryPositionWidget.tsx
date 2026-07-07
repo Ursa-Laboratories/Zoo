@@ -8,10 +8,12 @@ interface Props {
   workingVolume: WorkingVolume | null;
   gantryFile: string | null;
   gantry: GantryResponse | null;
+  isRunning?: boolean;
   onSaveCalibrated: (filename: string, config: GantryConfig) => Promise<void>;
 }
 
 const JOG_INTERVAL_MS = 150;
+const MIN_STEP = 0.001;
 
 type AxisPosition = {
   x: number;
@@ -24,26 +26,35 @@ export default function GantryPositionWidget({
   workingVolume,
   gantryFile,
   gantry,
+  isRunning = false,
   onSaveCalibrated,
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [jogBusy, setJogBusy] = useState(false);
+  const [homeBusy, setHomeBusy] = useState(false);
   const [calibrationOpen, setCalibrationOpen] = useState(false);
   const [stepXY, setStepXY] = useState("0.5");
   const [stepZ, setStepZ] = useState("0.5");
   const [moveX, setMoveX] = useState("");
   const [moveY, setMoveY] = useState("");
   const [moveZ, setMoveZ] = useState("");
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const [lastCommandError, setLastCommandError] = useState<string | null>(null);
+  const [limitHint, setLimitHint] = useState<string | null>(null);
+  const [savedCalibrationMessage, setSavedCalibrationMessage] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [advancedBusy, setAdvancedBusy] = useState(false);
   const [advancedMessage, setAdvancedMessage] = useState<string | null>(null);
   const [advancedError, setAdvancedError] = useState<string | null>(null);
+  const [restoreBusy, setRestoreBusy] = useState(false);
   const [grblSettings, setGrblSettings] = useState<Record<string, string> | null>(null);
   const [settingKey, setSettingKey] = useState("$20");
   const [settingValue, setSettingValue] = useState("");
   const jogTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const jogRequestCount = useRef(0);
   const predictedJogPosition = useRef<AxisPosition | null>(null);
+  const limitHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const configSelected = !!gantryFile;
   const connected = configSelected && (position?.connected ?? false);
@@ -51,37 +62,74 @@ export default function GantryPositionWidget({
   const isAlarm = status.toLowerCase().includes("alarm");
   const isMoving = status === "Run" || status === "Jog";
   const calibrationWarning = connected ? position?.calibration_warning : null;
+  const calibrationInterrupted = connected && !calibrationOpen && (position?.calibration_active ?? false);
 
   useEffect(() => {
+    if (jogTimer.current) return;
     predictedJogPosition.current = currentWorkPosition(position);
   }, [position]);
 
+  useEffect(() => {
+    if (position?.move_error) {
+      setLastCommandError(position.move_error);
+    }
+  }, [position?.move_error]);
+
+  useEffect(() => () => {
+    if (limitHintTimer.current) {
+      clearTimeout(limitHintTimer.current);
+    }
+  }, []);
+
+  const showLimitHint = useCallback(() => {
+    setLimitHint("At working-volume limit");
+    if (limitHintTimer.current) {
+      clearTimeout(limitHintTimer.current);
+    }
+    limitHintTimer.current = setTimeout(() => setLimitHint(null), 1800);
+  }, []);
+
   const jog = useCallback((x: number, y: number, z: number): boolean => {
-    if (!connected) return false;
+    if (!connected || isRunning || jogBusy || homeBusy) return false;
     if (workingVolume) {
       const base = predictedJogPosition.current ?? currentWorkPosition(position);
       if (base) {
         const target = { x: base.x + x, y: base.y + y, z: base.z + z };
         if (!isInsideWorkingVolume(target, workingVolume)) {
+          showLimitHint();
           return false;
         }
         predictedJogPosition.current = target;
       }
     }
-    gantryApi.jog(x, y, z).catch((e) => console.error("Jog failed:", e));
+    jogRequestCount.current += 1;
+    gantryApi.jog(x, y, z)
+      .then(() => {
+        setLastCommandError(null);
+      })
+      .catch((e) => setLastCommandError(errorMessage(e)));
     return true;
-  }, [connected, position, workingVolume]);
+  }, [connected, homeBusy, isRunning, jogBusy, position, showLimitHint, workingVolume]);
 
   const stopJog = useCallback(() => {
+    const shouldCancelJog = jogTimer.current !== null && jogRequestCount.current > 1;
     if (jogTimer.current) {
       clearInterval(jogTimer.current);
       jogTimer.current = null;
     }
+    if (shouldCancelJog) {
+      gantryApi.jogCancel().catch(() => undefined);
+    }
+    jogRequestCount.current = 0;
   }, []);
 
   const startJog = useCallback((x: number, y: number, z: number) => {
+    if (jogTimer.current) {
+      stopJog();
+    } else {
+      jogRequestCount.current = 0;
+    }
     if (!jog(x, y, z)) return;
-    if (jogTimer.current) clearInterval(jogTimer.current);
     jogTimer.current = setInterval(() => {
       if (!jog(x, y, z)) {
         stopJog();
@@ -91,6 +139,12 @@ export default function GantryPositionWidget({
 
   // Clean up on unmount
   useEffect(() => () => stopJog(), [stopJog]);
+
+  useEffect(() => {
+    if (calibrationOpen || isRunning) {
+      stopJog();
+    }
+  }, [calibrationOpen, isRunning, stopJog]);
 
   useEffect(() => {
     if (!connected) {
@@ -103,17 +157,24 @@ export default function GantryPositionWidget({
   // Keyboard support: arrow keys for XY, X/Z for Z axis
   useEffect(() => {
     const held = new Set<string>();
+    const releaseHeldJog = () => {
+      held.clear();
+      stopJog();
+    };
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (!connected) return;
-      // Don't capture if user is typing in an input
-      if ((e.target as HTMLElement).tagName === "INPUT") return;
+      if (!connected || calibrationOpen || isRunning || jogBusy || homeBusy) return;
+      if (isEditableTarget(e.target)) return;
       const key = e.key;
       if (held.has(key)) return; // already held
+
+      const parsedXY = parsePositiveStep(stepXY);
+      const parsedZ = parsePositiveStep(stepZ);
+      if (parsedXY == null || parsedZ == null) return;
       held.add(key);
 
-      const xy = Math.max(0.001, parseFloat(stepXY) || 0.5);
-      const z = Math.max(0.001, parseFloat(stepZ) || 0.5);
+      const xy = Math.max(MIN_STEP, parsedXY);
+      const z = Math.max(MIN_STEP, parsedZ);
 
       switch (key) {
         case "ArrowLeft":  e.preventDefault(); startJog(-xy, 0, 0); break;
@@ -132,13 +193,23 @@ export default function GantryPositionWidget({
       }
     };
 
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        releaseHeldJog();
+      }
+    };
+
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", releaseHeldJog);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", releaseHeldJog);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [connected, stepXY, stepZ, startJog, stopJog]);
+  }, [calibrationOpen, connected, homeBusy, isRunning, jogBusy, stepXY, stepZ, startJog, stopJog]);
 
   const handleConnect = async () => {
     if (!gantryFile) return;
@@ -164,18 +235,20 @@ export default function GantryPositionWidget({
   };
 
   const handleUnlock = async () => {
-    if (!connected) return;
+    if (!connected || isRunning) return;
     setJogBusy(true);
     try {
       await gantryApi.unlock();
+      setLastCommandError(null);
     } catch (e) {
-      console.error("Unlock failed:", e);
+      setLastCommandError(errorMessage(e));
+    } finally {
+      setJogBusy(false);
     }
-    setJogBusy(false);
   };
 
   const runAdvancedAction = async (label: string, action: () => Promise<void>) => {
-    if (!connected) return;
+    if (!connected || isRunning) return;
     setAdvancedBusy(true);
     setAdvancedMessage(null);
     setAdvancedError(null);
@@ -207,6 +280,20 @@ export default function GantryPositionWidget({
     await gantryApi.unlock();
   });
 
+  const restoreInterruptedCalibration = async () => {
+    if (!connected || isRunning || restoreBusy) return;
+    stopJog();
+    setRestoreBusy(true);
+    setLastCommandError(null);
+    try {
+      await gantryApi.restoreCalibrationSoftLimits();
+    } catch (e) {
+      setLastCommandError(errorMessage(e));
+    } finally {
+      setRestoreBusy(false);
+    }
+  };
+
   const feedHold = () => runAdvancedAction("Feed hold sent.", async () => {
     await gantryApi.feedHold();
   });
@@ -216,28 +303,31 @@ export default function GantryPositionWidget({
   });
 
   const handleHome = async () => {
-    if (!connected) return;
+    if (!connected || isRunning) return;
     if (!window.confirm("Confirm you want to go to home?")) return;
-    setJogBusy(true);
+    setHomeBusy(true);
     try {
       await gantryApi.home();
+      setLastCommandError(null);
     } catch (e) {
-      console.error("Homing failed:", e);
+      setLastCommandError(errorMessage(e));
+    } finally {
+      setHomeBusy(false);
     }
-    setJogBusy(false);
   };
 
   const handleMoveTo = () => {
-    if (!connected) return;
-    const x = parseFloat(moveX);
-    const y = parseFloat(moveY);
-    const z = parseFloat(moveZ);
-    if (isNaN(x) || isNaN(y) || isNaN(z)) {
-      alert("Enter valid X, Y, and Z coordinates");
+    if (!connected || isRunning) return;
+    setMoveError(null);
+    const x = Number(moveX);
+    const y = Number(moveY);
+    const z = Number(moveZ);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+      setMoveError("Enter valid X, Y, and Z coordinates.");
       return;
     }
     if (x < 0 || y < 0 || z < 0) {
-      alert("Coordinates must be positive (user space)");
+      setMoveError("Coordinates must be 0 or greater.");
       return;
     }
     if (workingVolume) {
@@ -250,7 +340,7 @@ export default function GantryPositionWidget({
         value < min || value > max
       ));
       if (violations.length > 0) {
-        alert(
+        setMoveError(
           `Move target outside working volume: ${violations
             .map(([axis, value, min, max]) => `${axis}=${Number(value).toFixed(3)} outside [${Number(min).toFixed(3)}, ${Number(max).toFixed(3)}]`)
             .join("; ")}`,
@@ -258,17 +348,28 @@ export default function GantryPositionWidget({
         return;
       }
     }
-    gantryApi.moveTo(x, y, z).catch((e) => alert(`Move failed: ${e}`));
+    gantryApi.moveTo(x, y, z)
+      .then(() => {
+        setMoveError(null);
+        setLastCommandError(null);
+      })
+      .catch((e) => setLastCommandError(errorMessage(e)));
   };
 
   // 800 steps/mm → min 0.00125mm; clamp to 0.001mm floor
-  const MIN_STEP = 0.001;
-  const xyStep = Math.max(MIN_STEP, parseFloat(stepXY) || 0.5);
-  const zStep = Math.max(MIN_STEP, parseFloat(stepZ) || 0.5);
-  const xyBelowMin = (parseFloat(stepXY) || 0) > 0 && (parseFloat(stepXY) || 0) < MIN_STEP;
-  const zBelowMin = (parseFloat(stepZ) || 0) > 0 && (parseFloat(stepZ) || 0) < MIN_STEP;
-  const jogDisabled = !connected || jogBusy;
+  const parsedXYStep = parsePositiveStep(stepXY);
+  const parsedZStep = parsePositiveStep(stepZ);
+  const xyStep = parsedXYStep == null ? MIN_STEP : Math.max(MIN_STEP, parsedXYStep);
+  const zStep = parsedZStep == null ? MIN_STEP : Math.max(MIN_STEP, parsedZStep);
+  const xyBelowMin = parsedXYStep != null && parsedXYStep < MIN_STEP;
+  const zBelowMin = parsedZStep != null && parsedZStep < MIN_STEP;
+  const stepInvalid = parsedXYStep == null || parsedZStep == null;
+  const homeDisabled = !connected || jogBusy || homeBusy || isRunning;
+  const jogDisabled = homeDisabled || stepInvalid;
+  const moveDisabled = !connected || isMoving || isRunning;
+  const advancedDisabled = !connected || advancedBusy || isRunning;
   const canCalibrate = !!gantry;
+  const canOpenCalibration = canCalibrate && !isRunning;
 
   const jogBtnProps = (x: number, y: number, z: number) => ({
     onMouseDown: () => !jogDisabled && startJog(x, y, z),
@@ -277,6 +378,15 @@ export default function GantryPositionWidget({
     onTouchStart: (e: React.TouchEvent) => { e.preventDefault(); if (!jogDisabled) startJog(x, y, z); },
     onTouchEnd: stopJog,
   });
+
+  const handleSaveCalibrated = useCallback(async (filename: string, config: GantryConfig) => {
+    await onSaveCalibrated(filename, config);
+    const volume = config.working_volume;
+    setSavedCalibrationMessage(
+      `Saved ${filename} — X ${formatRange(volume.x_min, volume.x_max)}, Y ${formatRange(volume.y_min, volume.y_max)}, Z ${formatRange(volume.z_min, volume.z_max)} mm`,
+    );
+    setLastCommandError(null);
+  }, [onSaveCalibrated]);
 
   // Status color and label
   const statusColor = isAlarm ? "#dc2626" : status === "Idle" ? "#22c55e" : status === "Run" || status === "Jog" ? "#2563eb" : "#888";
@@ -320,7 +430,7 @@ export default function GantryPositionWidget({
           </span>
           <button
             onClick={handleUnlock}
-            disabled={jogBusy}
+            disabled={jogBusy || isRunning}
             style={{
               background: "#dc2626",
               color: "#fff",
@@ -353,8 +463,55 @@ export default function GantryPositionWidget({
           <span style={{ color: "#92400e", fontSize: 11 }}>
             {calibrationWarning}
           </span>
+          <button
+            onClick={() => setCalibrationOpen(true)}
+            disabled={!canOpenCalibration}
+            style={buttonStateStyle(calibrationBannerButtonStyle, !canOpenCalibration)}
+          >
+            Calibrate now
+          </button>
         </div>
       )}
+
+      {calibrationInterrupted && (
+        <div style={interruptedCalibrationStyle}>
+          <span style={{ color: "#dc2626", fontWeight: 800, fontSize: 13 }}>CALIBRATION INTERRUPTED</span>
+          <span style={{ color: "#991b1b", fontSize: 11 }}>
+            Calibration interrupted — soft limits are disabled
+          </span>
+          <button
+            onClick={restoreInterruptedCalibration}
+            disabled={restoreBusy || isRunning}
+            style={buttonStateStyle(interruptedCalibrationButtonStyle, restoreBusy || isRunning)}
+          >
+            {restoreBusy ? "Restoring..." : "Restore soft limits"}
+          </button>
+        </div>
+      )}
+
+      {isRunning && (
+        <div style={runLockStyle}>Protocol running — manual control locked</div>
+      )}
+
+      {savedCalibrationMessage && (
+        <div style={successStyle}>{savedCalibrationMessage}</div>
+      )}
+
+      {lastCommandError && (
+        <div role="alert" style={commandErrorStyle}>
+          <span>{lastCommandError}</span>
+          <button
+            type="button"
+            aria-label="Dismiss command error"
+            onClick={() => setLastCommandError(null)}
+            style={dismissErrorButtonStyle}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {limitHint && <div style={limitHintStyle}>{limitHint}</div>}
 
       {/* Top row: D-pad + Z on left, XYZ readout on right */}
       <div style={{ display: "flex", gap: 24, marginBottom: 12 }}>
@@ -405,8 +562,9 @@ export default function GantryPositionWidget({
                 inputMode="decimal"
                 value={stepXY}
                 onChange={(e) => setStepXY(e.target.value)}
-                style={{ ...inputStyle, width: 48, fontSize: 11, padding: "2px 4px", borderColor: xyBelowMin ? "#dc2626" : "#ccc" }}
+                style={{ ...inputStyle, width: 48, fontSize: 11, padding: "2px 4px", borderColor: parsedXYStep == null || xyBelowMin ? "#dc2626" : "#ccc" }}
               />
+              <StepPresetButtons onSelect={setStepXY} axisLabel="XY" />
             </label>
             <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
               <span style={{ color: "#888" }}>Z mm</span>
@@ -415,11 +573,14 @@ export default function GantryPositionWidget({
                 inputMode="decimal"
                 value={stepZ}
                 onChange={(e) => setStepZ(e.target.value)}
-                style={{ ...inputStyle, width: 48, fontSize: 11, padding: "2px 4px", borderColor: zBelowMin ? "#dc2626" : "#ccc" }}
+                style={{ ...inputStyle, width: 48, fontSize: 11, padding: "2px 4px", borderColor: parsedZStep == null || zBelowMin ? "#dc2626" : "#ccc" }}
               />
+              <StepPresetButtons onSelect={setStepZ} axisLabel="Z" />
             </label>
-            {(xyBelowMin || zBelowMin) && (
-              <span style={{ color: "#dc2626", fontSize: 10, alignSelf: "center" }}>min {MIN_STEP}mm</span>
+            {(stepInvalid || xyBelowMin || zBelowMin) && (
+              <span style={{ color: "#dc2626", fontSize: 10, alignSelf: "center" }}>
+                {stepInvalid ? "Enter step sizes greater than 0" : `min ${MIN_STEP}mm`}
+              </span>
             )}
           </div>
         </div>
@@ -457,18 +618,18 @@ export default function GantryPositionWidget({
 
       {/* Home and calibration */}
       <div style={{ marginBottom: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button onClick={handleHome} disabled={jogDisabled} style={homeBtnStyle}>
-          Home
+        <button onClick={handleHome} disabled={homeDisabled} style={buttonStateStyle(homeBtnStyle, homeDisabled)}>
+          {homeBusy ? "Homing…" : "Home"}
         </button>
         <button
           onClick={() => setCalibrationOpen(true)}
-          disabled={!canCalibrate}
+          disabled={!canOpenCalibration}
           style={{
             ...calibrateBtnStyle,
-            opacity: canCalibrate ? 1 : 0.45,
-            cursor: canCalibrate ? "pointer" : "not-allowed",
+            opacity: canOpenCalibration ? 1 : 0.45,
+            cursor: canOpenCalibration ? "pointer" : "not-allowed",
           }}
-          title={canCalibrate ? "Open gantry calibration" : "Load a gantry config first"}
+          title={canOpenCalibration ? "Open gantry calibration" : isRunning ? "Protocol running" : "Load a gantry config first"}
         >
           Calibrate
         </button>
@@ -491,33 +652,35 @@ export default function GantryPositionWidget({
               const value = axis === "X" ? moveX : axis === "Y" ? moveY : moveZ;
               return (
                 <label key={axis} style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 11 }}>
-                  <span style={{ color: "#888" }}>{axis}</span>
+                  <span style={{ color: "#888" }}>{axis} (mm)</span>
                   <input
                     type="text"
                     inputMode="decimal"
                     value={value}
                     onChange={(e) => setter(e.target.value)}
-                    placeholder="0"
-                    style={{ ...inputStyle, width: 52, fontSize: 11, padding: "3px 4px" }}
+                    placeholder={workingVolume ? axisRangePlaceholder(axis, workingVolume) : "mm"}
+                    disabled={moveDisabled}
+                    style={buttonStateStyle({ ...inputStyle, width: 70, fontSize: 11, padding: "3px 4px" }, moveDisabled)}
                   />
                 </label>
               );
             })}
             <button
               onClick={handleMoveTo}
-              disabled={!connected || isMoving}
+              disabled={moveDisabled}
               style={{
                 ...btnStyle,
                 background: "#2563eb",
                 color: "#fff",
                 border: "1px solid #2563eb",
                 fontWeight: 600,
-                opacity: isMoving ? 0.6 : 1,
+                opacity: moveDisabled ? 0.6 : 1,
               }}
             >
               {isMoving ? "Moving..." : "Go"}
             </button>
           </div>
+          {moveError && <div style={moveErrorStyle}>{moveError}</div>}
         </div>
       )}
 
@@ -549,19 +712,19 @@ export default function GantryPositionWidget({
       {advancedOpen && (
         <div style={advancedPanelStyle}>
           <div style={advancedGridStyle}>
-            <button onClick={readGrblSettings} disabled={!connected || advancedBusy} style={buttonStateStyle(btnStyle, !connected || advancedBusy)}>
+            <button onClick={readGrblSettings} disabled={advancedDisabled} style={buttonStateStyle(btnStyle, advancedDisabled)}>
               Read GRBL Settings
             </button>
-            <button onClick={clearAlarmAdvanced} disabled={!connected || advancedBusy} style={buttonStateStyle(btnStyle, !connected || advancedBusy)}>
+            <button onClick={clearAlarmAdvanced} disabled={advancedDisabled} style={buttonStateStyle(btnStyle, advancedDisabled)}>
               Clear Alarm
             </button>
-            <button onClick={resetAndUnlock} disabled={!connected || advancedBusy} style={buttonStateStyle(warnBtnStyle, !connected || advancedBusy)}>
+            <button onClick={resetAndUnlock} disabled={advancedDisabled} style={buttonStateStyle(warnBtnStyle, advancedDisabled)}>
               Reset + Unlock
             </button>
-            <button onClick={feedHold} disabled={!connected || advancedBusy} style={buttonStateStyle(warnBtnStyle, !connected || advancedBusy)}>
+            <button onClick={feedHold} disabled={advancedDisabled} style={buttonStateStyle(warnBtnStyle, advancedDisabled)}>
               Feed Hold
             </button>
-            <button onClick={cancelJog} disabled={!connected || advancedBusy} style={buttonStateStyle(btnStyle, !connected || advancedBusy)}>
+            <button onClick={cancelJog} disabled={advancedDisabled} style={buttonStateStyle(btnStyle, advancedDisabled)}>
               Cancel Jog
             </button>
           </div>
@@ -571,7 +734,7 @@ export default function GantryPositionWidget({
               <input
                 value={settingKey}
                 onChange={(event) => setSettingKey(event.target.value)}
-                disabled={!connected || advancedBusy}
+                disabled={advancedDisabled}
                 style={inputStyle}
                 placeholder="$20"
               />
@@ -581,12 +744,12 @@ export default function GantryPositionWidget({
               <input
                 value={settingValue}
                 onChange={(event) => setSettingValue(event.target.value)}
-                disabled={!connected || advancedBusy}
+                disabled={advancedDisabled}
                 style={inputStyle}
                 placeholder="0"
               />
             </label>
-            <button onClick={applyGrblSetting} disabled={!connected || advancedBusy || !settingKey.trim() || !settingValue.trim()} style={buttonStateStyle(primarySmallBtnStyle, !connected || advancedBusy || !settingKey.trim() || !settingValue.trim())}>
+            <button onClick={applyGrblSetting} disabled={advancedDisabled || !settingKey.trim() || !settingValue.trim()} style={buttonStateStyle(primarySmallBtnStyle, advancedDisabled || !settingKey.trim() || !settingValue.trim())}>
               Send Setting
             </button>
           </div>
@@ -615,9 +778,33 @@ export default function GantryPositionWidget({
         onClose={() => setCalibrationOpen(false)}
         gantry={gantry}
         position={position}
-        onSaveCalibrated={onSaveCalibrated}
+        onSaveCalibrated={handleSaveCalibrated}
       />
     </div>
+  );
+}
+
+function StepPresetButtons({
+  axisLabel,
+  onSelect,
+}: {
+  axisLabel: string;
+  onSelect: (value: string) => void;
+}) {
+  return (
+    <span style={stepPresetGroupStyle}>
+      {["0.1", "1", "10"].map((preset) => (
+        <button
+          key={preset}
+          type="button"
+          onClick={() => onSelect(preset)}
+          aria-label={`Set ${axisLabel} step to ${preset} mm`}
+          style={stepPresetButtonStyle}
+        >
+          {preset}
+        </button>
+      ))}
+    </span>
   );
 }
 
@@ -643,6 +830,35 @@ function isInsideWorkingVolume(position: AxisPosition, volume: WorkingVolume): b
     && position.z >= volume.z_min
     && position.z <= volume.z_max
   );
+}
+
+function parsePositiveStep(value: string): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  return !!target.closest("input, select, textarea, button, [contenteditable='true']");
+}
+
+function formatRange(min: number, max: number): string {
+  return `${formatMm(min)}–${formatMm(max)}`;
+}
+
+function formatMm(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function axisRangePlaceholder(axis: "X" | "Y" | "Z", volume: WorkingVolume): string {
+  if (axis === "X") return formatRange(volume.x_min, volume.x_max);
+  if (axis === "Y") return formatRange(volume.y_min, volume.y_max);
+  return formatRange(volume.z_min, volume.z_max);
 }
 
 const coordStyle: React.CSSProperties = {
@@ -759,6 +975,122 @@ const advancedMessageStyle: React.CSSProperties = {
 const advancedErrorStyle: React.CSSProperties = {
   color: "#b91c1c",
   fontSize: 11,
+};
+
+const runLockStyle: React.CSSProperties = {
+  border: "1px solid #fbbf24",
+  background: "#fffbeb",
+  color: "#92400e",
+  borderRadius: 4,
+  padding: "7px 10px",
+  fontSize: 12,
+  fontWeight: 700,
+  marginBottom: 10,
+};
+
+const interruptedCalibrationStyle: React.CSSProperties = {
+  border: "1px solid #dc2626",
+  background: "#fef2f2",
+  color: "#991b1b",
+  borderRadius: 4,
+  padding: "8px 12px",
+  marginBottom: 12,
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  flexWrap: "wrap",
+};
+
+const interruptedCalibrationButtonStyle: React.CSSProperties = {
+  background: "#dc2626",
+  color: "#fff",
+  border: "1px solid #dc2626",
+  borderRadius: 4,
+  padding: "4px 10px",
+  cursor: "pointer",
+  fontSize: 12,
+  fontWeight: 700,
+  marginLeft: "auto",
+};
+
+const successStyle: React.CSSProperties = {
+  border: "1px solid #86efac",
+  background: "#f0fdf4",
+  color: "#166534",
+  borderRadius: 4,
+  padding: "7px 10px",
+  fontSize: 12,
+  marginBottom: 10,
+};
+
+const commandErrorStyle: React.CSSProperties = {
+  border: "1px solid #fca5a5",
+  background: "#fef2f2",
+  color: "#991b1b",
+  borderRadius: 4,
+  padding: "7px 10px",
+  fontSize: 12,
+  marginBottom: 10,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 8,
+};
+
+const dismissErrorButtonStyle: React.CSSProperties = {
+  border: "1px solid #fecaca",
+  background: "#fff",
+  color: "#991b1b",
+  borderRadius: 4,
+  cursor: "pointer",
+  width: 22,
+  height: 22,
+  lineHeight: 1,
+  flexShrink: 0,
+};
+
+const limitHintStyle: React.CSSProperties = {
+  color: "#92400e",
+  background: "#fffbeb",
+  border: "1px solid #fde68a",
+  borderRadius: 4,
+  padding: "5px 8px",
+  fontSize: 11,
+  marginBottom: 10,
+};
+
+const moveErrorStyle: React.CSSProperties = {
+  color: "#991b1b",
+  fontSize: 11,
+  marginTop: 6,
+};
+
+const calibrationBannerButtonStyle: React.CSSProperties = {
+  background: "#f59e0b",
+  color: "#fff",
+  border: "1px solid #d97706",
+  borderRadius: 4,
+  padding: "4px 10px",
+  cursor: "pointer",
+  fontSize: 12,
+  fontWeight: 700,
+  marginLeft: "auto",
+};
+
+const stepPresetGroupStyle: React.CSSProperties = {
+  display: "inline-flex",
+  gap: 2,
+};
+
+const stepPresetButtonStyle: React.CSSProperties = {
+  border: "1px solid #d1d5db",
+  background: "#fff",
+  color: "#374151",
+  borderRadius: 3,
+  cursor: "pointer",
+  padding: "2px 4px",
+  fontSize: 10,
+  lineHeight: 1.2,
 };
 
 const settingsTableStyle: React.CSSProperties = {

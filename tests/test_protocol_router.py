@@ -109,6 +109,47 @@ def test_get_protocol_errors(client, tmp_configs):
     bad_yaml = api_request(client, "GET", "/api/protocol/bad.yaml")
     assert bad_yaml.status_code == 400
 
+    (tmp_configs / "scalar.yaml").write_text("protocol\n", encoding="utf-8")
+    scalar_yaml = api_request(client, "GET", "/api/protocol/scalar.yaml")
+    assert scalar_yaml.status_code == 400
+    assert "is not a YAML mapping" in scalar_yaml.text
+
+
+def test_get_protocol_rejects_malformed_steps(client, tmp_configs):
+    write_yaml(
+        tmp_configs / "malformed.yaml",
+        {
+            "protocol": [
+                {
+                    "move": {"instrument": "pipette", "position": "plate_1.A1"},
+                    "aspirate": {"position": "plate_1.A1", "volume_ul": 100.0},
+                },
+            ],
+        },
+    )
+
+    response = api_request(client, "GET", "/api/protocol/malformed.yaml")
+
+    assert response.status_code == 400
+    assert "exactly one command" in response.text
+
+
+def test_get_protocol_rejects_bare_string_step(client, tmp_configs):
+    write_yaml(
+        tmp_configs / "bare_string_step.yaml",
+        {
+            "protocol": [
+                {"move": {"instrument": "pipette", "position": "plate_1.A1"}},
+                "oops",
+            ],
+        },
+    )
+
+    response = api_request(client, "GET", "/api/protocol/bare_string_step.yaml")
+
+    assert response.status_code == 400
+    assert "Input should be a valid dictionary" in response.text
+
 
 def test_save_protocol(client, tmp_configs):
     body = {
@@ -141,6 +182,77 @@ def test_save_protocol_omits_empty_positions(client, tmp_configs):
     assert response.status_code == 200
     saved = read_yaml(tmp_configs / "no_positions.yaml")
     assert "positions" not in saved
+
+
+def test_save_protocol_preserves_sidecar_top_level_keys_and_comments(client, tmp_configs):
+    path = tmp_configs / "sidecar.yaml"
+    path.write_text(
+        """\
+# protocol file comment
+operator_notes:
+  owner: lab
+positions:
+  old: [0.0, 0.0, 0.0]
+protocol:
+  - move:
+      instrument: pipette
+      position: plate_1.A1
+""",
+        encoding="utf-8",
+    )
+    body = {
+        "positions": {"park": [10.0, 20.0, 30.0]},
+        "protocol": [
+            {
+                "command": "move",
+                "args": {"instrument": "uvvis", "position": "plate_1.A1"},
+            },
+        ],
+    }
+
+    response = api_request(client, "PUT", "/api/protocol/sidecar.yaml", json=body)
+
+    assert response.status_code == 200
+    saved = read_yaml(path)
+    assert saved["operator_notes"] == {"owner": "lab"}
+    assert saved["positions"] == body["positions"]
+    assert saved["protocol"] == [
+        {"move": {"instrument": "uvvis", "position": "plate_1.A1"}}
+    ]
+    assert "# protocol file comment" in path.read_text(encoding="utf-8")
+
+
+def test_protocol_get_put_roundtrip_preserves_sidecar_top_level_keys(client, tmp_configs):
+    path = tmp_configs / "roundtrip_sidecar.yaml"
+    write_yaml(
+        path,
+        {
+            "operator_notes": {"owner": "lab"},
+            "positions": {"park": [10.0, 20.0, 30.0]},
+            "protocol": [
+                {"move": {"instrument": "pipette", "position": "plate_1.A1"}},
+            ],
+        },
+    )
+
+    get_response = api_request(client, "GET", "/api/protocol/roundtrip_sidecar.yaml")
+    assert get_response.status_code == 200
+    loaded = get_response.json()
+
+    put_response = api_request(
+        client,
+        "PUT",
+        "/api/protocol/roundtrip_sidecar.yaml",
+        json={"positions": loaded["positions"], "protocol": loaded["steps"]},
+    )
+
+    assert put_response.status_code == 200
+    saved = read_yaml(path)
+    assert saved["operator_notes"] == {"owner": "lab"}
+    assert saved["positions"] == {"park": [10.0, 20.0, 30.0]}
+    assert saved["protocol"] == [
+        {"move": {"instrument": "pipette", "position": "plate_1.A1"}}
+    ]
 
 
 def test_validate_protocol_ok(client):
@@ -475,6 +587,142 @@ def test_run_endpoint_error_mapping(monkeypatch, tmp_path):
         )
         assert response.status_code == status
         assert text in response.text
+
+
+def test_run_status_endpoint_reflects_state(monkeypatch):
+    from zoo.routers import gantry as gantry_router
+
+    idle = api_request(create_app(), "GET", "/api/protocol/run-status")
+    assert idle.status_code == 200
+    assert idle.json() == {"active": False, "protocol_file": None}
+
+    gantry_router.begin_run(protocol_file="foo.yaml")
+    try:
+        active = api_request(create_app(), "GET", "/api/protocol/run-status")
+        assert active.status_code == 200
+        assert active.json() == {"active": True, "protocol_file": "foo.yaml"}
+    finally:
+        gantry_router.end_run()
+
+
+def test_run_endpoint_returns_409_when_run_already_active(monkeypatch, tmp_path):
+    from zoo.routers import gantry as gantry_router
+    from zoo.routers import protocol as protocol_router
+
+    for subdir in ("gantry", "deck", "protocol"):
+        (tmp_path / subdir).mkdir()
+    monkeypatch.setattr(
+        protocol_router,
+        "get_settings",
+        lambda: type(
+            "S",
+            (),
+            {"configs_dir": tmp_path, "data_db_path": tmp_path / "data.db"},
+        )(),
+    )
+    gantry_router.begin_run(protocol_file="already_running.yaml")
+    try:
+        response = api_request(
+            create_app(),
+            "POST",
+            "/api/protocol/run",
+            json={
+                "gantry_file": "gantry.yaml",
+                "deck_file": "deck.yaml",
+                "protocol_file": "protocol.yaml",
+            },
+        )
+        assert response.status_code == 409
+        assert "already in progress" in response.text
+    finally:
+        gantry_router.end_run()
+
+
+def test_run_endpoint_clears_gate_after_run_raises(monkeypatch, tmp_path):
+    from zoo.routers import gantry as gantry_router
+    from zoo.routers import protocol as protocol_router
+
+    for subdir in ("gantry", "deck", "protocol"):
+        (tmp_path / subdir).mkdir()
+    monkeypatch.setattr(
+        protocol_router,
+        "get_settings",
+        lambda: type(
+            "S",
+            (),
+            {"configs_dir": tmp_path, "data_db_path": tmp_path / "data.db"},
+        )(),
+    )
+    monkeypatch.setattr(
+        gantry_router,
+        "run_protocol_on_session",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/protocol/run",
+        json={
+            "gantry_file": "gantry.yaml",
+            "deck_file": "deck.yaml",
+            "protocol_file": "protocol.yaml",
+        },
+    )
+
+    assert response.status_code == 500
+    assert gantry_router.run_active() is False
+
+
+def test_run_endpoint_clears_gate_after_success(monkeypatch, tmp_path):
+    from zoo.routers import gantry as gantry_router
+    from zoo.routers import protocol as protocol_router
+
+    for subdir in ("gantry", "deck", "protocol"):
+        (tmp_path / subdir).mkdir()
+    monkeypatch.setattr(
+        protocol_router,
+        "get_settings",
+        lambda: type(
+            "S",
+            (),
+            {"configs_dir": tmp_path, "data_db_path": tmp_path / "data.db"},
+        )(),
+    )
+    monkeypatch.setattr(
+        gantry_router,
+        "run_protocol_on_session",
+        lambda **_kwargs: type(
+            "Result", (), {"status": "ok", "steps_executed": 1, "campaign_id": 1}
+        )(),
+    )
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/protocol/run",
+        json={
+            "gantry_file": "gantry.yaml",
+            "deck_file": "deck.yaml",
+            "protocol_file": "protocol.yaml",
+        },
+    )
+
+    assert response.status_code == 200
+    assert gantry_router.run_active() is False
+
+
+def test_cancel_endpoint_available_while_run_active(monkeypatch):
+    from zoo.routers import gantry as gantry_router
+
+    interrupt = MagicMock()
+    monkeypatch.setattr(gantry_router, "request_feed_hold_interrupt", interrupt)
+    gantry_router.begin_run(protocol_file="running.yaml")
+    try:
+        response = api_request(create_app(), "POST", "/api/protocol/cancel")
+        assert response.status_code == 200
+    finally:
+        gantry_router.end_run()
 
 
 def test_cancel_endpoint_requests_session_interrupt(monkeypatch):

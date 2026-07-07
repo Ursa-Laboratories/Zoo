@@ -7,7 +7,7 @@ import sys
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from zoo.config import get_settings
+from zoo.config import get_settings, persist_user_settings
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -33,7 +33,13 @@ def update_settings(body: UpdateSettingsRequest) -> SettingsResponse:
     if not path.is_dir():
         raise HTTPException(400, f"Directory does not exist: {body.config_dir}")
 
-    get_settings().config_dir = path.resolve()
+    resolved = path.resolve()
+    try:
+        persist_user_settings(config_dir=resolved)
+    except OSError as exc:
+        raise HTTPException(500, f"Failed to persist settings: {exc}") from exc
+
+    get_settings().config_dir = resolved
     return SettingsResponse(config_dir=str(get_settings().configs_dir))
 
 
@@ -42,23 +48,41 @@ def browse_directory() -> SettingsResponse:
     """Open a native directory picker and return the selected path."""
     if sys.platform == "darwin":
         script = 'POSIX path of (choose folder with prompt "Select config directory")'
-        result = subprocess.run(
-            ["osascript", "-e", script],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise HTTPException(400, f"Directory picker failed: {exc}") from exc
         if result.returncode != 0:
             raise HTTPException(400, "No directory selected")
         selected = result.stdout.strip().rstrip("/")
     else:
-        import tkinter as tk
-        from tkinter import filedialog
-
-        root = tk.Tk()
-        root.withdraw()
-        selected = filedialog.askdirectory(title="Select config directory")
-        root.destroy()
+        script = (
+            "import tkinter as tk\n"
+            "from tkinter import filedialog\n"
+            "root = tk.Tk()\n"
+            "root.withdraw()\n"
+            "selected = filedialog.askdirectory(title='Select config directory')\n"
+            "root.destroy()\n"
+            "print(selected)\n"
+        )
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", script],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise HTTPException(400, f"Directory picker failed: {exc}") from exc
+        if result.returncode != 0:
+            detail = result.stderr.strip() or "No directory selected"
+            raise HTTPException(400, detail)
+        selected = result.stdout.strip()
         if not selected:
             raise HTTPException(400, "No directory selected")
 

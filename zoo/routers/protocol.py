@@ -18,8 +18,10 @@ from gantry.session import (
     InterruptFeedHoldTimeoutError,
 )
 from pydantic import BaseModel
+from pydantic import ValidationError
 from protocol_engine.registry import CommandRegistry
 from protocol_engine.setup_validator import run_setup_validation
+from protocol_engine.yaml_schema import ProtocolYamlSchema
 from validation.errors import SetupValidationError
 
 # Side-effect import: triggers @protocol_command registration.
@@ -70,6 +72,20 @@ def _build_command_info(name: str) -> CommandInfo:
     )
 
 
+def _protocol_schema_payload(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the CubOS-owned protocol fields while leaving sidecar keys alone."""
+    payload: Dict[str, Any] = {}
+    if "positions" in data:
+        payload["positions"] = data["positions"]
+    if "protocol" in data:
+        payload["protocol"] = data["protocol"]
+    return payload
+
+
+def _validate_protocol_schema(data: Dict[str, Any]) -> ProtocolYamlSchema:
+    return ProtocolYamlSchema.model_validate(_protocol_schema_payload(data))
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -96,44 +112,71 @@ def list_protocol_configs() -> List[str]:
     return list_configs(get_settings().configs_dir, "protocol")
 
 
+class RunStatusResponse(BaseModel):
+    active: bool
+    protocol_file: str | None = None
+
+
+@router.get("/run-status")
+def get_run_status() -> RunStatusResponse:
+    """Report whether a protocol run is currently in progress.
+
+    Registered before the catch-all ``GET /{filename}`` route below so the
+    literal path ``run-status`` isn't swallowed as a filename lookup.
+    """
+    from zoo.routers import gantry as gantry_router
+
+    return RunStatusResponse(**gantry_router.run_status())
+
+
 @router.get("/{filename}")
 def get_protocol(filename: str) -> ProtocolResponse:
-    path = resolve_config_path(get_settings().configs_dir, "protocol", filename)
+    try:
+        path = resolve_config_path(get_settings().configs_dir, "protocol", filename)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     if not path.is_file():
         raise HTTPException(404, f"Protocol file not found: {filename}")
     try:
         data = read_yaml(path)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    if "protocol" not in data or not isinstance(data["protocol"], list):
-        raise HTTPException(400, f"File '{filename}' is not a valid protocol YAML")
+        schema = _validate_protocol_schema(data)
+    except (ValueError, ValidationError) as e:
+        raise HTTPException(400, str(e)) from e
 
-    steps = []
-    for raw_step in data["protocol"]:
-        if not isinstance(raw_step, dict) or len(raw_step) != 1:
-            continue
-        cmd_name = next(iter(raw_step))
-        args = raw_step[cmd_name] or {}
-        steps.append(ProtocolStepConfig(command=cmd_name, args=args))
+    steps = [
+        ProtocolStepConfig(command=step.command, args=step.args)
+        for step in schema.protocol
+    ]
 
-    positions = data.get("positions")
-    if not isinstance(positions, dict):
-        positions = None
-
-    return ProtocolResponse(filename=filename, positions=positions, steps=steps)
+    return ProtocolResponse(filename=filename, positions=schema.positions, steps=steps)
 
 
 @router.put("/{filename}")
 def save_protocol(filename: str, body: ProtocolConfig) -> dict:
-    path = resolve_config_path(get_settings().configs_dir, "protocol", filename)
+    try:
+        path = resolve_config_path(get_settings().configs_dir, "protocol", filename)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     # Convert to YAML-native format: list of {command: {args}}
     protocol_list = []
     for step in body.protocol:
         protocol_list.append({step.command: step.args if step.args else None})
-    data: Dict[str, Any] = {}
+
+    try:
+        data: Dict[str, Any] = read_yaml(path) if path.is_file() else {}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
     if body.positions is not None:
         data["positions"] = body.positions
+    else:
+        data.pop("positions", None)
     data["protocol"] = protocol_list
+    try:
+        _validate_protocol_schema(data)
+    except ValidationError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
     write_yaml(path, data)
     return {"status": "ok", "filename": filename}
 
@@ -166,9 +209,12 @@ def validate_protocol_setup(
 ) -> ProtocolSetupValidationResponse:
     """Run full CubOS gantry/deck/protocol setup validation."""
     settings = get_settings()
-    gantry_path = resolve_config_path(settings.configs_dir, "gantry", body.gantry_file)
-    deck_path = resolve_config_path(settings.configs_dir, "deck", body.deck_file)
-    protocol_path = resolve_config_path(settings.configs_dir, "protocol", body.protocol_file)
+    try:
+        gantry_path = resolve_config_path(settings.configs_dir, "gantry", body.gantry_file)
+        deck_path = resolve_config_path(settings.configs_dir, "deck", body.deck_file)
+        protocol_path = resolve_config_path(settings.configs_dir, "protocol", body.protocol_file)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
     try:
         result = run_setup_validation(
@@ -222,33 +268,40 @@ def run_protocol_endpoint(body: RunProtocolRequest) -> dict:
     from zoo.routers import gantry as gantry_router
 
     settings = get_settings()
-    gantry_path = resolve_config_path(settings.configs_dir, "gantry", body.gantry_file)
-    deck_path = resolve_config_path(settings.configs_dir, "deck", body.deck_file)
-    protocol_path = resolve_config_path(settings.configs_dir, "protocol", body.protocol_file)
-
     try:
-        result = gantry_router.run_protocol_on_session(
-            gantry_path=str(gantry_path),
-            deck_path=str(deck_path),
-            protocol_path=str(protocol_path),
-            gantry_file=body.gantry_file,
-            deck_file=body.deck_file,
-            protocol_file=body.protocol_file,
-            db_path=settings.data_db_path,
-        )
-    except HTTPException:
-        raise
-    except (GantryNotConnectedError, GantrySessionHealthCheckError) as exc:
-        raise HTTPException(400, "Gantry is not connected") from exc
-    except CalibrationBlockedError as exc:
+        gantry_path = resolve_config_path(settings.configs_dir, "gantry", body.gantry_file)
+        deck_path = resolve_config_path(settings.configs_dir, "deck", body.deck_file)
+        protocol_path = resolve_config_path(settings.configs_dir, "protocol", body.protocol_file)
+    except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    except SetupValidationError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    except GantrySessionError as exc:
-        raise HTTPException(500, f"Execution failed: {exc}") from exc
-    except Exception as exc:
-        logging.exception("Protocol execution failed")
-        raise HTTPException(500, f"Execution failed: {exc}") from exc
+
+    gantry_router.begin_run(protocol_file=body.protocol_file)
+    try:
+        try:
+            result = gantry_router.run_protocol_on_session(
+                gantry_path=str(gantry_path),
+                deck_path=str(deck_path),
+                protocol_path=str(protocol_path),
+                gantry_file=body.gantry_file,
+                deck_file=body.deck_file,
+                protocol_file=body.protocol_file,
+                db_path=settings.data_db_path,
+            )
+        except HTTPException:
+            raise
+        except (GantryNotConnectedError, GantrySessionHealthCheckError) as exc:
+            raise HTTPException(400, "Gantry is not connected") from exc
+        except CalibrationBlockedError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except SetupValidationError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except GantrySessionError as exc:
+            raise HTTPException(500, f"Execution failed: {exc}") from exc
+        except Exception as exc:
+            logging.exception("Protocol execution failed")
+            raise HTTPException(500, f"Execution failed: {exc}") from exc
+    finally:
+        gantry_router.end_run()
 
     return {
         "status": result.status,

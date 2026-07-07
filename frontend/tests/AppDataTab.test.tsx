@@ -4,9 +4,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../src/App";
 
-function jsonResponse(body: unknown): Response {
+function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
-    status: 200,
+    status,
     headers: { "Content-Type": "application/json" },
   });
 }
@@ -35,7 +35,28 @@ function renderApp() {
   );
 }
 
-function installFetchMock() {
+const defaultCampaigns = [
+  {
+    campaign_id: 1,
+    campaign_description: "ASMI sample campaign",
+    created_at: "2025-10-30 12:20:00",
+    latest_measurement_at: "2025-10-30 12:22:07",
+    experiment_count: 2,
+    well_count: 2,
+    measurement_count: 2,
+    measurement_counts: {
+      uvvis: 0,
+      filmetrics: 0,
+      uv_curing: 0,
+      camera: 0,
+      asmi: 2,
+      potentiostat: 0,
+    },
+    asmi_measurement_count: 2,
+  },
+];
+
+function installFetchMock(campaignsResponse = () => jsonResponse(defaultCampaigns)) {
   const fetchMock = vi.fn(async (input: string | URL | Request) => {
     const url = new URL(
       typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
@@ -71,29 +92,13 @@ function installFetchMock() {
       });
     }
     if (path === "/api/data/campaigns") {
-      return jsonResponse([
-        {
-          campaign_id: 1,
-          campaign_description: "ASMI sample campaign",
-          created_at: "2025-10-30 12:20:00",
-          latest_measurement_at: "2025-10-30 12:22:07",
-          experiment_count: 2,
-          well_count: 2,
-          measurement_count: 2,
-          measurement_counts: {
-            uvvis: 0,
-            filmetrics: 0,
-            uv_curing: 0,
-            camera: 0,
-            asmi: 2,
-            potentiostat: 0,
-          },
-          asmi_measurement_count: 2,
-        },
-      ]);
+      return campaignsResponse();
     }
     if (path === "/api/data/campaigns/1/measurements.zip") {
       return zipResponse("mock zip bytes");
+    }
+    if (path === "/api/data/campaigns/1/asmi.zip") {
+      return zipResponse("mock asmi zip bytes");
     }
 
     return new Response("Not found", { status: 404 });
@@ -121,7 +126,7 @@ describe("Results view", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows campaign output and exports measurement zip", async () => {
+  it("shows campaign output and exports measurement and ASMI ZIPs", async () => {
     const user = userEvent.setup();
     const fetchMock = installFetchMock();
 
@@ -132,13 +137,43 @@ describe("Results view", () => {
 
     expect(await screen.findByText("Campaign #1")).toBeInTheDocument();
     expect(screen.getByText("ASMI sample campaign")).toBeInTheDocument();
-    expect(screen.getByText("2025-10-30 12:22:07")).toBeInTheDocument();
+    expect(screen.getByText(new Date("2025-10-30 12:22:07").toLocaleString())).toBeInTheDocument();
     expect(screen.getAllByText("2")).toHaveLength(3);
 
-    await user.click(screen.getByRole("button", { name: "Export ZIP" }));
+    await user.click(screen.getByRole("button", { name: "Measurements ZIP" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/data/campaigns/1/measurements.zip"));
+    await user.click(screen.getByRole("button", { name: "ASMI ZIP" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/data/campaigns/1/asmi.zip"));
     expect(URL.createObjectURL).toHaveBeenCalled();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:zoo-asmi-csv");
+  });
+
+  it("shows first-run empty state without an error", async () => {
+    const user = userEvent.setup();
+    installFetchMock(() => jsonResponse([]));
+
+    renderApp();
+
+    await screen.findByDisplayValue("/mock/Zoo/configs");
+    await user.click(screen.getByRole("button", { name: "Results" }));
+
+    expect(await screen.findByText("No campaigns yet — run a protocol to create one.")).toBeInTheDocument();
+    expect(screen.queryByText(/Data load failed/i)).not.toBeInTheDocument();
+  });
+
+  it("shows parsed backend error details without raw JSON", async () => {
+    const user = userEvent.setup();
+    installFetchMock(() => jsonResponse({ detail: "Data database is unreadable" }, 400));
+
+    renderApp();
+
+    await screen.findByDisplayValue("/mock/Zoo/configs");
+    await user.click(screen.getByRole("button", { name: "Results" }));
+
+    const alert = await screen.findByText(/Data load failed/i);
+    expect(alert).toHaveTextContent("Data load failed: Data database is unreadable");
+    expect(alert).not.toHaveTextContent("400:");
+    expect(alert).not.toHaveTextContent("{\"detail\"");
   });
 });

@@ -9,6 +9,7 @@ import pytest
 from tests.api_client import api_request
 from zoo.app import create_app
 from zoo.config import get_settings
+from zoo.routers import deck as deck_router
 
 
 @pytest.fixture(autouse=True)
@@ -16,6 +17,33 @@ def restore_config_dir():
     original = get_settings().config_dir
     yield
     get_settings().config_dir = original
+
+
+def _preview_well_plate_body() -> dict:
+    return {
+        "name": "Preview Plate",
+        "rows": 8,
+        "columns": 12,
+        "calibration": {
+            "a1": {"x": 347.0, "y": 42.0, "z": 30.0},
+            "a2": {"x": 338.0, "y": 42.0, "z": 30.0},
+        },
+        "x_offset": 9.0,
+        "y_offset": 9.0,
+    }
+
+
+def test_list_deck_configs(monkeypatch, tmp_path: Path):
+    config_dir = tmp_path / "configs"
+    deck_dir = config_dir / "deck"
+    deck_dir.mkdir(parents=True)
+    (deck_dir / "deck.yaml").write_text("labware: {}\n", encoding="utf-8")
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+
+    response = api_request(create_app(), "GET", "/api/deck/configs")
+
+    assert response.status_code == 200
+    assert response.json() == ["deck.yaml"]
 
 
 def test_get_deck_returns_holder_geometry_and_nested_positions(monkeypatch, tmp_path: Path):
@@ -143,6 +171,47 @@ labware:
     assert plate["y_offset"] == 9.0
 
 
+def test_preview_wells_derives_well_plate_coordinates():
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/deck/preview-wells",
+        json=_preview_well_plate_body(),
+    )
+
+    assert response.status_code == 200
+    wells = response.json()
+    assert wells["A1"] == {"x": 347.0, "y": 42.0, "z": 30.0}
+    assert wells["B2"] == {"x": 338.0, "y": 51.0, "z": 30.0}
+    assert len(wells) == 96
+
+
+def test_preview_wells_requires_a1_z():
+    body = _preview_well_plate_body()
+    del body["calibration"]["a1"]["z"]
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/deck/preview-wells",
+        json=body,
+    )
+
+    assert response.status_code == 400
+    assert "Calibration A1 must include z" in response.json()["detail"]
+
+
+def test_preview_wells_rejects_garbage_body():
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/deck/preview-wells",
+        json={"calibration": "nope"},
+    )
+
+    assert response.status_code == 400
+
+
 def test_get_deck_returns_400_for_invalid_yaml(monkeypatch, tmp_path: Path):
     config_dir = tmp_path / "configs"
     deck_dir = config_dir / "deck"
@@ -154,6 +223,32 @@ def test_get_deck_returns_400_for_invalid_yaml(monkeypatch, tmp_path: Path):
 
     assert response.status_code == 400
     assert "Invalid YAML" in response.text
+
+
+def test_get_deck_returns_404_for_missing_config(monkeypatch, tmp_path: Path):
+    config_dir = tmp_path / "configs"
+    (config_dir / "deck").mkdir(parents=True)
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+
+    response = api_request(create_app(), "GET", "/api/deck/missing.yaml")
+
+    assert response.status_code == 404
+    assert "Config not found: missing.yaml" in response.text
+
+
+def test_deck_routes_reject_traversal_filenames(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(get_settings(), "config_dir", tmp_path)
+
+    get_response = api_request(create_app(), "GET", "/api/deck/..%5Cescape.yaml")
+    put_response = api_request(
+        create_app(),
+        "PUT",
+        "/api/deck/..%5Cescape.yaml",
+        json={"labware": {}},
+    )
+
+    assert get_response.status_code == 400
+    assert put_response.status_code == 400
 
 
 def test_put_deck_validates_current_vial_fields_before_overwriting(monkeypatch, tmp_path: Path):
@@ -239,3 +334,28 @@ labware:
 
     assert response.status_code == 400
     assert path.read_text(encoding="utf-8") == original
+
+
+def test_deck_serializers_handle_missing_values():
+    assert deck_router._serialize_point(None) is None
+    assert deck_router._serialize_geometry(None) is None
+
+
+def test_normalize_labware_config_handles_sparse_inputs():
+    class NamedLabware:
+        name = "Resolved name"
+        model_name = "resolved_model"
+
+    class AnonymousLabware:
+        pass
+
+    resolved = deck_router._normalize_labware_config([], NamedLabware(), "slot_a")
+    fallback = deck_router._normalize_labware_config({}, AnonymousLabware(), "slot_b")
+    config: dict[str, object] = {}
+
+    deck_router._set_default(config, "rows", 8)
+
+    assert resolved["name"] == "Resolved name"
+    assert resolved["model_name"] == "resolved_model"
+    assert fallback["name"] == "slot_b"
+    assert config["rows"] == 8

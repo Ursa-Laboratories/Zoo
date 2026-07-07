@@ -226,6 +226,7 @@ export interface GantryPosition {
   work_z: number | null;
   status: string;
   connected: boolean;
+  calibration_active: boolean;
   calibration_warning?: string | null;
   move_error?: string | null;
 }
@@ -273,6 +274,11 @@ export interface ProtocolRunResponse {
   campaign_id: number;
 }
 
+export interface ProtocolRunStatus {
+  active: boolean;
+  protocol_file: string | null;
+}
+
 // Gantry-mounted instrument introspection (from CubOS)
 
 export interface InstrumentTypeInfo {
@@ -298,6 +304,8 @@ export interface InstrumentFieldInfo {
 }
 
 export type InstrumentSchemas = Record<string, Record<string, InstrumentFieldInfo[]>>;
+
+export type InstrumentMeasurementMethods = Record<string, string[]>;
 
 // Protocol
 
