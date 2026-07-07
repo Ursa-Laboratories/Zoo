@@ -72,6 +72,46 @@ def test_windows_installer_offers_asmi_as_optional_public_driver() -> None:
     assert "$SelectedDriverGroups" in install_runtime
 
 
+def _requirement_name(spec: str) -> str:
+    """Return the PEP 503-normalized distribution name from a requirement line."""
+    # Strip inline comments, environment markers, and the extras/version tail.
+    spec = spec.split("#", 1)[0].split(";", 1)[0].strip()
+    name = re.split(r"[\s<>=!~\[]", spec, maxsplit=1)[0]
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def test_windows_runtime_requirements_cover_core_zoo_dependencies() -> None:
+    """The offline installer builds its wheelhouse and venv from
+    runtime-requirements.txt and installs cubos/zoo with --no-deps, so every
+    core runtime dependency in pyproject.toml must be listed there. A missing
+    entry (e.g. ruamel.yaml) is never bundled or installed and only surfaces as
+    a ``pip check`` failure on the user's machine."""
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    runtime_requirements = (
+        WINDOWS_INSTALLER / "runtime-requirements.txt"
+    ).read_text()
+
+    listed = {
+        _requirement_name(line)
+        for line in runtime_requirements.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    }
+
+    # cubos is a direct git dependency built and installed as its own wheel
+    # (--no-deps), so it is intentionally absent from runtime-requirements.txt.
+    required = {
+        _requirement_name(dep)
+        for dep in project["project"]["dependencies"]
+        if _requirement_name(dep) != "cubos"
+    }
+
+    missing = required - listed
+    assert not missing, (
+        "installer/windows/runtime-requirements.txt is missing core Zoo "
+        f"dependencies: {sorted(missing)}"
+    )
+
+
 def test_godirect_is_not_a_core_zoo_dependency() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())
 
