@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import inspect
 import logging
 import threading
 from dataclasses import asdict, is_dataclass
-from typing import Any, Dict, List, Optional, get_origin, get_type_hints
+from typing import Any, Dict, List, Optional
 
 import yaml
 from fastapi import APIRouter, HTTPException
@@ -23,10 +22,10 @@ from gantry.session import (
 )
 from gantry.limit_recovery import looks_like_limit_alarm
 from gantry.yaml_schema import GantryYamlSchema
-from instruments.base_instrument import BaseInstrument
 from instruments.pipette.models import PIPETTE_MODELS
 from instruments.registry import (
-    get_instrument_class,
+    config_fields,
+    list_measurement_methods,
     get_supported_types,
     get_supported_vendors,
 )
@@ -55,12 +54,6 @@ _session_create_lock = threading.Lock()
 _run_state: Dict[str, Any] = {"active": False, "campaign_id": None, "protocol_file": None}
 _run_state_lock = threading.Lock()
 
-_PRIMITIVE_TYPES = {str, int, float, bool}
-_BASE_PARAMS = {
-    p for p in inspect.signature(BaseInstrument.__init__).parameters if p != "self"
-}
-
-
 class PipetteModelInfo(BaseModel):
     name: str
     family: str
@@ -80,7 +73,7 @@ class InstrumentFieldInfo(BaseModel):
     type: str
     required: bool
     default: Any = None
-    choices: Optional[List[str]] = None
+    choices: Optional[List[Any]] = None
 
 
 class JogRequest(BaseModel):
@@ -237,12 +230,7 @@ def _reject_if_run_active() -> None:
 def _session_calibration_active(session: GantrySession | None) -> bool:
     if session is None:
         return False
-    # CubOS does not expose a public calibration-state accessor yet. Zoo only
-    # reflects these session flags so a refreshed UI can warn before motion.
-    return bool(
-        getattr(session, "_calibration_jog_bypass_working_volume", False)
-        or getattr(session, "_calibration_restore_soft_limits", False)
-    )
+    return bool(session.calibration_active)
 
 
 def _position_response(
@@ -278,114 +266,20 @@ def _session_http_exception(exc: Exception, *, default_action: str) -> HTTPExcep
 
 
 def _movement_requires_operator_reconnect(exc: MovementOutOfBoundsError) -> bool:
-    message = str(exc).lower()
-    return any(
-        token in message
-        for token in (
-            "require a loaded gantry working_volume",
-            "requires a loaded gantry working_volume",
-            "checks require current gantry position",
-            "checks require finite current gantry",
-        )
-    )
-
-
-def _type_name(annotation: Any) -> str:
-    name = getattr(annotation, "__name__", None)
-    if name:
-        return name
-    return str(annotation)
-
-
-def _is_primitive(annotation: Any) -> bool:
-    if annotation in _PRIMITIVE_TYPES:
-        return True
-    args = getattr(annotation, "__args__", ())
-    if args and type(None) in args:
-        return any(a in _PRIMITIVE_TYPES for a in args if a is not type(None))
-    return False
+    return bool(exc.requires_reconnect)
 
 
 def _build_instrument_fields(type_key: str, vendor: str) -> List[InstrumentFieldInfo]:
-    cls = get_instrument_class(type_key, vendor)
-    sig = inspect.signature(cls.__init__)
-    fields: List[InstrumentFieldInfo] = []
-    for param_name, param in sig.parameters.items():
-        if param_name == "self" or param_name in _BASE_PARAMS:
-            continue
-        annotation = (
-            param.annotation if param.annotation != inspect.Parameter.empty else str
+    return [
+        InstrumentFieldInfo(
+            name=field.name,
+            type=field.type,
+            required=field.required,
+            default=field.default,
+            choices=None if field.choices is None else list(field.choices),
         )
-        if not _is_primitive(annotation):
-            continue
-        required = param.default is inspect.Parameter.empty
-        default = None if required else param.default
-        choices = None
-        if param_name == "pipette_model":
-            choices = sorted(PIPETTE_MODELS.keys())
-        fields.append(
-            InstrumentFieldInfo(
-                name=param_name,
-                type=_type_name(annotation),
-                required=required,
-                default=default,
-                choices=choices,
-            )
-        )
-    return fields
-
-
-def _return_annotation(method: Any) -> Any:
-    try:
-        return get_type_hints(method).get(
-            "return",
-            inspect.signature(method).return_annotation,
-        )
-    except Exception:
-        return inspect.signature(method).return_annotation
-
-
-def _is_protocol_measurement_return(annotation: Any) -> bool:
-    if annotation is inspect.Signature.empty or annotation is None or annotation is type(None):
-        return False
-
-    origin = get_origin(annotation)
-    if annotation is dict or origin is dict:
-        return True
-
-    module = getattr(annotation, "__module__", "")
-    name = getattr(annotation, "__name__", "")
-    if module == "instruments.asmi.models" and name == "MeasurementResult":
-        return True
-    if module == "instruments.filmetrics.models" and name == "MeasurementResult":
-        return True
-    if module == "instruments.uv_curing.models" and name == "CureResult":
-        return True
-    if module == "instruments.uvvis_ccs.models" and name == "UVVisSpectrum":
-        return True
-    if module == "instruments.potentiostat.models" and hasattr(annotation, "technique"):
-        return True
-    return False
-
-
-def _measurement_method_sort_key(name: str) -> tuple[int, str]:
-    if name == "indentation":
-        return (0, name)
-    if name == "measure":
-        return (1, name)
-    return (2, name)
-
-
-def _measurement_methods_for_type(type_key: str) -> List[str]:
-    methods: set[str] = set()
-    for vendor in get_supported_vendors(type_key):
-        cls = get_instrument_class(type_key, vendor)
-        for method_name, method in inspect.getmembers(cls, predicate=inspect.isfunction):
-            if method_name.startswith("_"):
-                continue
-            if _is_protocol_measurement_return(_return_annotation(method)):
-                methods.add(method_name)
-    return sorted(methods, key=_measurement_method_sort_key)
+        for field in config_fields(type_key, vendor)
+    ]
 
 
 def _validated_gantry_config(data: Dict[str, Any]) -> GantryYamlSchema:
@@ -455,7 +349,7 @@ def get_instrument_schemas() -> Dict[str, Dict[str, List[InstrumentFieldInfo]]]:
 @router.get("/instrument-methods")
 def get_instrument_methods() -> Dict[str, List[str]]:
     return {
-        type_key: _measurement_methods_for_type(type_key)
+        type_key: list_measurement_methods(type_key)
         for type_key in get_supported_types()
     }
 

@@ -6,10 +6,9 @@ from pathlib import Path
 import tempfile
 from typing import Any, Dict, Optional
 
-from deck import load_deck_from_yaml
+from deck import LABWARE_YAML_ENTRY_MODELS, derive_wells_preview, load_deck_from_yaml, resolve_load_names
 from deck.labware.well_plate import WellPlate
 from deck.errors import DeckLoaderError
-from deck.loader import _derive_wells_from_calibration, _resolve_load_names
 from deck.yaml_schema import WellPlateYamlEntry
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ValidationError
@@ -65,7 +64,7 @@ def get_deck(filename: str) -> DeckResponse:
     # Use CubOS's loader for validation + well derivation.
     try:
         raw = read_yaml(path)
-        resolved_raw = _resolve_load_names(raw)
+        resolved_raw = resolve_load_names(raw)
         deck = load_deck_from_yaml(path)
     except (ValueError, ValidationError, DeckLoaderError) as e:
         raise HTTPException(400, str(e))
@@ -110,7 +109,7 @@ def preview_wells(body: dict) -> Dict[str, WellPosition]:
         resolved_z = entry.a1_point.z
         if resolved_z is None:
             raise ValueError("Calibration A1 must include z for preview.")
-        wells = _derive_wells_from_calibration(entry, resolved_z=resolved_z)
+        wells = derive_wells_preview(entry, resolved_z=resolved_z)
         return {
             wid: WellPosition(x=round(c.x, 3), y=round(c.y, 3), z=round(c.z, 3))
             for wid, c in wells.items()
@@ -191,32 +190,12 @@ def _normalize_labware_config(raw_config: Any, labware: Any, deck_key: str) -> D
     if "name" not in config:
         config["name"] = deck_key
 
-    if labware_type == "well_plate":
-        _normalize_well_plate_config(config, labware)
-    elif labware_type == "vial":
-        _normalize_vial_config(config, labware)
+    schema = LABWARE_YAML_ENTRY_MODELS.get(labware_type)
+    if schema is not None:
+        for field_name in schema.model_fields:
+            _set_default(config, field_name, getattr(labware, field_name, None))
 
     return config
-
-
-def _normalize_well_plate_config(config: Dict[str, Any], labware: Any) -> None:
-    """Expose CubOS-resolved well-plate defaults in the current deck schema shape."""
-    _set_default(config, "rows", getattr(labware, "rows", None))
-    _set_default(config, "columns", getattr(labware, "columns", None))
-    _set_default(config, "length", getattr(labware, "length", None))
-    _set_default(config, "width", getattr(labware, "width", None))
-    _set_default(config, "height", getattr(labware, "height", None))
-    _set_default(config, "well_depth", getattr(labware, "well_depth", None))
-    _set_default(config, "capacity_ul", getattr(labware, "capacity_ul", None))
-    _set_default(config, "working_volume_ul", getattr(labware, "working_volume_ul", None))
-
-
-def _normalize_vial_config(config: Dict[str, Any], labware: Any) -> None:
-    """Expose CubOS-resolved vial defaults in the current deck schema shape."""
-    _set_default(config, "height", getattr(labware, "height", None))
-    _set_default(config, "diameter", getattr(labware, "diameter", None))
-    _set_default(config, "capacity_ul", getattr(labware, "capacity_ul", None))
-    _set_default(config, "working_volume_ul", getattr(labware, "working_volume_ul", None))
 
 
 def _set_default(config: Dict[str, Any], key: str, value: Any) -> None:

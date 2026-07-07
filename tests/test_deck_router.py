@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -171,6 +172,41 @@ labware:
     assert plate["y_offset"] == 9.0
 
 
+def test_get_deck_uses_public_resolve_load_names(monkeypatch, tmp_path: Path):
+    config_dir = tmp_path / "configs"
+    deck_dir = config_dir / "deck"
+    deck_dir.mkdir(parents=True)
+    (deck_dir / "deck.yaml").write_text(
+        """\
+labware:
+  vial:
+    type: vial
+    name: Sample
+    model_name: 20ml_vial
+    height: 57.0
+    diameter: 28.0
+    location: {x: 1.0, y: 2.0, z: 3.0}
+    capacity_ul: 20000.0
+    working_volume_ul: 15000.0
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(get_settings(), "config_dir", config_dir)
+    original = deck_router.resolve_load_names
+    calls: list[dict] = []
+
+    def wrapped(raw: dict) -> dict:
+        calls.append(raw)
+        return original(raw)
+
+    monkeypatch.setattr(deck_router, "resolve_load_names", wrapped)
+
+    response = api_request(create_app(), "GET", "/api/deck/deck.yaml")
+
+    assert response.status_code == 200
+    assert calls
+
+
 def test_preview_wells_derives_well_plate_coordinates():
     response = api_request(
         create_app(),
@@ -184,6 +220,27 @@ def test_preview_wells_derives_well_plate_coordinates():
     assert wells["A1"] == {"x": 347.0, "y": 42.0, "z": 30.0}
     assert wells["B2"] == {"x": 338.0, "y": 51.0, "z": 30.0}
     assert len(wells) == 96
+
+
+def test_preview_wells_uses_public_derive_wells_preview(monkeypatch):
+    calls: list[tuple[object, float]] = []
+
+    def fake_derive(entry: object, *, resolved_z: float):
+        calls.append((entry, resolved_z))
+        return {"A1": SimpleNamespace(x=1.2345, y=2.3456, z=3.4567)}
+
+    monkeypatch.setattr(deck_router, "derive_wells_preview", fake_derive)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/deck/preview-wells",
+        json=_preview_well_plate_body(),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"A1": {"x": 1.234, "y": 2.346, "z": 3.457}}
+    assert calls[0][1] == 30.0
 
 
 def test_preview_wells_requires_a1_z():
@@ -359,3 +416,22 @@ def test_normalize_labware_config_handles_sparse_inputs():
     assert resolved["model_name"] == "resolved_model"
     assert fallback["name"] == "slot_b"
     assert config["rows"] == 8
+
+
+def test_normalize_labware_config_uses_public_labware_schema_mapping(monkeypatch):
+    class Schema:
+        model_fields = {"resolved_field": object()}
+
+    class Labware:
+        name = "Resolved"
+        resolved_field = 42
+
+    monkeypatch.setattr(deck_router, "LABWARE_YAML_ENTRY_MODELS", {"custom": Schema})
+
+    resolved = deck_router._normalize_labware_config(
+        {"type": "custom"},
+        Labware(),
+        "slot",
+    )
+
+    assert resolved["resolved_field"] == 42

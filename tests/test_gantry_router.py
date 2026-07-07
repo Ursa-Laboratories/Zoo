@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -75,6 +76,11 @@ class FakeSession:
             connected=True,
         )
         self.calls: list[tuple[str, object]] = []
+        self._calibration_active = False
+
+    @property
+    def calibration_active(self) -> bool:
+        return self._calibration_active
 
     def position(self):
         self.calls.append(("position", None))
@@ -261,8 +267,7 @@ def test_connected_position_delegates_to_session(monkeypatch):
 
 def test_connected_position_reports_active_calibration_flags(monkeypatch):
     session = FakeSession()
-    session._calibration_jog_bypass_working_volume = True
-    session._calibration_restore_soft_limits = False
+    session._calibration_active = True
     monkeypatch.setattr(gantry_router, "_session", session)
 
     response = api_request(create_app(), "GET", "/api/gantry/position")
@@ -646,6 +651,28 @@ def test_session_error_mapping_branches(monkeypatch):
         assert text in response.text
 
 
+def test_movement_reconnect_mapping_uses_structured_error_attribute(monkeypatch):
+    session = FakeSession()
+
+    def reject(**_kwargs):
+        raise MovementOutOfBoundsError(
+            "Manual absolute moves require a loaded gantry working_volume.",
+            requires_reconnect=True,
+        )
+
+    session.move_to_blocking = reject
+    monkeypatch.setattr(gantry_router, "_session", session)
+
+    response = api_request(
+        create_app(),
+        "POST",
+        "/api/gantry/move-to-blocking",
+        json={"x": 10, "y": 10, "z": 10},
+    )
+
+    assert response.status_code == 409
+
+
 @pytest.mark.parametrize(
     ("method", "path", "session_method", "json_body"),
     [
@@ -738,7 +765,8 @@ def test_missing_working_volume_maps_to_conflict(monkeypatch):
 
     def reject(**_kwargs):
         raise MovementOutOfBoundsError(
-            "Manual absolute moves require a loaded gantry working_volume."
+            "Manual absolute moves require a loaded gantry working_volume.",
+            requires_reconnect=True,
         )
 
     session.move_to_blocking = reject
@@ -1107,7 +1135,68 @@ def test_gantry_exposes_protocol_measurement_methods_from_cubos_registry():
 
     assert response.status_code == 200
     methods = response.json()
-    assert methods["asmi"][:2] == ["indentation", "measure"]
+    assert methods["asmi"] == ["indentation"]
     assert "measure" in methods["filmetrics"]
     assert "measure" in methods["uvvis_ccs"]
     assert methods["pipette"] == []
+
+
+def test_instrument_schemas_use_public_config_fields(monkeypatch):
+    calls: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(gantry_router, "get_supported_types", lambda: ["demo"])
+    monkeypatch.setattr(gantry_router, "get_supported_vendors", lambda _type: ["acme"])
+
+    def fake_config_fields(type_key: str, vendor: str):
+        calls.append((type_key, vendor))
+        return [
+            SimpleNamespace(
+                name="gain",
+                type="float",
+                required=False,
+                default=1.0,
+                choices=(0.5, 1.0),
+            )
+        ]
+
+    monkeypatch.setattr(gantry_router, "config_fields", fake_config_fields)
+
+    response = api_request(create_app(), "GET", "/api/gantry/instrument-schemas")
+
+    assert response.status_code == 200
+    assert calls == [("demo", "acme")]
+    assert response.json() == {
+        "demo": {
+            "acme": [
+                {
+                    "name": "gain",
+                    "type": "float",
+                    "required": False,
+                    "default": 1.0,
+                    "choices": [0.5, 1.0],
+                }
+            ]
+        }
+    }
+
+
+def test_instrument_methods_use_public_measurement_method_api(monkeypatch):
+    calls: list[str] = []
+
+    monkeypatch.setattr(gantry_router, "get_supported_types", lambda: ["demo"])
+
+    def fake_list_measurement_methods(type_key: str) -> list[str]:
+        calls.append(type_key)
+        return ["measure"]
+
+    monkeypatch.setattr(
+        gantry_router,
+        "list_measurement_methods",
+        fake_list_measurement_methods,
+    )
+
+    response = api_request(create_app(), "GET", "/api/gantry/instrument-methods")
+
+    assert response.status_code == 200
+    assert response.json() == {"demo": ["measure"]}
+    assert calls == ["demo"]
