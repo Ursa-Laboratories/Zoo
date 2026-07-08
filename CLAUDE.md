@@ -32,6 +32,7 @@ frontend/
   src/
     api/client.ts     # API client functions
     types/index.ts    # TypeScript types describing CubOS YAML shapes
+    theme.ts          # Design tokens + shared style objects (colors, buttons, notices)
     hooks/            # TanStack Query hooks
     components/       # React components
 ```
@@ -40,7 +41,7 @@ frontend/
 
 - React + TypeScript + Vite
 - TanStack Query for server state
-- Inline styles (no CSS framework)
+- Inline styles (no CSS framework); pull colors/radii/shadows and shared button/input/notice styles from `src/theme.ts` — don't hardcode hex values in components. Hover/focus/disabled states live in `src/index.css`.
 - `npm run build` from `frontend/` — output goes to `frontend/dist/`, served by FastAPI
 
 ## Commands

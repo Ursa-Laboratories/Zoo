@@ -37,6 +37,7 @@ Never send raw serial/GRBL from Zoo and never prepend local CubOS source paths o
 Read these before changing the React UI:
 
 - `frontend/src/api/client.ts` — API client functions.
+- `frontend/src/theme.ts` — design tokens and shared style objects; all component styling pulls from here (no hardcoded hex in components). Interaction states (hover/focus/disabled) live in `frontend/src/index.css`.
 - `frontend/src/types/index.ts` — API payload types; keep them response/input shapes, not duplicated CubOS schema truth.
 - `frontend/src/hooks/` — TanStack Query hooks.
 - `frontend/src/components/` — UI components; gantry jog/readout and calibration UI live under `frontend/src/components/gantry/`.

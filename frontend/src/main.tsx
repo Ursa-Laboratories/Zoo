@@ -13,6 +13,12 @@ const queryClient = new QueryClient({
   },
 });
 
+const stored = localStorage.getItem("zoo-theme");
+const initial = stored === "light" || stored === "dark"
+  ? stored
+  : (window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark");
+document.documentElement.dataset.theme = initial;
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>

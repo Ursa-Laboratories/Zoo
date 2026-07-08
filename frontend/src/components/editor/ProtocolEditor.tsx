@@ -12,6 +12,7 @@ import type {
 } from "../../types";
 import { CoordinateField, NumberField, TextField, UnsavedNotice } from "./fields";
 import ImportFromFile from "./ImportFromFile";
+import * as theme from "../../theme";
 
 interface Props {
   configs: string[];
@@ -50,15 +51,18 @@ interface Props {
   runError: string | null;
 }
 
+// Categorical accents for step kinds: movement = indigo accent, liquid
+// handling = success emerald, scan keeps a distinct violet (the theme has
+// no third categorical hue).
 const COMMAND_COLORS: Record<string, string> = {
-  move: "#2563eb",
-  aspirate: "#059669",
-  dispense: "#059669",
-  blowout: "#059669",
-  mix: "#059669",
-  pick_up_tip: "#059669",
-  drop_tip: "#059669",
-  scan: "#7c3aed",
+  move: theme.color.accent,
+  aspirate: theme.color.success,
+  dispense: theme.color.success,
+  blowout: theme.color.success,
+  mix: theme.color.success,
+  pick_up_tip: theme.color.success,
+  drop_tip: theme.color.success,
+  scan: theme.categorical.violet,
 };
 
 type ProtocolChoices = {
@@ -328,7 +332,7 @@ export default function ProtocolEditor({
             {positionRows.map((position, i) => (
               <div key={position.id} style={positionRowStyle}>
                 <label style={positionNameFieldStyle}>
-                  <span style={{ color: "#666" }}>Name</span>
+                  <span style={theme.fieldLabel}>Name</span>
                   <input
                     id={`pos-${i}-name`}
                     name={`pos_${i}_name`}
@@ -370,14 +374,14 @@ export default function ProtocolEditor({
 
       {steps.map((step, i) => {
         const cmd = commandsByName[step.command];
-        const color = COMMAND_COLORS[step.command] ?? "#666";
+        const color = COMMAND_COLORS[step.command] ?? theme.color.textMuted;
 
         return (
           <div key={i} style={{ ...cardStyle, borderLeft: `3px solid ${color}` }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <h4 style={{ margin: 0, fontSize: 13 }}>
-                <span style={{ color: "#888", fontWeight: 400, fontSize: 11 }}>Step {i + 1}:</span>{" "}
-                <span style={{ color }}>{step.command}</span>
+              <h4 style={{ margin: 0, fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={stepBadgeStyle}>Step {i + 1}:</span>{" "}
+                <span style={{ color, fontWeight: 600 }}>{step.command}</span>
               </h4>
               <div style={{ display: "flex", gap: 4 }}>
                 <button onClick={() => moveStep(i, -1)} disabled={i === 0} style={reorderBtnStyle} title="Move up">
@@ -456,14 +460,14 @@ export default function ProtocolEditor({
                 })}
               </div>
             ) : (
-              <p style={{ color: "#dc2626", fontSize: 12, margin: 0 }}>Unknown command: {step.command}</p>
+              <p style={{ color: theme.color.danger, fontSize: 12, margin: 0 }}>Unknown command: {step.command}</p>
             )}
 
             {validationErrors &&
               validationErrors
                 .filter((e) => stepErrorPattern(i).test(e))
                 .map((e, j) => (
-                  <p key={j} style={{ color: "#dc2626", fontSize: 11, margin: "4px 0 0" }}>
+                  <p key={j} style={{ color: theme.color.danger, fontSize: 11, margin: "4px 0 0" }}>
                     {displayStepError(e)}
                   </p>
                 ))}
@@ -518,7 +522,7 @@ export default function ProtocolEditor({
               {protocolDirty && (
                 // aria-hidden so the accessible name stays "Save"; the
                 // amber asterisk is a sighted-only unsaved-edit cue.
-                <span aria-hidden="true" title="Unsaved changes" style={{ marginLeft: 4, fontWeight: 700, color: "#d97706" }}>*</span>
+                <span aria-hidden="true" title="Unsaved changes" style={{ marginLeft: 4, fontWeight: 700, color: theme.color.warning }}>*</span>
               )}
             </button>
             {protocolDirty && (
@@ -548,25 +552,25 @@ export default function ProtocolEditor({
           <p style={hintTextStyle}>Add at least one step before saving.</p>
         )}
         {!canRun && runDisabledReason && (
-          <p style={{ color: "#b45309", fontSize: 12, margin: "6px 0 0" }}>{runDisabledReason}</p>
+          <p style={{ ...theme.notice.warning, margin: "6px 0 0" }}>{runDisabledReason}</p>
         )}
         {validationErrors !== null && validationErrors.length === 0 && (
-          <p style={{ color: "#059669", fontSize: 12, margin: "6px 0 0" }}>Protocol is valid.</p>
+          <p style={{ ...theme.notice.success, margin: "6px 0 0" }}>Protocol is valid.</p>
         )}
         {validationErrors !== null && validationErrors.length > 0 && (
-          <div style={{ color: "#dc2626", fontSize: 12, margin: "6px 0 0" }}>
+          <div style={{ ...theme.notice.error, margin: "6px 0 0" }}>
             {validationErrors.map((error, i) => (
               <div key={i}>{displayStepError(error)}</div>
             ))}
           </div>
         )}
         {runResult && (
-          <p style={{ color: "#059669", fontSize: 12, margin: "6px 0 0" }}>
+          <p style={{ ...theme.notice.success, margin: "6px 0 0" }}>
             Protocol complete — {runResult.steps_executed} steps executed; campaign #{runResult.campaign_id} created.
           </p>
         )}
         {runError && (
-          <p style={{ color: "#dc2626", fontSize: 12, margin: "6px 0 0" }}>{runError}</p>
+          <p style={{ ...theme.notice.error, margin: "6px 0 0" }}>{runError}</p>
         )}
       </div>
     </div>
@@ -808,9 +812,9 @@ function SmartSelectField({
 
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
-      <span style={{ color: "#666" }}>
+      <span style={theme.fieldLabel}>
         {label}
-        {required && <span style={{ color: "#dc2626" }}> *</span>}
+        {required && <span style={{ color: theme.color.danger }}> *</span>}
       </span>
       {isLarge ? (
         <>
@@ -921,25 +925,21 @@ const toolbarFieldStyle: React.CSSProperties = {
 };
 
 const toolbarLabelStyle: React.CSSProperties = {
-  color: "#4b5563",
-  fontSize: 11,
-  fontWeight: 700,
-  textTransform: "uppercase",
-  letterSpacing: 0,
+  ...theme.sectionLabel,
 };
 
 const methodOptionsStyle: React.CSSProperties = {
-  border: "1px solid #dbeafe",
-  background: "#eff6ff",
-  borderRadius: 6,
+  border: `1px solid ${theme.color.accentTintBorder}`,
+  background: theme.color.accentTint,
+  borderRadius: theme.radius.md,
   padding: 10,
   marginTop: 4,
 };
 
 const methodOptionsTitleStyle: React.CSSProperties = {
-  color: "#1e40af",
+  color: theme.color.accentText,
   fontSize: 12,
-  fontWeight: 700,
+  fontWeight: 600,
   marginBottom: 8,
 };
 
@@ -950,10 +950,10 @@ const methodOptionsGridStyle: React.CSSProperties = {
 };
 
 const namedPositionsStyle: React.CSSProperties = {
-  background: "#f8fafc",
-  border: "1px solid #e5e7eb",
-  borderRadius: 6,
-  padding: 12,
+  background: theme.color.surfaceMuted,
+  border: `1px solid ${theme.color.border}`,
+  borderRadius: theme.radius.md,
+  padding: 14,
   marginTop: 8,
 };
 
@@ -966,13 +966,12 @@ const namedPositionsHeaderStyle: React.CSSProperties = {
 };
 
 const sectionTitleStyle: React.CSSProperties = {
-  color: "#111827",
+  ...theme.panelTitle,
   fontSize: 13,
-  margin: 0,
 };
 
 const sectionSubtextStyle: React.CSSProperties = {
-  color: "#6b7280",
+  color: theme.color.textMuted,
   fontSize: 11,
   margin: "2px 0 0",
 };
@@ -997,86 +996,74 @@ const positionNameFieldStyle: React.CSSProperties = {
 };
 
 const emptyNamedPositionsStyle: React.CSSProperties = {
-  color: "#6b7280",
+  color: theme.color.textMuted,
   fontSize: 12,
 };
 
 const positionErrorStyle: React.CSSProperties = {
-  color: "#dc2626",
-  fontSize: 12,
+  ...theme.notice.error,
   marginTop: 8,
 };
 
 const emptyProtocolStyle: React.CSSProperties = {
-  border: "1px dashed #d1d5db",
-  borderRadius: 6,
-  color: "#6b7280",
+  border: `1px dashed ${theme.color.borderStrong}`,
+  borderRadius: theme.radius.md,
+  color: theme.color.textMuted,
   fontSize: 13,
   padding: "18px 12px",
   marginTop: 8,
-  background: "#fafafa",
+  background: theme.color.surfaceMuted,
 };
 
 const cardStyle: React.CSSProperties = {
-  background: "#fafafa",
-  border: "1px solid #e0e0e0",
-  borderRadius: 6,
-  padding: 12,
+  background: theme.color.surface,
+  border: `1px solid ${theme.color.border}`,
+  borderRadius: theme.radius.md,
+  boxShadow: theme.shadow.card,
+  padding: 14,
   marginTop: 8,
 };
 
+/** Neutral index badge for step rows ("Step 1:"). */
+const stepBadgeStyle: React.CSSProperties = {
+  ...theme.pill,
+  ...theme.mono,
+  background: theme.color.surfaceSunken,
+  color: theme.color.textMuted,
+  fontSize: 11,
+  fontWeight: 600,
+};
+
 const selectStyle: React.CSSProperties = {
-  background: "#fff",
-  border: "1px solid #ccc",
-  color: "#1a1a1a",
+  ...theme.input,
   height: 34,
   padding: "0 10px",
-  borderRadius: 4,
-  fontSize: 13,
   width: "100%",
 };
 
 const inputStyle: React.CSSProperties = {
-  background: "#fff",
-  border: "1px solid #ccc",
-  color: "#1a1a1a",
-  padding: "4px 6px",
-  borderRadius: 4,
-  fontSize: 13,
+  ...theme.input,
 };
 
 const addBtnStyle: React.CSSProperties = {
-  background: "#fff",
-  color: "#2563eb",
-  border: "1px solid #2563eb",
+  ...theme.btn.secondary,
   height: 34,
   padding: "0 14px",
-  borderRadius: 4,
-  cursor: "pointer",
   fontSize: 12,
-  fontWeight: 600,
-  whiteSpace: "nowrap",
 };
 
 const reorderBtnStyle: React.CSSProperties = {
-  background: "transparent",
-  color: "#888",
-  border: "1px solid #ddd",
+  ...theme.btn.ghost,
+  ...theme.btnSmall,
   padding: "2px 6px",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 12,
   lineHeight: 1,
+  color: theme.color.textMuted,
 };
 
 const removeBtnStyle: React.CSSProperties = {
-  background: "transparent",
-  color: "#dc2626",
-  border: "1px solid #ddd",
+  ...theme.btn.danger,
+  ...theme.btnSmall,
   padding: "2px 8px",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 12,
   lineHeight: 1,
 };
 
@@ -1097,85 +1084,42 @@ const protocolButtonGroupStyle: React.CSSProperties = {
 };
 
 const filenameInputStyle: React.CSSProperties = {
-  background: "#fff",
-  border: "1px solid #ccc",
-  color: "#1a1a1a",
-  padding: "4px 8px",
-  borderRadius: 4,
-  fontSize: 13,
+  ...theme.input,
   flex: "1 1 220px",
   minWidth: 160,
 };
 
 const validateBtnStyle: React.CSSProperties = {
-  background: "#fff",
-  color: "#7c3aed",
-  border: "1px solid #7c3aed",
-  padding: "5px 14px",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 12,
-  fontWeight: 600,
+  ...theme.btn.secondary,
 };
 
+// Run is the hero action of this editor, so it alone gets btn.primary;
+// Save stays a neutral secondary.
 const saveBtnStyle: React.CSSProperties = {
-  background: "#2563eb",
-  color: "#fff",
-  border: "none",
+  ...theme.btn.secondary,
   padding: "6px 20px",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 13,
-  fontWeight: 600,
 };
 
 const runBtnStyle: React.CSSProperties = {
-  background: "#059669",
-  color: "#fff",
-  border: "none",
+  ...theme.btn.primary,
   padding: "6px 20px",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 13,
-  fontWeight: 600,
 };
 
 const cancelRunBtnStyle: React.CSSProperties = {
-  background: "#dc2626",
-  color: "#fff",
-  border: "none",
-  padding: "6px 14px",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 13,
-  fontWeight: 600,
-  whiteSpace: "nowrap",
+  ...theme.btn.danger,
 };
 
 const saveErrorStyle: React.CSSProperties = {
+  ...theme.notice.error,
   marginBottom: 8,
-  padding: "6px 10px",
-  borderRadius: 4,
-  background: "#fef2f2",
-  border: "1px solid #fca5a5",
-  color: "#991b1b",
-  fontSize: 12,
 };
 
 const discardBtnStyle: React.CSSProperties = {
-  background: "transparent",
-  color: "#4b5563",
-  border: "1px solid #d1d5db",
-  padding: "6px 14px",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 13,
-  fontWeight: 600,
-  whiteSpace: "nowrap",
+  ...theme.btn.ghost,
 };
 
 const hintTextStyle: React.CSSProperties = {
   marginTop: 6,
-  color: "#6b7280",
+  color: theme.color.textMuted,
   fontSize: 12,
 };

@@ -1,4 +1,5 @@
 import type { GantryPosition, InstrumentConfig } from "../../types";
+import { categorical as themeCategorical, viz as themeViz } from "../../theme";
 import { machineToSvg } from "../../utils/coordinates";
 
 interface Props {
@@ -12,13 +13,15 @@ interface Props {
 }
 
 const INSTRUMENT_COLORS: Record<string, string> = {
-  uvvis_ccs: "#7c3aed",
-  mock_uvvis_ccs: "#7c3aed",
-  pipette: "#059669",
-  mock_pipette: "#059669",
-  filmetrics: "#d97706",
-  mock_filmetrics: "#d97706",
+  uvvis_ccs: themeCategorical.violet,
+  mock_uvvis_ccs: themeCategorical.violet,
+  pipette: themeCategorical.emerald,
+  mock_pipette: themeCategorical.emerald,
+  filmetrics: themeCategorical.amber,
+  mock_filmetrics: themeCategorical.amber,
 };
+
+const INSTRUMENT_FALLBACK_COLOR = themeCategorical.slate;
 
 export default function InstrumentRenderer({
   label,
@@ -29,7 +32,7 @@ export default function InstrumentRenderer({
   machineXRange,
   machineYRange,
 }: Props) {
-  const color = INSTRUMENT_COLORS[instrument.type] ?? "#6b7280";
+  const color = INSTRUMENT_COLORS[instrument.type] ?? INSTRUMENT_FALLBACK_COLOR;
 
   // When gantry is connected and WPos is available, show instrument at WPos + offset
   if (gantryPosition?.connected && gantryPosition.work_x != null && gantryPosition.work_y != null) {
@@ -45,7 +48,7 @@ export default function InstrumentRenderer({
             {label} ({instrument.type}) at ({instX.toFixed(1)}, {instY.toFixed(1)})
           </title>
         </rect>
-        <text x={sx} y={labelY} fill={color} fontSize={9} textAnchor="middle" fontWeight={600}>
+        <text x={sx} y={labelY} fill={color} fontSize={9} textAnchor="middle" fontWeight={600} stroke={themeViz.halo} strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
           {label}
         </text>
       </g>
@@ -81,7 +84,7 @@ export default function InstrumentRenderer({
           {label} ({instrument.type}) offset: ({instrument.offset_x}, {instrument.offset_y})
         </title>
       </rect>
-      <text x={offsetSvg.sx} y={labelY} fill={color} fontSize={9} textAnchor="middle" fontWeight={600} opacity={0.7}>
+      <text x={offsetSvg.sx} y={labelY} fill={color} fontSize={9} textAnchor="middle" fontWeight={600} opacity={0.7} stroke={themeViz.halo} strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
         {label}
       </text>
     </g>

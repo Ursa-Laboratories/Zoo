@@ -1,3 +1,5 @@
+import * as theme from "../../theme";
+
 interface Props {
   configs: string[];
   onSelectFile: (f: string) => void;
@@ -39,20 +41,12 @@ const wrapperStyle: React.CSSProperties = {
 };
 
 const labelStyle: React.CSSProperties = {
-  color: "#4b5563",
-  fontSize: 11,
-  fontWeight: 700,
-  textTransform: "uppercase",
-  letterSpacing: 0,
+  ...theme.sectionLabel,
 };
 
 const selectStyle: React.CSSProperties = {
-  background: "#fff",
-  border: "1px solid #ccc",
-  color: "#1a1a1a",
+  ...theme.input,
   height: 34,
   padding: "0 10px",
-  borderRadius: 4,
-  fontSize: 13,
   width: "100%",
 };

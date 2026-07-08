@@ -10,6 +10,7 @@ import type {
 import { DirtyMarker, NumberField, SaveButton, TextField, UnsavedNotice } from "./fields";
 import { isFieldEqual } from "./field-utils";
 import ImportFromFile from "./ImportFromFile";
+import * as theme from "../../theme";
 
 interface Props {
   configs: string[];
@@ -77,12 +78,18 @@ const GRBL_BOOLEAN_FIELDS: Array<{ key: keyof GrblSettingsConfig; label: string 
 ];
 
 const INSTRUMENT_COLORS: Record<string, string> = {
-  asmi: "#2563eb",
-  uvvis_ccs: "#7c3aed",
-  pipette: "#059669",
-  filmetrics: "#d97706",
-  potentiostat: "#dc2626",
-  uv_curing: "#0891b2",
+  asmi: theme.categorical.blue,
+  uvvis_ccs: theme.categorical.violet,
+  pipette: theme.categorical.emerald,
+  filmetrics: theme.categorical.amber,
+  potentiostat: theme.color.danger,
+  uv_curing: theme.categorical.blue,
+};
+
+/** Section heading inside a config card (Connection, Working Volume, …). */
+const sectionTitleStyle: React.CSSProperties = {
+  ...theme.panelTitle,
+  fontSize: 13,
 };
 
 export default function GantryEditor({
@@ -239,7 +246,7 @@ export default function GantryEditor({
       {config && (
         <>
           <div style={cardStyle}>
-            <h4 style={{ margin: "0 0 8px", color: "#16a34a", fontSize: 13 }}>Connection</h4>
+            <h4 style={{ ...sectionTitleStyle, margin: "0 0 8px" }}>Connection</h4>
             <TextField
               id="gantry-serial-port"
               name="serial_port"
@@ -301,7 +308,7 @@ export default function GantryEditor({
           </div>
 
           <div style={cardStyle}>
-            <h4 style={{ margin: "0 0 8px", color: "#16a34a", fontSize: 13 }}>Working Volume</h4>
+            <h4 style={{ ...sectionTitleStyle, margin: "0 0 8px" }}>Working Volume</h4>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <NumberField id="wv-xmin" name="x_min" label="X min" value={config.working_volume.x_min} onChange={(v) => commit({ ...config, working_volume: { ...config.working_volume, x_min: v } })} dirty={d.x_min} />
               <NumberField id="wv-xmax" name="x_max" label="X max" value={config.working_volume.x_max} onChange={(v) => commit({ ...config, working_volume: { ...config.working_volume, x_max: v } })} dirty={d.x_max} />
@@ -314,7 +321,7 @@ export default function GantryEditor({
 
           <div style={cardStyle}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-              <h4 style={{ margin: 0, color: "#16a34a", fontSize: 13 }}>Instruments</h4>
+              <h4 style={sectionTitleStyle}>Instruments</h4>
               <div style={{ display: "flex", gap: 8 }}>
                 <select value={selectedAddType} onChange={(e) => setAddType(e.target.value)} style={selectStyle}>
                   {instrumentTypes.map((it) => (
@@ -325,15 +332,21 @@ export default function GantryEditor({
               </div>
             </div>
 
+            {Object.keys(config.instruments).length === 0 && (
+              <div style={emptyInstrumentNoticeStyle}>
+                No mounted instruments yet. Choose the instruments installed on this machine, then save the gantry config.
+              </div>
+            )}
+
             {Object.entries(config.instruments).map(([key, inst]) => {
-              const color = INSTRUMENT_COLORS[inst.type] ?? INSTRUMENT_COLORS[inst.type.replace("mock_", "")] ?? "#666";
+              const color = INSTRUMENT_COLORS[inst.type] ?? INSTRUMENT_COLORS[inst.type.replace("mock_", "")] ?? theme.color.textMuted;
               const fields = fieldsForInstrument(instrumentSchemas, inst.type, inst.vendor);
               const vendors = vendorsForType(instrumentTypes, inst.type);
               return (
                 <div key={key} style={instrumentCardStyle}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                    <h4 style={{ margin: 0, color, fontSize: 13 }}>
-                      {key} <span style={{ fontWeight: 400, color: "#888", fontSize: 11 }}>({typeLabel(inst.type)})</span>
+                    <h4 style={{ ...sectionTitleStyle, color, ...theme.mono }}>
+                      {key} <span style={{ fontWeight: 400, color: theme.color.textMuted, fontSize: 11, fontFamily: theme.font.ui }}>({typeLabel(inst.type)})</span>
                     </h4>
                     <button onClick={() => removeInstrument(key)} style={removeBtnStyle}>Remove</button>
                   </div>
@@ -463,17 +476,17 @@ export default function GantryEditor({
               style={advancedHeaderStyle}
             >
               <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ color: "#6b7280", fontSize: 12, width: 12, display: "inline-block" }}>
+                <span style={{ color: theme.color.textMuted, fontSize: 12, width: 12, display: "inline-block" }}>
                   {advancedOpen ? "▾" : "▸"}
                 </span>
                 Advanced settings
                 {grblDirty && <DirtyMarker />}
               </span>
-              <span style={{ color: "#9ca3af", fontSize: 11, fontWeight: 400 }}>GRBL Settings</span>
+              <span style={theme.sectionLabel}>GRBL Settings</span>
             </button>
             {advancedOpen && (
               <div style={{ marginTop: 12 }}>
-                <h4 style={{ margin: "0 0 8px", color: "#16a34a", fontSize: 13 }}>GRBL Settings</h4>
+                <h4 style={{ ...sectionTitleStyle, margin: "0 0 8px" }}>GRBL Settings</h4>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   {GRBL_BOOLEAN_FIELDS.map(({ key, label }) => (
                     <OptionalBooleanField
@@ -647,10 +660,10 @@ function SelectField({
   required?: boolean;
 }) {
   return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
-      <span style={{ color: "#666" }}>
+    <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12 }}>
+      <span style={theme.fieldLabel}>
         {label}
-        {required && <span style={{ color: "#dc2626" }}> *</span>}
+        {required && <span style={{ color: theme.color.danger }}> *</span>}
         {dirty && <DirtyMarker />}
       </span>
       <select id={id} name={name} value={value} onChange={(e) => onChange(e.target.value)} style={selectStyle}>
@@ -708,8 +721,8 @@ function OptionalBooleanField({
   dirty?: boolean;
 }) {
   return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
-      <span style={{ color: "#666" }}>
+    <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12 }}>
+      <span style={theme.fieldLabel}>
         {label}
         {dirty && <DirtyMarker />}
       </span>
@@ -731,10 +744,11 @@ function OptionalBooleanField({
   );
 }
 
+/** Muted section group (Connection, Working Volume, Instruments, Advanced). */
 const cardStyle: React.CSSProperties = {
-  background: "#fafafa",
-  border: "1px solid #e0e0e0",
-  borderRadius: 6,
+  background: theme.color.surfaceMuted,
+  border: `1px solid ${theme.color.border}`,
+  borderRadius: theme.radius.md,
   padding: 12,
   marginTop: 8,
 };
@@ -749,17 +763,29 @@ const advancedHeaderStyle: React.CSSProperties = {
   padding: 0,
   margin: 0,
   cursor: "pointer",
-  color: "#374151",
+  color: theme.color.text,
   fontSize: 13,
-  fontWeight: 700,
+  fontWeight: 600,
 };
 
+/** Surface panel for each instrument block, nested inside the muted section. */
 const instrumentCardStyle: React.CSSProperties = {
-  background: "#fff",
-  border: "1px solid #e0e0e0",
-  borderRadius: 6,
+  background: theme.color.surface,
+  border: `1px solid ${theme.color.border}`,
+  borderRadius: theme.radius.md,
   padding: 12,
   marginTop: 10,
+};
+
+const emptyInstrumentNoticeStyle: React.CSSProperties = {
+  marginTop: 12,
+  padding: "10px 12px",
+  borderRadius: theme.radius.md,
+  border: `1px solid ${theme.color.border}`,
+  background: theme.color.surfaceSunken,
+  color: theme.color.textSecondary,
+  fontSize: 12,
+  lineHeight: 1.45,
 };
 
 const configPickerRowStyle: React.CSSProperties = {
@@ -771,86 +797,46 @@ const configPickerRowStyle: React.CSSProperties = {
 };
 
 const selectStyle: React.CSSProperties = {
-  background: "#fff",
-  border: "1px solid #ccc",
-  color: "#1a1a1a",
-  padding: "4px 6px",
-  borderRadius: 4,
-  fontSize: 13,
+  ...theme.input,
 };
 
 const addBtnStyle: React.CSSProperties = {
-  background: "#fff",
-  color: "#16a34a",
-  border: "1px solid #16a34a",
-  padding: "5px 14px",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 12,
-  fontWeight: 600,
-  whiteSpace: "nowrap",
+  ...theme.btn.secondary,
+  ...theme.btnSmall,
 };
 
 const newConfigBtnStyle: React.CSSProperties = {
-  background: "#fff",
-  color: "#16a34a",
-  border: "1px solid #16a34a",
+  ...theme.btn.secondary,
+  fontSize: 12,
   height: 34,
   padding: "0 12px",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 12,
-  fontWeight: 600,
-  whiteSpace: "nowrap",
 };
 
 const removeBtnStyle: React.CSSProperties = {
-  background: "transparent",
-  color: "#999",
-  border: "1px solid #ddd",
-  padding: "2px 10px",
-  borderRadius: 4,
-  cursor: "pointer",
+  ...theme.btn.danger,
+  ...theme.btnSmall,
   fontSize: 11,
+  padding: "2px 10px",
 };
 
 const clearBtnStyle: React.CSSProperties = {
-  background: "transparent",
-  color: "#888",
-  border: "1px solid #ddd",
-  padding: "4px 8px",
-  borderRadius: 4,
-  cursor: "pointer",
+  ...theme.btn.ghost,
+  ...theme.btnSmall,
   fontSize: 11,
+  padding: "4px 8px",
 };
 
 const filenameInputStyle: React.CSSProperties = {
-  background: "#fff",
-  border: "1px solid #ccc",
-  color: "#1a1a1a",
-  padding: "4px 8px",
-  borderRadius: 4,
-  fontSize: 13,
+  ...theme.input,
+  ...theme.mono,
   flex: 1,
 };
 
 const saveErrorStyle: React.CSSProperties = {
+  ...theme.notice.error,
   marginTop: 12,
-  padding: "6px 10px",
-  borderRadius: 4,
-  background: "#fef2f2",
-  border: "1px solid #fca5a5",
-  color: "#991b1b",
-  fontSize: 12,
 };
 
 const discardBtnStyle: React.CSSProperties = {
-  background: "transparent",
-  color: "#4b5563",
-  border: "1px solid #d1d5db",
-  padding: "6px 14px",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 13,
-  fontWeight: 600,
+  ...theme.btn.secondary,
 };

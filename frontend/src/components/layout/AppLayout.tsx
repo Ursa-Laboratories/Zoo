@@ -1,59 +1,85 @@
 import type { ReactNode } from "react";
+import { card, chrome, color } from "../../theme";
 
 interface Props {
+  header: ReactNode;
   left: ReactNode;
   topRight: ReactNode;
   bottomRight: ReactNode;
 }
 
-export default function AppLayout({ left, topRight, bottomRight }: Props) {
+export default function AppLayout({ header, left, topRight, bottomRight }: Props) {
   return (
     <div
       style={{
-        display: "grid",
-        gridTemplateColumns: "3fr 2fr",
-        gridTemplateRows: "minmax(0, 1fr) auto",
+        display: "flex",
+        flexDirection: "column",
         height: "100vh",
-        gap: 0,
+        background: color.canvas,
       }}
     >
-      <div
+      <header
         style={{
-          gridRow: "1 / 3",
-          gridColumn: "1",
-          overflow: "auto",
-          borderRight: "1px solid #ddd",
-          padding: 16,
-          background: "#fff",
-        }}
-      >
-        {left}
-      </div>
-      <div
-        style={{
-          gridRow: "1",
-          gridColumn: "2",
-          overflow: "hidden",
-          padding: 16,
-          background: "#fafafa",
-          minHeight: 0,
+          flex: "0 0 auto",
           display: "flex",
-          flexDirection: "column",
+          alignItems: "center",
+          gap: 16,
+          minHeight: 56,
+          padding: "8px 16px",
+          background: chrome.headerBg,
+          borderBottom: `1px solid ${color.border}`,
+          boxShadow: chrome.headerHairline,
         }}
       >
-        {topRight}
-      </div>
+        {header}
+      </header>
       <div
         style={{
-          gridRow: "2",
-          gridColumn: "2",
-          borderTop: "1px solid #ddd",
-          padding: 16,
-          background: "#fff",
-          overflow: "hidden",
+          flex: "1 1 auto",
+          minHeight: 0,
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 3fr) minmax(0, 2fr)",
+          gridTemplateRows: "minmax(0, 1fr) auto",
+          gap: 14,
+          padding: 14,
         }}
       >
-        {bottomRight}
+        <section
+          style={{
+            ...card,
+            gridRow: "1 / 3",
+            gridColumn: "1",
+            overflow: "auto",
+            padding: 18,
+          }}
+        >
+          {left}
+        </section>
+        <section
+          style={{
+            ...card,
+            gridRow: "1",
+            gridColumn: "2",
+            overflow: "hidden",
+            padding: 16,
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          {topRight}
+        </section>
+        <section
+          style={{
+            ...card,
+            gridRow: "2",
+            gridColumn: "2",
+            padding: 16,
+            overflow: "hidden",
+          }}
+        >
+          {bottomRight}
+        </section>
       </div>
     </div>
   );

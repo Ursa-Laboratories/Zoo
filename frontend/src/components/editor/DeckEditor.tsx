@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { DeckResponse, LabwareConfig, WellPlateConfig, VialConfig, DeckConfig } from "../../types";
 import { CoordinateField, NumberField, SaveButton, TextField, UnsavedNotice } from "./fields";
 import ImportFromFile from "./ImportFromFile";
+import * as theme from "../../theme";
 
 interface Props {
   configs: string[];
@@ -181,7 +182,7 @@ export default function DeckEditor({ configs, selectedFile, onSelectFile, onImpo
       {Object.entries(labware).map(([key, entry]) => (
         <div key={key} style={cardStyle}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <h4 style={{ margin: 0, color: "#2563eb", fontSize: 13 }}>{key}</h4>
+            <h4 style={{ ...theme.panelTitle, ...theme.mono, fontSize: 13 }}>{key}</h4>
             <button onClick={() => removeLabware(key)} style={removeBtnStyle}>Remove</button>
           </div>
           {isEditableDeckLabware(entry) ? (
@@ -275,78 +276,49 @@ function VialFields({ entry, onChange, parentKey }: { entry: VialConfig; onChang
   );
 }
 
+/** Muted group panel for each labware item block. */
 const cardStyle: React.CSSProperties = {
-  background: "#fafafa",
-  border: "1px solid #e0e0e0",
-  borderRadius: 6,
+  background: theme.color.surfaceMuted,
+  border: `1px solid ${theme.color.border}`,
+  borderRadius: theme.radius.md,
   padding: 12,
   marginTop: 8,
 };
 
 const addBtnStyle: React.CSSProperties = {
-  background: "#fff",
-  color: "#2563eb",
-  border: "1px solid #2563eb",
-  padding: "5px 14px",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 12,
-  fontWeight: 600,
+  ...theme.btn.secondary,
+  ...theme.btnSmall,
 };
 
 const removeBtnStyle: React.CSSProperties = {
-  background: "transparent",
-  color: "#999",
-  border: "1px solid #ddd",
-  padding: "2px 10px",
-  borderRadius: 4,
-  cursor: "pointer",
+  ...theme.btn.danger,
+  ...theme.btnSmall,
   fontSize: 11,
+  padding: "2px 10px",
 };
 
 const filenameInputStyle: React.CSSProperties = {
-  background: "#fff",
-  border: "1px solid #ccc",
-  color: "#1a1a1a",
-  padding: "4px 8px",
-  borderRadius: 4,
-  fontSize: 13,
+  ...theme.input,
+  ...theme.mono,
   flex: 1,
 };
 
 const unsupportedNoteStyle: React.CSSProperties = {
+  ...theme.notice.warning,
   marginTop: 8,
-  padding: "8px 10px",
-  borderRadius: 4,
-  background: "#fffbeb",
-  border: "1px solid #fde68a",
-  color: "#92400e",
-  fontSize: 12,
 };
 
 const saveErrorStyle: React.CSSProperties = {
+  ...theme.notice.error,
   marginBottom: 8,
-  padding: "6px 10px",
-  borderRadius: 4,
-  background: "#fef2f2",
-  border: "1px solid #fca5a5",
-  color: "#991b1b",
-  fontSize: 12,
 };
 
 const discardBtnStyle: React.CSSProperties = {
-  background: "transparent",
-  color: "#4b5563",
-  border: "1px solid #d1d5db",
-  padding: "6px 14px",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 13,
-  fontWeight: 600,
+  ...theme.btn.secondary,
 };
 
 const hintTextStyle: React.CSSProperties = {
   marginTop: 6,
-  color: "#6b7280",
+  color: theme.color.textMuted,
   fontSize: 12,
 };

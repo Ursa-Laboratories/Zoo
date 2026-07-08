@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, TouchEvent } from "react";
 import { gantryApi } from "../../api/client";
+import * as theme from "../../theme";
 import type { GantryConfig, GantryPosition, GantryResponse } from "../../types";
 import {
   buildCalibratedConfig,
@@ -746,8 +747,8 @@ export default function CalibrationWizard({
       <div style={modalStyle}>
         <div style={headerStyle}>
           <div>
-            <h2 style={{ margin: 0, fontSize: 18 }}>Calibrate gantry</h2>
-            <div style={{ marginTop: 3, fontSize: 12, color: "#666" }}>
+            <h2 style={{ margin: 0, fontSize: 18, color: theme.color.ink, letterSpacing: "-0.01em" }}>Calibrate gantry</h2>
+            <div style={{ marginTop: 3, fontSize: 12, color: theme.color.textMuted }}>
               {filename || "No file selected"} · {isMulti ? "multi-instrument board" : "single-instrument deck origin"}
             </div>
           </div>
@@ -1024,7 +1025,7 @@ export default function CalibrationWizard({
                   {instruments.map((name) => (
                     <div key={name} style={instrumentRowStyle}>
                       <strong>{name}</strong>
-                      <span style={{ color: "#666" }}>
+                      <span style={{ ...theme.mono, color: theme.color.textMuted }}>
                         {instrumentPositions[name]
                           ? `${instrumentPositions[name].x.toFixed(3)}, ${instrumentPositions[name].y.toFixed(3)}, ${instrumentPositions[name].z.toFixed(3)}`
                           : name === nextInstrumentToRecord
@@ -1038,7 +1039,7 @@ export default function CalibrationWizard({
                   <div style={activeInstrumentStyle}>
                     <div style={{ marginBottom: 10 }}>
                       <span style={labelStyle}>Active instrument</span>
-                      <h4 style={{ margin: "2px 0 0", fontSize: 15 }}>{nextInstrumentToRecord}</h4>
+                      <h4 style={{ margin: "2px 0 0", fontSize: 15, color: theme.color.ink }}>{nextInstrumentToRecord}</h4>
                       {nextInstrumentIsCamera && (
                         <p style={{ ...instructionStyle, margin: "8px 0 0" }}>
                           Center the camera over the calibration block mark. Enter the distance from the camera reference point to the top of the calibration block before recording.
@@ -1060,7 +1061,7 @@ export default function CalibrationWizard({
                           style={buttonStateStyle(inputStyle, controlsLocked)}
                         />
                         {nextCameraDistanceError && (
-                          <span style={{ color: "#b91c1c", fontSize: 12 }}>{nextCameraDistanceError}</span>
+                          <span style={{ color: theme.color.danger, fontSize: 12 }}>{nextCameraDistanceError}</span>
                         )}
                       </label>
                     )}
@@ -1200,7 +1201,7 @@ function JogPanel({
             onChange={(event) => setXyStep(event.target.value)}
             disabled={disabled || alarmed}
             inputMode="decimal"
-            style={buttonStateStyle({ ...smallInputStyle, borderColor: xyStepInvalid || xyBelowMin ? "#dc2626" : undefined }, disabled || alarmed)}
+            style={buttonStateStyle({ ...smallInputStyle, borderColor: xyStepInvalid || xyBelowMin ? theme.color.danger : undefined }, disabled || alarmed)}
           />
         </label>
         <label style={stepFieldStyle}>
@@ -1210,7 +1211,7 @@ function JogPanel({
             onChange={(event) => setZStep(event.target.value)}
             disabled={disabled || alarmed}
             inputMode="decimal"
-            style={buttonStateStyle({ ...smallInputStyle, borderColor: zStepInvalid || zBelowMin ? "#dc2626" : undefined }, disabled || alarmed)}
+            style={buttonStateStyle({ ...smallInputStyle, borderColor: zStepInvalid || zBelowMin ? theme.color.danger : undefined }, disabled || alarmed)}
           />
         </label>
         {(stepInvalid || xyBelowMin || zBelowMin) && (
@@ -1227,7 +1228,7 @@ function Readout({ label, value, tone = "default" }: { label: string; value: str
   return (
     <div style={readoutStyle}>
       <span style={readoutLabelStyle}>{label}</span>
-      <span style={{ ...readoutValueStyle, color: tone === "good" ? "#15803d" : tone === "muted" ? "#777" : "#111" }}>{value}</span>
+      <span style={{ ...readoutValueStyle, color: tone === "good" ? theme.color.success : tone === "muted" ? theme.color.textMuted : theme.color.ink }}>{value}</span>
     </div>
   );
 }
@@ -1416,7 +1417,7 @@ function stepLabels(isMulti: boolean): string[] {
 const overlayStyle: React.CSSProperties = {
   position: "fixed",
   inset: 0,
-  background: "rgba(15, 23, 42, 0.36)",
+  background: theme.chrome.backdrop,
   zIndex: 50,
   display: "flex",
   alignItems: "center",
@@ -1427,10 +1428,10 @@ const overlayStyle: React.CSSProperties = {
 const modalStyle: React.CSSProperties = {
   width: "min(920px, 96vw)",
   maxHeight: "92vh",
-  background: "#fff",
-  border: "1px solid #d4d4d8",
-  borderRadius: 8,
-  boxShadow: "0 18px 60px rgba(15, 23, 42, 0.22)",
+  background: theme.color.surface,
+  border: `1px solid ${theme.color.border}`,
+  borderRadius: theme.radius.lg,
+  boxShadow: theme.shadow.overlay,
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",
@@ -1442,7 +1443,7 @@ const headerStyle: React.CSSProperties = {
   alignItems: "flex-start",
   gap: 12,
   padding: "16px 18px",
-  borderBottom: "1px solid #e5e7eb",
+  borderBottom: `1px solid ${theme.color.border}`,
 };
 
 const headerActionsStyle: React.CSSProperties = {
@@ -1461,8 +1462,8 @@ const bodyStyle: React.CSSProperties = {
 
 const stepsStyle: React.CSSProperties = {
   padding: 12,
-  borderRight: "1px solid #e5e7eb",
-  background: "#f8fafc",
+  borderRight: `1px solid ${theme.color.border}`,
+  background: theme.color.surfaceMuted,
   display: "flex",
   flexDirection: "column",
   gap: 6,
@@ -1479,8 +1480,8 @@ const stepButtonStyle: React.CSSProperties = {
   gap: 8,
   border: "1px solid transparent",
   background: "transparent",
-  color: "#334155",
-  borderRadius: 6,
+  color: theme.color.textFaint,
+  borderRadius: theme.radius.sm,
   padding: "8px 9px",
   fontSize: 12,
   textAlign: "left",
@@ -1489,25 +1490,25 @@ const stepButtonStyle: React.CSSProperties = {
 
 const activeStepStyle: React.CSSProperties = {
   ...stepButtonStyle,
-  background: "#fff",
-  border: "1px solid #cbd5e1",
-  color: "#0f172a",
-  fontWeight: 700,
+  background: theme.color.surface,
+  border: `1px solid ${theme.color.accentTintBorder}`,
+  color: theme.color.accentText,
+  fontWeight: 600,
 };
 
 const completedStepStyle: React.CSSProperties = {
   ...stepButtonStyle,
-  color: "#0f766e",
-  background: "#ecfdf5",
-  border: "1px solid #bbf7d0",
+  color: theme.color.successText,
+  background: theme.color.successBg,
+  border: `1px solid ${theme.color.successBorder}`,
 };
 
 const stepNumberStyle: React.CSSProperties = {
   width: 20,
   height: 20,
   borderRadius: "50%",
-  background: "#e2e8f0",
-  color: "#0f172a",
+  background: theme.color.border,
+  color: theme.color.ink,
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
@@ -1516,13 +1517,14 @@ const stepNumberStyle: React.CSSProperties = {
 };
 
 const sectionTitleStyle: React.CSSProperties = {
+  ...theme.panelTitle,
   margin: "0 0 10px",
   fontSize: 16,
 };
 
 const instructionStyle: React.CSSProperties = {
   margin: "0 0 12px",
-  color: "#444",
+  color: theme.color.textSecondary,
   fontSize: 13,
   lineHeight: 1.45,
 };
@@ -1535,23 +1537,23 @@ const summaryGridStyle: React.CSSProperties = {
 };
 
 const readoutStyle: React.CSSProperties = {
-  border: "1px solid #e5e7eb",
-  borderRadius: 6,
+  border: `1px solid ${theme.color.border}`,
+  borderRadius: theme.radius.sm,
   padding: "7px 9px",
   minWidth: 0,
 };
 
 const readoutLabelStyle: React.CSSProperties = {
+  ...theme.sectionLabel,
   display: "block",
-  color: "#64748b",
-  fontSize: 11,
   marginBottom: 2,
 };
 
 const readoutValueStyle: React.CSSProperties = {
+  ...theme.mono,
   display: "block",
   fontSize: 13,
-  fontWeight: 700,
+  fontWeight: 600,
   overflowWrap: "anywhere",
 };
 
@@ -1570,24 +1572,20 @@ const fieldStyle: React.CSSProperties = {
 };
 
 const labelStyle: React.CSSProperties = {
-  color: "#666",
-  fontSize: 11,
+  ...theme.fieldLabel,
 };
 
 const inputStyle: React.CSSProperties = {
-  background: "#fff",
-  border: "1px solid #cbd5e1",
-  color: "#111",
-  borderRadius: 4,
-  padding: "6px 8px",
-  fontSize: 12,
+  ...theme.input,
   minWidth: 0,
 };
 
 const smallInputStyle: React.CSSProperties = {
   ...inputStyle,
+  ...theme.mono,
   width: 58,
   padding: "4px 6px",
+  fontSize: 12,
 };
 
 const actionRowStyle: React.CSSProperties = {
@@ -1599,28 +1597,19 @@ const actionRowStyle: React.CSSProperties = {
 };
 
 const buttonStyle: React.CSSProperties = {
-  background: "#f8fafc",
-  color: "#111",
-  border: "1px solid #cbd5e1",
-  borderRadius: 4,
-  padding: "6px 11px",
-  fontSize: 12,
-  cursor: "pointer",
+  ...theme.btn.secondary,
+  ...theme.btnSmall,
 };
 
 const primaryButtonStyle: React.CSSProperties = {
-  ...buttonStyle,
-  background: "#0f766e",
-  border: "1px solid #0f766e",
-  color: "#fff",
-  fontWeight: 700,
+  ...theme.btn.primary,
 };
 
 const closeButtonStyle: React.CSSProperties = {
   background: "transparent",
-  border: "1px solid #d4d4d8",
-  borderRadius: 4,
-  color: "#444",
+  border: `1px solid ${theme.color.borderStrong}`,
+  borderRadius: theme.radius.sm,
+  color: theme.color.textMuted,
   cursor: "pointer",
   fontSize: 18,
   lineHeight: 1,
@@ -1629,22 +1618,13 @@ const closeButtonStyle: React.CSSProperties = {
 };
 
 const errorStyle: React.CSSProperties = {
-  border: "1px solid #fca5a5",
-  background: "#fef2f2",
-  color: "#991b1b",
-  borderRadius: 6,
-  padding: "8px 10px",
-  fontSize: 12,
+  ...theme.notice.error,
   marginBottom: 10,
 };
 
 const alarmStyle: React.CSSProperties = {
-  border: "1px solid #dc2626",
-  background: "#fef2f2",
-  color: "#991b1b",
-  borderRadius: 6,
-  padding: "8px 10px",
-  fontSize: 12,
+  ...theme.notice.error,
+  border: `1px solid ${theme.color.danger}`,
   marginBottom: 10,
   display: "flex",
   alignItems: "center",
@@ -1653,36 +1633,24 @@ const alarmStyle: React.CSSProperties = {
 };
 
 const alarmTitleStyle: React.CSSProperties = {
-  color: "#dc2626",
-  fontWeight: 800,
+  color: theme.color.danger,
+  fontWeight: 700,
+  letterSpacing: "0.04em",
 };
 
 const alarmButtonStyle: React.CSSProperties = {
-  ...buttonStyle,
-  background: "#dc2626",
-  border: "1px solid #dc2626",
-  color: "#fff",
-  fontWeight: 700,
+  ...theme.btn.danger,
+  ...theme.btnSmall,
   marginLeft: "auto",
 };
 
 const noteStyle: React.CSSProperties = {
-  border: "1px solid #bfdbfe",
-  background: "#eff6ff",
-  color: "#1e3a8a",
-  borderRadius: 6,
-  padding: "8px 10px",
-  fontSize: 12,
+  ...theme.notice.info,
   marginBottom: 10,
 };
 
 const busyStyle: React.CSSProperties = {
-  border: "1px solid #fed7aa",
-  background: "#fff7ed",
-  color: "#9a3412",
-  borderRadius: 6,
-  padding: "8px 10px",
-  fontSize: 12,
+  ...theme.notice.warning,
   marginBottom: 10,
 };
 
@@ -1690,8 +1658,8 @@ const jogPanelStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 18,
-  border: "1px solid #e5e7eb",
-  borderRadius: 6,
+  border: `1px solid ${theme.color.border}`,
+  borderRadius: theme.radius.md,
   padding: 12,
   width: "fit-content",
   maxWidth: "100%",
@@ -1717,11 +1685,11 @@ const jogButtonStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  background: "#f8fafc",
-  border: "1px solid #cbd5e1",
-  borderRadius: 4,
-  color: "#111",
-  fontWeight: 700,
+  background: theme.color.surface,
+  border: `1px solid ${theme.color.borderStrong}`,
+  borderRadius: theme.radius.md,
+  color: theme.color.text,
+  fontWeight: 600,
   cursor: "pointer",
 };
 
@@ -1729,7 +1697,7 @@ const padCenterStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  color: "#94a3b8",
+  color: theme.color.textFaint,
   fontSize: 10,
 };
 
@@ -1746,7 +1714,7 @@ const stepFieldStyle: React.CSSProperties = {
 };
 
 const stepHintStyle: React.CSSProperties = {
-  color: "#b91c1c",
+  color: theme.color.danger,
   fontSize: 11,
 };
 
@@ -1758,18 +1726,19 @@ const instrumentListStyle: React.CSSProperties = {
 };
 
 const instrumentRowStyle: React.CSSProperties = {
-  border: "1px solid #e5e7eb",
-  borderRadius: 6,
+  border: `1px solid ${theme.color.border}`,
+  borderRadius: theme.radius.sm,
   padding: "7px 9px",
   display: "flex",
   justifyContent: "space-between",
   gap: 8,
   fontSize: 12,
+  color: theme.color.text,
 };
 
 const activeInstrumentStyle: React.CSSProperties = {
-  border: "1px solid #cbd5e1",
-  borderRadius: 6,
+  border: `1px solid ${theme.color.border}`,
+  borderRadius: theme.radius.md,
   padding: 12,
-  background: "#f8fafc",
+  background: theme.color.surfaceMuted,
 };

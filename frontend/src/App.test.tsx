@@ -709,7 +709,10 @@ describe("Zoo editor interactions", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await user.click(screen.getByRole("button", { name: "Home gantry" }));
     await user.click(await screen.findByRole("button", { name: "Continue" }));
-    await user.click(await screen.findByRole("button", { name: "Set origin and continue" }));
+    const setOrigin = await screen.findByRole("button", { name: "Set origin and continue" });
+    await waitFor(() => expect(setOrigin).toBeEnabled());
+    await user.click(setOrigin);
+    expect(await screen.findByText("Origin set. Ready to measure and save.")).toBeInTheDocument();
     await user.click(within(screen.getByRole("dialog", { name: "Gantry calibration" })).getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
