@@ -40,6 +40,32 @@ def test_windows_runtime_uses_venv_and_installs_zoo_and_cubos() -> None:
     assert "& $RuntimePython -m zoo" in start_zoo
 
 
+def test_windows_runtime_install_reports_visible_progress() -> None:
+    """The runtime install is a long, mostly-silent sequence of offline pip
+    commands. Without incremental feedback it looks frozen, so Install-Runtime
+    must emit a per-phase banner, drive a progress bar, and print a heartbeat
+    while a command is still running."""
+    install_runtime = (WINDOWS_INSTALLER / "scripts" / "Install-Runtime.ps1").read_text()
+
+    # Numbered per-phase banners with a total-step count.
+    assert "Set-TotalSteps" in install_runtime
+    assert "function Start-Step" in install_runtime
+    assert "[$($script:StepIndex)/$($script:TotalSteps)]" in install_runtime
+
+    # A progress bar the operator (or Inno wizard host) can render.
+    assert "Write-Progress" in install_runtime
+
+    # A heartbeat emitted during silent stretches so the step never looks hung.
+    assert "still" in install_runtime.lower()
+    assert "elapsed" in install_runtime.lower()
+
+    # The step total must match the number of fixed phases (venv, core deps,
+    # Zoo/CubOS, verify) plus one step per selected driver group.
+    assert "Set-TotalSteps (4 + $SelectedDriverGroups.Count)" in install_runtime
+    start_step_calls = install_runtime.count('Start-Step "')
+    assert start_step_calls == 5  # 4 fixed phases + the one inside the driver loop
+
+
 def test_windows_installer_offers_asmi_as_optional_public_driver() -> None:
     iss = (WINDOWS_INSTALLER / "Zoo.iss").read_text()
     build_script = (WINDOWS_INSTALLER / "build-installer.ps1").read_text()
