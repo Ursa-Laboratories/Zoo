@@ -78,11 +78,11 @@ const GRBL_BOOLEAN_FIELDS: Array<{ key: keyof GrblSettingsConfig; label: string 
 ];
 
 const INSTRUMENT_COLORS: Record<string, string> = {
-  asmi: "#2563eb",
-  uvvis_ccs: "#7c3aed",
-  pipette: "#059669",
-  filmetrics: "#d97706",
-  potentiostat: "#dc2626",
+  asmi: "#60a5fa",
+  uvvis_ccs: "#a78bfa",
+  pipette: "#34d399",
+  filmetrics: "#fbbf24",
+  potentiostat: theme.color.danger,
   uv_curing: "#0891b2",
 };
 
@@ -762,7 +762,7 @@ const advancedHeaderStyle: React.CSSProperties = {
   fontWeight: 600,
 };
 
-/** White panel for each instrument block, nested inside the muted section. */
+/** Surface panel for each instrument block, nested inside the muted section. */
 const instrumentCardStyle: React.CSSProperties = {
   background: theme.color.surface,
   border: `1px solid ${theme.color.border}`,

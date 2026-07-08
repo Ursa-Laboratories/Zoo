@@ -55,15 +55,27 @@ function CoordinateGrid({
   const step = 50;
 
   const lines: React.ReactElement[] = [];
+  lines.push(
+    <rect
+      key="frame"
+      x={xLeft}
+      y={yTop}
+      width={viewport.width}
+      height={viewport.height}
+      fill="#0a101f"
+      stroke="#1e2a44"
+      strokeWidth={1}
+    />
+  );
   const xStart = Math.ceil(machineXRange[0] / step) * step;
   const xEnd = Math.floor(machineXRange[1] / step) * step;
   for (let tick = xStart; tick <= xEnd; tick += step) {
     const { sx: x } = machineToSvg(tick, machineYRange[0], svgWidth, svgHeight, machineXRange, machineYRange);
     lines.push(
-      <line key={`vx${tick}`} x1={x} y1={yTop} x2={x} y2={yBottom} stroke={themeColor.border} strokeWidth={0.5} />
+      <line key={`vx${tick}`} x1={x} y1={yTop} x2={x} y2={yBottom} stroke="rgba(148,163,184,0.10)" strokeWidth={0.5} />
     );
     lines.push(
-      <text key={`lx${tick}`} x={x} y={yBottom + 14} fill={themeColor.textFaint} fontSize={9} fontFamily={themeFont.mono} textAnchor="middle">
+      <text key={`lx${tick}`} x={x} y={yBottom + 14} fill="#5d6b85" fontSize={9} fontFamily={themeFont.mono} textAnchor="middle">
         {tick}
       </text>
     );
@@ -73,10 +85,10 @@ function CoordinateGrid({
   for (let tick = yStart; tick <= yEnd; tick += step) {
     const { sy: y } = machineToSvg(machineXRange[0], tick, svgWidth, svgHeight, machineXRange, machineYRange);
     lines.push(
-      <line key={`vy${tick}`} x1={xLeft} y1={y} x2={xRight} y2={y} stroke={themeColor.border} strokeWidth={0.5} />
+      <line key={`vy${tick}`} x1={xLeft} y1={y} x2={xRight} y2={y} stroke="rgba(148,163,184,0.10)" strokeWidth={0.5} />
     );
     lines.push(
-      <text key={`ly${tick}`} x={xLeft - 4} y={y + 3} fill={themeColor.textFaint} fontSize={9} fontFamily={themeFont.mono} textAnchor="end">
+      <text key={`ly${tick}`} x={xLeft - 4} y={y + 3} fill="#5d6b85" fontSize={9} fontFamily={themeFont.mono} textAnchor="end">
         {tick}
       </text>
     );
@@ -118,7 +130,7 @@ export default function DeckVisualization({
       width={SVG_W}
       height={SVG_H}
       data-testid="deck-visualization"
-      style={{ background: themeColor.surfaceMuted, borderRadius: 8, border: `1px solid ${themeColor.border}`, display: "block", width: "100%", height: "auto", maxHeight: "100%" }}
+      style={{ background: "#0a101f", borderRadius: 8, border: `1px solid ${themeColor.border}`, display: "block", width: "100%", height: "auto", maxHeight: "100%" }}
       viewBox={`0 0 ${SVG_W} ${SVG_H}`}
       preserveAspectRatio="xMidYMid meet"
     >
@@ -130,7 +142,7 @@ export default function DeckVisualization({
       />
 
       {isBedMode && (
-        <text x={SVG_W - SVG_PADDING} y={SVG_PADDING - 4} fill={themeColor.textMuted} fontSize={9} textAnchor="end">
+        <text x={SVG_W - SVG_PADDING} y={SVG_PADDING - 4} fill="#94a3b8" fontSize={9} textAnchor="end">
           bed moves Y
         </text>
       )}

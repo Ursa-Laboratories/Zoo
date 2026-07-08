@@ -30,12 +30,12 @@ export default function VialRenderer({
 
   return (
     <g>
-      <circle cx={sx} cy={sy} r={r} fill="#fffbeb" fillOpacity={0.6} stroke="#d97706" strokeWidth={1.5}>
+      <circle cx={sx} cy={sy} r={r} fill="rgba(245,158,11,0.12)" stroke="#f59e0b" strokeWidth={1.5}>
         <title>
           {label}: ({config.location.x}, {config.location.y}, {config.location.z})
         </title>
       </circle>
-      <text x={sx} y={sy - r - 3} fill="#92400e" fontSize={9} textAnchor="middle" fontWeight={500} stroke="#ffffff" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
+      <text x={sx} y={sy - r - 3} fill="#fcd34d" fontSize={9} textAnchor="middle" fontWeight={500} stroke="#0a101f" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
         {config.name}
       </text>
     </g>

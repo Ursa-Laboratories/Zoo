@@ -58,14 +58,13 @@ export default function HolderRenderer({
         y={rect.y}
         width={rect.width}
         height={rect.height}
-        fill="#f8fafc"
-        fillOpacity={0.5}
-        stroke="#cbd5e1"
+        fill="rgba(20,29,51,0.5)"
+        stroke="#31405f"
         strokeWidth={1.5}
         strokeDasharray="6 3"
         rx={4}
       />
-      <text x={rect.x + 4} y={labelY} fill="#475569" fontSize={10} fontWeight={500} stroke="#ffffff" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
+      <text x={rect.x + 4} y={labelY} fill="#94a3b8" fontSize={10} fontWeight={500} stroke="#0a101f" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
         {label}
       </text>
     </g>

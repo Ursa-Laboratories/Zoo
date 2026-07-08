@@ -5,12 +5,12 @@
    theme.ts. */
 
 :root {
-  --zoo-accent: #4f46e5;
-  --zoo-accent-soft: rgba(79, 70, 229, 0.16);
-  --zoo-ink: #0f172a;
-  --zoo-canvas: #f1f5f9;
+  --zoo-accent: #22d3ee;
+  --zoo-accent-soft: rgba(34, 211, 238, 0.18);
+  --zoo-ink: #f1f5f9;
+  --zoo-canvas: #070b16;
 
-  color-scheme: light;
+  color-scheme: dark;
   font-family: Inter, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
   line-height: 1.45;
   font-weight: 400;
@@ -36,6 +36,11 @@ body {
   min-width: 320px;
   min-height: 100vh;
   overflow: hidden;
+  color: #f1f5f9;
+  background:
+    radial-gradient(1100px 700px at 75% -10%, rgba(56, 189, 248, 0.10), transparent 60%),
+    radial-gradient(900px 600px at -8% 110%, rgba(99, 102, 241, 0.08), transparent 60%),
+    #070b16;
 }
 
 ::selection {
@@ -54,11 +59,11 @@ button {
 }
 
 button:not(:disabled):hover {
-  filter: brightness(0.96);
+  filter: brightness(1.15);
 }
 
 button:not(:disabled):active {
-  filter: brightness(0.9);
+  filter: brightness(0.85);
 }
 
 button:disabled {
@@ -87,8 +92,21 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 
 /* Jog button press feedback */
 .jog-btn:active:not(:disabled) {
-  background: #e2e8f0;
+  background: #1c2946;
   transform: scale(0.93);
+}
+
+@keyframes zoo-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(245, 158, 11, 0);
+  }
+}
+
+.zoo-pulse {
+  animation: zoo-pulse 2s ease-in-out infinite;
 }
 
 /* Slim slate scrollbars so dense config panels stay tidy. */
@@ -102,14 +120,14 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #31405f;
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #47598a;
   background-clip: content-box;
 }
 

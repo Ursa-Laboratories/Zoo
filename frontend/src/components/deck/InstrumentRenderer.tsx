@@ -12,15 +12,15 @@ interface Props {
 }
 
 const INSTRUMENT_COLORS: Record<string, string> = {
-  uvvis_ccs: "#7c3aed",
-  mock_uvvis_ccs: "#7c3aed",
-  pipette: "#059669",
-  mock_pipette: "#059669",
-  filmetrics: "#d97706",
-  mock_filmetrics: "#d97706",
+  uvvis_ccs: "#a78bfa",
+  mock_uvvis_ccs: "#a78bfa",
+  pipette: "#34d399",
+  mock_pipette: "#34d399",
+  filmetrics: "#fbbf24",
+  mock_filmetrics: "#fbbf24",
 };
 
-const INSTRUMENT_FALLBACK_COLOR = "#64748b";
+const INSTRUMENT_FALLBACK_COLOR = "#94a3b8";
 
 export default function InstrumentRenderer({
   label,
@@ -47,7 +47,7 @@ export default function InstrumentRenderer({
             {label} ({instrument.type}) at ({instX.toFixed(1)}, {instY.toFixed(1)})
           </title>
         </rect>
-        <text x={sx} y={labelY} fill={color} fontSize={9} textAnchor="middle" fontWeight={600} stroke="#ffffff" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
+        <text x={sx} y={labelY} fill={color} fontSize={9} textAnchor="middle" fontWeight={600} stroke="#0a101f" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
           {label}
         </text>
       </g>
@@ -83,7 +83,7 @@ export default function InstrumentRenderer({
           {label} ({instrument.type}) offset: ({instrument.offset_x}, {instrument.offset_y})
         </title>
       </rect>
-      <text x={offsetSvg.sx} y={labelY} fill={color} fontSize={9} textAnchor="middle" fontWeight={600} opacity={0.7} stroke="#ffffff" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
+      <text x={offsetSvg.sx} y={labelY} fill={color} fontSize={9} textAnchor="middle" fontWeight={600} opacity={0.7} stroke="#0a101f" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
         {label}
       </text>
     </g>

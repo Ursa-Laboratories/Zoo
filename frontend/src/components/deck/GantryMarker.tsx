@@ -33,11 +33,11 @@ export default function GantryMarker({
 
   return (
     <g>
-      <circle cx={sx} cy={sy} r={9} fill="#4f46e5" opacity={0.15} />
-      <line x1={sx - arm} y1={sy} x2={sx + arm} y2={sy} stroke="#4f46e5" strokeWidth={1.5} />
-      <line x1={sx} y1={sy - arm} x2={sx} y2={sy + arm} stroke="#4f46e5" strokeWidth={1.5} />
-      <circle cx={sx} cy={sy} r={4} fill="#4f46e5" stroke="#ffffff" strokeWidth={1} opacity={0.9} />
-      <text x={sx + arm + 2} y={labelY} fill="#4338ca" fontSize={8} fontWeight={600} stroke="#ffffff" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
+      <circle cx={sx} cy={sy} r={9} fill="rgba(34,211,238,0.15)" />
+      <line x1={sx - arm} y1={sy} x2={sx + arm} y2={sy} stroke="#22d3ee" strokeWidth={1.5} />
+      <line x1={sx} y1={sy - arm} x2={sx} y2={sy + arm} stroke="#22d3ee" strokeWidth={1.5} />
+      <circle cx={sx} cy={sy} r={4} fill="#22d3ee" stroke="#0a101f" strokeWidth={1} opacity={0.9} />
+      <text x={sx + arm + 2} y={labelY} fill="#7dedff" fontSize={8} fontWeight={600} stroke="#0a101f" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
         HEAD
       </text>
     </g>

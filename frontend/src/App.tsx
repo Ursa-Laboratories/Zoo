@@ -386,9 +386,11 @@ export default function App() {
             onClick={() => setActiveView(view)}
             style={{
               ...viewToggleButtonStyle,
-              background: activeView === view ? theme.color.surface : "transparent",
+              background: activeView === view ? theme.color.surfaceMuted : "transparent",
               color: activeView === view ? theme.color.ink : theme.color.textMuted,
-              boxShadow: activeView === view ? theme.shadow.card : "none",
+              boxShadow: activeView === view
+                ? "inset 0 0 0 1px rgba(34,211,238,0.35), 0 0 10px rgba(34,211,238,0.15)"
+                : "none",
             }}
           >
             {view}
@@ -397,7 +399,7 @@ export default function App() {
       </div>
       <div style={{ flex: "1 1 auto" }} />
       {protocolRunActive && (
-        <div style={runStatusBannerStyle} role="status">
+        <div className="zoo-pulse" style={runStatusBannerStyle} role="status">
           <div style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
             <span style={{ whiteSpace: "nowrap" }}>● Protocol running…</span>
             {runError && (
@@ -669,6 +671,7 @@ const brandMarkStyle: React.CSSProperties = {
   borderRadius: 9,
   background: theme.color.accentTint,
   border: `1px solid ${theme.color.accentTintBorder}`,
+  boxShadow: "0 0 14px rgba(34,211,238,0.25)",
   fontSize: 17,
   flex: "0 0 auto",
 };

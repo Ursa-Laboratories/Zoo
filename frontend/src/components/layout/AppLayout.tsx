@@ -26,8 +26,9 @@ export default function AppLayout({ header, left, topRight, bottomRight }: Props
           gap: 16,
           minHeight: 56,
           padding: "8px 16px",
-          background: color.surface,
+          background: "rgba(10,16,31,0.85)",
           borderBottom: `1px solid ${color.border}`,
+          boxShadow: "0 1px 0 rgba(34,211,238,0.06)",
         }}
       >
         {header}

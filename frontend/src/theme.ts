@@ -1,57 +1,63 @@
 import type { CSSProperties } from "react";
 
 /**
- * Zoo design system — the single source of truth for the visual language.
+ * Zoo design system — "Mission Control".
  *
- * Direction: a calm instrument-panel aesthetic for scientists. Soft slate
- * canvas, white cards with hairline borders, one indigo accent, quiet
- * semantic colors, tabular numerals for anything numeric. Components keep
- * the repo's inline-style convention but pull every color, radius, and
- * shadow from here so the app reads as one system.
+ * Direction: a dark lab-ops console that makes running the next experiment
+ * feel exciting. Deep space-navy canvas with a faint cyan aurora, glassy
+ * panels with hairline borders, luminous cyan→violet gradient for THE
+ * primary action, glowing telemetry readouts, and semantic colors tuned as
+ * translucent tints so status reads like indicator lights, not paint.
  *
- * Interaction states (hover/active/focus) that inline styles cannot
- * express live in `index.css` as element-level rules.
+ * Components keep the repo's inline-style convention but pull every color,
+ * radius, and shadow from here so the app reads as one system. Interaction
+ * states (hover/active/focus) that inline styles cannot express live in
+ * `index.css`.
  */
 
 export const color = {
-  // Neutrals (slate scale)
-  ink: "#0f172a",
-  text: "#1e293b",
-  textSecondary: "#475569",
-  textMuted: "#64748b",
-  textFaint: "#94a3b8",
-  border: "#e2e8f0",
-  borderStrong: "#cbd5e1",
-  canvas: "#f1f5f9",
-  surface: "#ffffff",
-  surfaceMuted: "#f8fafc",
-  surfaceSunken: "#f1f5f9",
+  // Neutrals (dark slate/navy scale). "ink" stays the highest-contrast
+  // text color so component code reads the same in any theme.
+  ink: "#f1f5f9",
+  text: "#e2e8f0",
+  textSecondary: "#b0bdd4",
+  textMuted: "#94a3b8",
+  textFaint: "#5d6b85",
+  border: "#1e2a44",
+  borderStrong: "#31405f",
+  canvas: "#070b16",
+  surface: "#0e1526",
+  surfaceMuted: "#141d33",
+  surfaceSunken: "#0a101f",
 
-  // Accent (indigo)
-  accent: "#4f46e5",
-  accentHover: "#4338ca",
-  accentTint: "#eef2ff",
-  accentTintBorder: "#c7d2fe",
-  accentText: "#3730a3",
+  // Accent (electric cyan) — focus, live telemetry, active states.
+  accent: "#22d3ee",
+  accentHover: "#67e8f9",
+  accentTint: "rgba(34, 211, 238, 0.10)",
+  accentTintBorder: "rgba(34, 211, 238, 0.35)",
+  accentText: "#7dedff",
+
+  // The launch gradient — reserved for the one action that starts science.
+  launchGradient: "linear-gradient(135deg, #06b6d4 0%, #6366f1 100%)",
 
   // Semantic — danger (red). #dc2626 is load-bearing: fields.test.tsx
   // asserts it as the required-field error border.
   danger: "#dc2626",
-  dangerBg: "#fef2f2",
-  dangerBorder: "#fecaca",
-  dangerText: "#991b1b",
+  dangerBg: "rgba(239, 68, 68, 0.10)",
+  dangerBorder: "rgba(239, 68, 68, 0.40)",
+  dangerText: "#fca5a5",
 
   // Semantic — warning (amber): unsaved edits, run-in-progress.
-  warning: "#d97706",
-  warningBg: "#fffbeb",
-  warningBorder: "#fde68a",
-  warningText: "#92400e",
+  warning: "#f59e0b",
+  warningBg: "rgba(245, 158, 11, 0.10)",
+  warningBorder: "rgba(245, 158, 11, 0.38)",
+  warningText: "#fcd34d",
 
   // Semantic — success (emerald): connected, valid, complete.
-  success: "#059669",
-  successBg: "#ecfdf5",
-  successBorder: "#a7f3d0",
-  successText: "#065f46",
+  success: "#34d399",
+  successBg: "rgba(52, 211, 153, 0.10)",
+  successBorder: "rgba(52, 211, 153, 0.38)",
+  successText: "#6ee7b7",
 } as const;
 
 export const font = {
@@ -66,16 +72,18 @@ export const radius = {
 } as const;
 
 export const shadow = {
-  card: "0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06)",
-  raised: "0 4px 12px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.05)",
-  overlay: "0 20px 50px rgba(15, 23, 42, 0.22), 0 8px 16px rgba(15, 23, 42, 0.1)",
+  card: "inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 10px 30px rgba(2, 6, 17, 0.45)",
+  raised: "inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 14px 40px rgba(2, 6, 17, 0.6)",
+  overlay: "0 24px 70px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(148, 163, 184, 0.08)",
+  /** Cyan glow for the launch action and live indicators. */
+  glow: "0 0 20px rgba(34, 211, 238, 0.28), 0 4px 14px rgba(2, 6, 17, 0.5)",
 } as const;
 
 // ---------------------------------------------------------------------------
 // Shared style objects
 // ---------------------------------------------------------------------------
 
-/** White card panel — the basic surface everything sits on. */
+/** Glassy dark card panel — the basic surface everything sits on. */
 export const card: CSSProperties = {
   background: color.surface,
   border: `1px solid ${color.border}`,
@@ -85,7 +93,7 @@ export const card: CSSProperties = {
 
 /** Standard text/number input. */
 export const input: CSSProperties = {
-  background: color.surface,
+  background: color.surfaceSunken,
   border: `1px solid ${color.borderStrong}`,
   color: color.ink,
   padding: "5px 8px",
@@ -106,7 +114,7 @@ export const sectionLabel: CSSProperties = {
   color: color.textFaint,
   fontSize: 11,
   fontWeight: 600,
-  letterSpacing: "0.06em",
+  letterSpacing: "0.08em",
   textTransform: "uppercase",
 };
 
@@ -130,19 +138,21 @@ const btnBase: CSSProperties = {
 };
 
 export const btn = {
-  /** Filled accent button — the one primary action on a surface. */
+  /** Luminous launch-gradient button — the one primary action on a surface. */
   primary: {
     ...btnBase,
-    background: color.accent,
-    color: "#fff",
-    border: `1px solid ${color.accent}`,
+    background: color.launchGradient,
+    color: "#ffffff",
+    border: "1px solid rgba(103, 232, 249, 0.35)",
+    boxShadow: shadow.glow,
+    textShadow: "0 1px 2px rgba(2, 6, 17, 0.35)",
   } as CSSProperties,
 
-  /** Outlined neutral button — secondary actions. */
+  /** Outlined dark button — secondary actions. */
   secondary: {
     ...btnBase,
-    background: color.surface,
-    color: color.textSecondary,
+    background: color.surfaceMuted,
+    color: color.text,
     border: `1px solid ${color.borderStrong}`,
     fontWeight: 500,
   } as CSSProperties,
@@ -159,8 +169,8 @@ export const btn = {
   /** Outlined destructive button — stop/cancel/delete. */
   danger: {
     ...btnBase,
-    background: color.surface,
-    color: color.danger,
+    background: "rgba(239, 68, 68, 0.06)",
+    color: color.dangerText,
     border: `1px solid ${color.dangerBorder}`,
     fontWeight: 500,
   } as CSSProperties,
