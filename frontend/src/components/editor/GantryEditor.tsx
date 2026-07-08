@@ -332,6 +332,12 @@ export default function GantryEditor({
               </div>
             </div>
 
+            {Object.keys(config.instruments).length === 0 && (
+              <div style={emptyInstrumentNoticeStyle}>
+                No mounted instruments yet. Choose the instruments installed on this machine, then save the gantry config.
+              </div>
+            )}
+
             {Object.entries(config.instruments).map(([key, inst]) => {
               const color = INSTRUMENT_COLORS[inst.type] ?? INSTRUMENT_COLORS[inst.type.replace("mock_", "")] ?? theme.color.textMuted;
               const fields = fieldsForInstrument(instrumentSchemas, inst.type, inst.vendor);
@@ -769,6 +775,17 @@ const instrumentCardStyle: React.CSSProperties = {
   borderRadius: theme.radius.md,
   padding: 12,
   marginTop: 10,
+};
+
+const emptyInstrumentNoticeStyle: React.CSSProperties = {
+  marginTop: 12,
+  padding: "10px 12px",
+  borderRadius: theme.radius.md,
+  border: `1px solid ${theme.color.border}`,
+  background: theme.color.surfaceSunken,
+  color: theme.color.textSecondary,
+  fontSize: 12,
+  lineHeight: 1.45,
 };
 
 const configPickerRowStyle: React.CSSProperties = {

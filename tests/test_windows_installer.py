@@ -82,6 +82,29 @@ def test_godirect_is_not_a_core_zoo_dependency() -> None:
     assert optional["asmi"] == ["godirect>=1.2.1"]
 
 
+def test_windows_launcher_seeds_only_generic_config_templates() -> None:
+    start_zoo = (WINDOWS_INSTALLER / "scripts" / "Start-Zoo.ps1").read_text()
+
+    assert 'Join-Path $ZooDir "configs"' in start_zoo
+    assert 'Join-Path $InstallDir "app\\CubOS\\configs"' not in start_zoo
+    assert '"gantry\\cub_seed.yaml"' in start_zoo
+    assert '"gantry\\cub_xl_seed.yaml"' in start_zoo
+    assert '"deck\\cub_deck_example.yaml"' in start_zoo
+    assert '"deck\\cubxl_deck_example.yaml"' in start_zoo
+
+    for named_config in (
+        "cub_filmetrics",
+        "cub_xl_asmi",
+        "cub_xl_panda",
+        "cub_xl_sterling",
+        "asmi_deck",
+        "filmetrics_deck",
+        "panda_deck",
+        "sterling_deck",
+    ):
+        assert named_config not in start_zoo
+
+
 @pytest.mark.skipif(
     shutil.which("pwsh") is None, reason="pwsh is not available on PATH"
 )

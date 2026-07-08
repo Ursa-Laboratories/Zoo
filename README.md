@@ -69,6 +69,11 @@ Zoo reads and writes YAML files from `configs/` by default. The active config
 directory is exposed by `/api/settings` as `config_dir`, and operators can
 change it through the settings UI or API.
 
+- **Installer seeds:** Fresh Windows installs seed only generic templates:
+  gantries `cub_seed.yaml` and `cub_xl_seed.yaml`, plus decks
+  `cub_deck_example.yaml` and `cubxl_deck_example.yaml`. Load a gantry seed,
+  add the mounted instruments in the Gantry editor, then save the
+  machine-specific YAML.
 - **Decks:** Use CubOS field names such as `length`, `width`, `height`,
   `x_offset`, `y_offset`, and `diameter`.
 - **Gantries:** Load, validate, and save through current CubOS schemas before
@@ -198,7 +203,7 @@ powershell -ExecutionPolicy Bypass -File .\installer\windows\build-installer.ps1
 | `zoo/services/` | YAML file helpers |
 | `frontend/src/` | React + TypeScript application |
 | `frontend/dist/` | Built frontend served by FastAPI |
-| `configs/` | Default local config store |
+| `configs/` | Default local config store and generic installer config seeds |
 | `tests/` | Backend tests |
 
 ## Operational Notes

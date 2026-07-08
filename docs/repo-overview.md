@@ -38,7 +38,10 @@ indentation method options expose force limit, step size, baseline samples, and
 measure-with-return controls.
 The gantry editor gets supported instrument types, vendors, and vendor-specific
 constructor fields from CubOS registry endpoints; it does not maintain a local
-driver registry.
+driver registry. Fresh Windows installs start from generic `cub_seed.yaml` and
+`cub_xl_seed.yaml` gantry templates and generic `cub_deck_example.yaml` and
+`cubxl_deck_example.yaml` deck templates, then rely on this editor for
+operators to choose and save the mounted instruments for their machine.
 Protocol execution is gated on the gantry position poll reporting an active
 connection. Each Run Protocol request delegates to `GantrySession.run_protocol()`,
 which creates one CubOS `DataStore` campaign for the selected gantry, deck, and
@@ -63,7 +66,7 @@ table that has rows in the selected campaign. The ASMI-only per-well ZIP remains
 | `zoo/services/` | YAML file helpers |
 | `frontend/src/` | React + TypeScript application |
 | `frontend/src/components/gantry/` | Gantry jog/readout controls and calibration wizard |
-| `configs/` | Default local config store, empty by default in this checkout |
+| `configs/` | Generic gantry and deck seed templates for fresh installs |
 | `tests/` | Backend tests |
 
 ## Main Entrypoints
@@ -130,7 +133,9 @@ npm run build
 
 ## Known Pitfalls
 
-- The repo currently has an empty default `configs/` directory; first-time users need to populate or redirect it.
+- Fresh installed config directories are seeded only with generic gantry and
+  deck templates; first-time users still need to pick instruments in the Gantry
+  editor, then add or redirect protocol configs as needed.
 - `python -m zoo` may build the frontend automatically if `frontend/dist/` is absent.
 - The shared CubOS `GantrySession` is process-local and serial access is deliberately locked inside CubOS.
 - `raw` endpoints bypass schema-aware editing and can write malformed YAML if used carelessly.

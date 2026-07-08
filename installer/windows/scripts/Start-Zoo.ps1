@@ -40,7 +40,7 @@ $InstallRuntimeScript = Join-Path $InstallDir "scripts\Install-Runtime.ps1"
 $RuntimeMarker = Join-Path $InstallDir "runtime-installed.txt"
 $DriverGroupsFile = Join-Path $InstallDir "driver-groups.txt"
 $ZooDir = Join-Path $InstallDir "app\Zoo"
-$CubOSConfigDir = Join-Path $InstallDir "app\CubOS\configs"
+$ZooSeedConfigDir = Join-Path $ZooDir "configs"
 $ConfigDir = if ($env:ZOO_CONFIG_DIR) { $env:ZOO_CONFIG_DIR } else { Join-Path $UserRoot "configs" }
 
 function Invoke-LauncherScript {
@@ -128,9 +128,16 @@ try {
     New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
 
     $ExistingConfig = Get-ChildItem -Path $ConfigDir -Recurse -Filter "*.yaml" -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $ExistingConfig -and (Test-Path $CubOSConfigDir)) {
-        Write-Log "Seeding config directory from $CubOSConfigDir"
-        Copy-Item -Path (Join-Path $CubOSConfigDir "*") -Destination $ConfigDir -Recurse -Force
+    if (-not $ExistingConfig -and (Test-Path $ZooSeedConfigDir)) {
+        $GantryConfigDir = Join-Path $ConfigDir "gantry"
+        $DeckConfigDir = Join-Path $ConfigDir "deck"
+        New-Item -ItemType Directory -Force -Path $GantryConfigDir | Out-Null
+        New-Item -ItemType Directory -Force -Path $DeckConfigDir | Out-Null
+        Write-Log "Seeding config directory with generic templates from $ZooSeedConfigDir"
+        Copy-Item -Path (Join-Path $ZooSeedConfigDir "gantry\cub_seed.yaml") -Destination $GantryConfigDir -Force
+        Copy-Item -Path (Join-Path $ZooSeedConfigDir "gantry\cub_xl_seed.yaml") -Destination $GantryConfigDir -Force
+        Copy-Item -Path (Join-Path $ZooSeedConfigDir "deck\cub_deck_example.yaml") -Destination $DeckConfigDir -Force
+        Copy-Item -Path (Join-Path $ZooSeedConfigDir "deck\cubxl_deck_example.yaml") -Destination $DeckConfigDir -Force
     }
 
     $env:ZOO_CONFIG_DIR = $ConfigDir
