@@ -78,12 +78,12 @@ const GRBL_BOOLEAN_FIELDS: Array<{ key: keyof GrblSettingsConfig; label: string 
 ];
 
 const INSTRUMENT_COLORS: Record<string, string> = {
-  asmi: "#60a5fa",
-  uvvis_ccs: "#a78bfa",
-  pipette: "#34d399",
-  filmetrics: "#fbbf24",
+  asmi: theme.categorical.blue,
+  uvvis_ccs: theme.categorical.violet,
+  pipette: theme.categorical.emerald,
+  filmetrics: theme.categorical.amber,
   potentiostat: theme.color.danger,
-  uv_curing: "#0891b2",
+  uv_curing: theme.categorical.blue,
 };
 
 /** Section heading inside a config card (Connection, Working Volume, …). */

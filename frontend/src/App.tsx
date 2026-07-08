@@ -57,6 +57,7 @@ export default function App() {
   const qc = useQueryClient();
   const [activeView, setActiveView] = useState<"Workflow" | "Results">("Workflow");
   const [activeTab, setActiveTab] = useState("Gantry");
+  const [uiTheme, setUiTheme] = useState<"light" | "dark">(() => (document.documentElement.dataset.theme === "light" ? "light" : "dark"));
   const [configDir, setConfigDir] = useState<string | null>(null);
   const [browseLoading, setBrowseLoading] = useState(false);
 
@@ -367,6 +368,19 @@ export default function App() {
     }
   };
 
+  const toggleTheme = () => {
+    setUiTheme((current) => {
+      const next = current === "dark" ? "light" : "dark";
+      document.documentElement.dataset.theme = next;
+      try {
+        localStorage.setItem("zoo-theme", next);
+      } catch {
+        // Ignore unavailable storage.
+      }
+      return next;
+    });
+  };
+
   const headerBar = (
     <>
       <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
@@ -386,11 +400,9 @@ export default function App() {
             onClick={() => setActiveView(view)}
             style={{
               ...viewToggleButtonStyle,
-              background: activeView === view ? theme.color.surfaceMuted : "transparent",
+              background: activeView === view ? theme.chrome.segmentActiveBg : "transparent",
               color: activeView === view ? theme.color.ink : theme.color.textMuted,
-              boxShadow: activeView === view
-                ? "inset 0 0 0 1px rgba(34,211,238,0.35), 0 0 10px rgba(34,211,238,0.15)"
-                : "none",
+              boxShadow: activeView === view ? theme.chrome.segmentActiveShadow : "none",
             }}
           >
             {view}
@@ -416,6 +428,15 @@ export default function App() {
           </button>
         </div>
       )}
+      <button
+        type="button"
+        aria-label="Toggle theme"
+        title="Toggle light/dark theme"
+        onClick={toggleTheme}
+        style={themeToggleStyle}
+      >
+        {uiTheme === "dark" ? "☀" : "☾"}
+      </button>
       <label style={headerFieldStyle}>
         <span style={headerFieldLabelStyle}>Last Campaign</span>
         <input
@@ -671,7 +692,7 @@ const brandMarkStyle: React.CSSProperties = {
   borderRadius: 9,
   background: theme.color.accentTint,
   border: `1px solid ${theme.color.accentTintBorder}`,
-  boxShadow: "0 0 14px rgba(34,211,238,0.25)",
+  boxShadow: theme.chrome.brandGlow,
   fontSize: 17,
   flex: "0 0 auto",
 };
@@ -707,6 +728,20 @@ const headerInputStyle: React.CSSProperties = {
   padding: "3px 8px",
   fontSize: 12,
   background: theme.color.surfaceMuted,
+};
+
+const themeToggleStyle: React.CSSProperties = {
+  background: "transparent",
+  border: `1px solid ${theme.color.borderStrong}`,
+  borderRadius: 999,
+  color: theme.color.textMuted,
+  fontSize: 14,
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: 30,
+  height: 30,
 };
 
 const importErrorStyle: React.CSSProperties = {

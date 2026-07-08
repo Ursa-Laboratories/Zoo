@@ -1,4 +1,5 @@
 import type { GantryPosition, InstrumentConfig } from "../../types";
+import { categorical as themeCategorical, viz as themeViz } from "../../theme";
 import { machineToSvg } from "../../utils/coordinates";
 
 interface Props {
@@ -12,15 +13,15 @@ interface Props {
 }
 
 const INSTRUMENT_COLORS: Record<string, string> = {
-  uvvis_ccs: "#a78bfa",
-  mock_uvvis_ccs: "#a78bfa",
-  pipette: "#34d399",
-  mock_pipette: "#34d399",
-  filmetrics: "#fbbf24",
-  mock_filmetrics: "#fbbf24",
+  uvvis_ccs: themeCategorical.violet,
+  mock_uvvis_ccs: themeCategorical.violet,
+  pipette: themeCategorical.emerald,
+  mock_pipette: themeCategorical.emerald,
+  filmetrics: themeCategorical.amber,
+  mock_filmetrics: themeCategorical.amber,
 };
 
-const INSTRUMENT_FALLBACK_COLOR = "#94a3b8";
+const INSTRUMENT_FALLBACK_COLOR = themeCategorical.slate;
 
 export default function InstrumentRenderer({
   label,
@@ -47,7 +48,7 @@ export default function InstrumentRenderer({
             {label} ({instrument.type}) at ({instX.toFixed(1)}, {instY.toFixed(1)})
           </title>
         </rect>
-        <text x={sx} y={labelY} fill={color} fontSize={9} textAnchor="middle" fontWeight={600} stroke="#0a101f" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
+        <text x={sx} y={labelY} fill={color} fontSize={9} textAnchor="middle" fontWeight={600} stroke={themeViz.halo} strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
           {label}
         </text>
       </g>
@@ -83,7 +84,7 @@ export default function InstrumentRenderer({
           {label} ({instrument.type}) offset: ({instrument.offset_x}, {instrument.offset_y})
         </title>
       </rect>
-      <text x={offsetSvg.sx} y={labelY} fill={color} fontSize={9} textAnchor="middle" fontWeight={600} opacity={0.7} stroke="#0a101f" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
+      <text x={offsetSvg.sx} y={labelY} fill={color} fontSize={9} textAnchor="middle" fontWeight={600} opacity={0.7} stroke={themeViz.halo} strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
         {label}
       </text>
     </g>

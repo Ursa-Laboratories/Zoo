@@ -1,4 +1,5 @@
 import type { Coordinate3D, GeometryResponse } from "../../types";
+import { viz as themeViz } from "../../theme";
 import { toSvgRect, getBoundsCenter, getPositionBounds } from "./renderUtils";
 
 interface Props {
@@ -58,13 +59,13 @@ export default function HolderRenderer({
         y={rect.y}
         width={rect.width}
         height={rect.height}
-        fill="rgba(20,29,51,0.5)"
-        stroke="#31405f"
+        fill={themeViz.holderFill}
+        stroke={themeViz.holderStroke}
         strokeWidth={1.5}
         strokeDasharray="6 3"
         rx={4}
       />
-      <text x={rect.x + 4} y={labelY} fill="#94a3b8" fontSize={10} fontWeight={500} stroke="#0a101f" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
+      <text x={rect.x + 4} y={labelY} fill={themeViz.holderLabel} fontSize={10} fontWeight={500} stroke={themeViz.halo} strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
         {label}
       </text>
     </g>

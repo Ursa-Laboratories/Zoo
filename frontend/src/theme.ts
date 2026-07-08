@@ -1,63 +1,103 @@
 import type { CSSProperties } from "react";
 
 /**
- * Zoo design system — "Mission Control".
+ * Zoo design system tokens.
  *
- * Direction: a dark lab-ops console that makes running the next experiment
- * feel exciting. Deep space-navy canvas with a faint cyan aurora, glassy
- * panels with hairline borders, luminous cyan→violet gradient for THE
- * primary action, glowing telemetry readouts, and semantic colors tuned as
- * translucent tints so status reads like indicator lights, not paint.
- *
- * Components keep the repo's inline-style convention but pull every color,
- * radius, and shadow from here so the app reads as one system. Interaction
- * states (hover/active/focus) that inline styles cannot express live in
- * `index.css`.
+ * The runtime theme lives in `index.css`: dark/default values are defined on
+ * `:root, :root[data-theme="dark"]`, and light values are defined on
+ * `:root[data-theme="light"]`. This module keeps the existing inline-style
+ * export shape, but color and shadow values are CSS variable references so
+ * components update when the root `data-theme` changes.
  */
 
 export const color = {
-  // Neutrals (dark slate/navy scale). "ink" stays the highest-contrast
-  // text color so component code reads the same in any theme.
-  ink: "#f1f5f9",
-  text: "#e2e8f0",
-  textSecondary: "#b0bdd4",
-  textMuted: "#94a3b8",
-  textFaint: "#5d6b85",
-  border: "#1e2a44",
-  borderStrong: "#31405f",
-  canvas: "#070b16",
-  surface: "#0e1526",
-  surfaceMuted: "#141d33",
-  surfaceSunken: "#0a101f",
+  // Neutrals. "ink" stays the highest-contrast text color so component code
+  // reads the same in any theme.
+  ink: "var(--z-ink)",
+  text: "var(--z-text)",
+  textSecondary: "var(--z-text-secondary)",
+  textMuted: "var(--z-text-muted)",
+  textFaint: "var(--z-text-faint)",
+  border: "var(--z-border)",
+  borderStrong: "var(--z-border-strong)",
+  canvas: "var(--z-canvas)",
+  surface: "var(--z-surface)",
+  surfaceMuted: "var(--z-surface-muted)",
+  surfaceSunken: "var(--z-surface-sunken)",
 
-  // Accent (electric cyan) — focus, live telemetry, active states.
-  accent: "#22d3ee",
-  accentHover: "#67e8f9",
-  accentTint: "rgba(34, 211, 238, 0.10)",
-  accentTintBorder: "rgba(34, 211, 238, 0.35)",
-  accentText: "#7dedff",
+  // Accent.
+  accent: "var(--z-accent)",
+  accentHover: "var(--z-accent-hover)",
+  accentTint: "var(--z-accent-tint)",
+  accentTintBorder: "var(--z-accent-tint-border)",
+  accentText: "var(--z-accent-text)",
 
-  // The launch gradient — reserved for the one action that starts science.
-  launchGradient: "linear-gradient(135deg, #06b6d4 0%, #6366f1 100%)",
+  // The launch surface for the one primary action.
+  launchGradient: "var(--z-btn-primary-bg)",
 
-  // Semantic — danger (red). #dc2626 is load-bearing: fields.test.tsx
-  // asserts it as the required-field error border.
+  // Semantic - danger. #dc2626 is load-bearing: fields.test.tsx asserts it
+  // as the required-field error border.
   danger: "#dc2626",
-  dangerBg: "rgba(239, 68, 68, 0.10)",
-  dangerBorder: "rgba(239, 68, 68, 0.40)",
-  dangerText: "#fca5a5",
+  dangerBg: "var(--z-danger-bg)",
+  dangerBorder: "var(--z-danger-border)",
+  dangerText: "var(--z-danger-text)",
 
-  // Semantic — warning (amber): unsaved edits, run-in-progress.
-  warning: "#f59e0b",
-  warningBg: "rgba(245, 158, 11, 0.10)",
-  warningBorder: "rgba(245, 158, 11, 0.38)",
-  warningText: "#fcd34d",
+  // Semantic - warning: unsaved edits, run-in-progress.
+  warning: "var(--z-warning)",
+  warningBg: "var(--z-warning-bg)",
+  warningBorder: "var(--z-warning-border)",
+  warningText: "var(--z-warning-text)",
 
-  // Semantic — success (emerald): connected, valid, complete.
-  success: "#34d399",
-  successBg: "rgba(52, 211, 153, 0.10)",
-  successBorder: "rgba(52, 211, 153, 0.38)",
-  successText: "#6ee7b7",
+  // Semantic - success: connected, valid, complete.
+  success: "var(--z-success)",
+  successBg: "var(--z-success-bg)",
+  successBorder: "var(--z-success-border)",
+  successText: "var(--z-success-text)",
+} as const;
+
+export const categorical = {
+  emerald: "var(--z-cat-emerald)",
+  amber: "var(--z-cat-amber)",
+  violet: "var(--z-cat-violet)",
+  blue: "var(--z-cat-blue)",
+  slate: "var(--z-cat-slate)",
+} as const;
+
+export const viz = {
+  canvas: "var(--z-viz-canvas)",
+  frame: "var(--z-viz-frame)",
+  grid: "var(--z-viz-grid)",
+  tick: "var(--z-viz-tick)",
+  caption: "var(--z-viz-caption)",
+  halo: "var(--z-viz-halo)",
+  plateFill: "var(--z-viz-plate-fill)",
+  plateStroke: "var(--z-viz-plate-stroke)",
+  wellFill: "var(--z-viz-well-fill)",
+  wellStroke: "var(--z-viz-well-stroke)",
+  label: "var(--z-viz-label)",
+  tiprackFill: "var(--z-viz-tiprack-fill)",
+  tiprackStroke: "var(--z-viz-tiprack-stroke)",
+  tip: "var(--z-viz-tip)",
+  holderFill: "var(--z-viz-holder-fill)",
+  holderStroke: "var(--z-viz-holder-stroke)",
+  holderLabel: "var(--z-viz-holder-label)",
+  vialFill: "var(--z-viz-vial-fill)",
+  vialStroke: "var(--z-viz-vial-stroke)",
+  vialLabel: "var(--z-viz-vial-label)",
+  marker: "var(--z-viz-marker)",
+  markerHalo: "var(--z-viz-marker-halo)",
+  markerLabel: "var(--z-viz-marker-label)",
+  markerRing: "var(--z-viz-marker-ring)",
+} as const;
+
+export const chrome = {
+  headerBg: "var(--z-header-bg)",
+  headerHairline: "var(--z-header-hairline)",
+  brandGlow: "var(--z-brand-glow)",
+  segmentActiveBg: "var(--z-segment-active-bg)",
+  segmentActiveShadow: "var(--z-segment-active-shadow)",
+  telemetryGlow: "var(--z-telemetry-glow)",
+  backdrop: "var(--z-backdrop)",
 } as const;
 
 export const font = {
@@ -72,18 +112,18 @@ export const radius = {
 } as const;
 
 export const shadow = {
-  card: "inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 10px 30px rgba(2, 6, 17, 0.45)",
-  raised: "inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 14px 40px rgba(2, 6, 17, 0.6)",
-  overlay: "0 24px 70px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(148, 163, 184, 0.08)",
-  /** Cyan glow for the launch action and live indicators. */
-  glow: "0 0 20px rgba(34, 211, 238, 0.28), 0 4px 14px rgba(2, 6, 17, 0.5)",
+  card: "var(--z-shadow-card)",
+  raised: "var(--z-shadow-raised)",
+  overlay: "var(--z-shadow-overlay)",
+  /** Theme-specific glow for the launch action and live indicators. */
+  glow: "var(--z-shadow-glow)",
 } as const;
 
 // ---------------------------------------------------------------------------
 // Shared style objects
 // ---------------------------------------------------------------------------
 
-/** Glassy dark card panel — the basic surface everything sits on. */
+/** Card panel - the basic surface everything sits on. */
 export const card: CSSProperties = {
   background: color.surface,
   border: `1px solid ${color.border}`,
@@ -138,17 +178,17 @@ const btnBase: CSSProperties = {
 };
 
 export const btn = {
-  /** Luminous launch-gradient button — the one primary action on a surface. */
+  /** Launch button - the one primary action on a surface. */
   primary: {
     ...btnBase,
-    background: color.launchGradient,
+    background: "var(--z-btn-primary-bg)",
     color: "#ffffff",
-    border: "1px solid rgba(103, 232, 249, 0.35)",
-    boxShadow: shadow.glow,
-    textShadow: "0 1px 2px rgba(2, 6, 17, 0.35)",
+    border: "1px solid var(--z-btn-primary-border)",
+    boxShadow: "var(--z-btn-primary-shadow)",
+    textShadow: "var(--z-btn-primary-text-shadow)",
   } as CSSProperties,
 
-  /** Outlined dark button — secondary actions. */
+  /** Outlined button - secondary actions. */
   secondary: {
     ...btnBase,
     background: color.surfaceMuted,
@@ -157,7 +197,7 @@ export const btn = {
     fontWeight: 500,
   } as CSSProperties,
 
-  /** Borderless quiet button — tertiary/inline actions. */
+  /** Borderless quiet button - tertiary/inline actions. */
   ghost: {
     ...btnBase,
     background: "transparent",
@@ -166,17 +206,17 @@ export const btn = {
     fontWeight: 500,
   } as CSSProperties,
 
-  /** Outlined destructive button — stop/cancel/delete. */
+  /** Outlined destructive button - stop/cancel/delete. */
   danger: {
     ...btnBase,
-    background: "rgba(239, 68, 68, 0.06)",
+    background: color.dangerBg,
     color: color.dangerText,
     border: `1px solid ${color.dangerBorder}`,
     fontWeight: 500,
   } as CSSProperties,
 } as const;
 
-/** Compact size variant — spread after a btn.* style. */
+/** Compact size variant - spread after a btn.* style. */
 export const btnSmall: CSSProperties = {
   padding: "4px 10px",
   fontSize: 12,

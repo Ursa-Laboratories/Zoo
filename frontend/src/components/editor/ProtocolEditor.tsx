@@ -62,7 +62,7 @@ const COMMAND_COLORS: Record<string, string> = {
   mix: theme.color.success,
   pick_up_tip: theme.color.success,
   drop_tip: theme.color.success,
-  scan: "#a78bfa",
+  scan: theme.categorical.violet,
 };
 
 type ProtocolChoices = {

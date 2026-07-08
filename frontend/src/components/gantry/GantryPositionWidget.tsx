@@ -847,7 +847,7 @@ const coordStyle: React.CSSProperties = {
 const liveCoordStyle: React.CSSProperties = {
   ...coordStyle,
   color: theme.color.accentText,
-  textShadow: "0 0 12px rgba(34,211,238,0.35)",
+  textShadow: theme.chrome.telemetryGlow,
 };
 
 const coordPlaceholderStyle: React.CSSProperties = {

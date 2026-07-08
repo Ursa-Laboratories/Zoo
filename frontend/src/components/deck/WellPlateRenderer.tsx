@@ -1,4 +1,5 @@
 import type { WellPlateConfig, WellPosition } from "../../types";
+import { viz as themeViz } from "../../theme";
 import { machineToSvg, mmToSvgPixels } from "../../utils/coordinates";
 
 interface Props {
@@ -49,12 +50,12 @@ export default function WellPlateRenderer({
         y={rectY}
         width={rectW}
         height={rectH}
-        fill="#141d33"
-        stroke="#31405f"
+        fill={themeViz.plateFill}
+        stroke={themeViz.plateStroke}
         strokeWidth={1.25}
         rx={3}
       />
-      <text x={rectX + 4} y={labelY} fill="#b0bdd4" fontSize={10} fontWeight={500} stroke="#0a101f" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
+      <text x={rectX + 4} y={labelY} fill={themeViz.label} fontSize={10} fontWeight={500} stroke={themeViz.halo} strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
         {config.name || "Well Plate"}
       </text>
       {Object.entries(wells).map(([id, pos]) => {
@@ -67,7 +68,7 @@ export default function WellPlateRenderer({
           machineYRange
         );
         return (
-          <circle key={id} cx={sx} cy={sy} r={wellRadius} fill="#0a101f" stroke="#22d3ee" strokeWidth={1} strokeOpacity={0.8} opacity={0.9}>
+          <circle key={id} cx={sx} cy={sy} r={wellRadius} fill={themeViz.wellFill} stroke={themeViz.wellStroke} strokeWidth={1} strokeOpacity={0.8} opacity={0.9}>
             <title>
               {id}: ({pos.x}, {pos.y}, {pos.z})
             </title>
