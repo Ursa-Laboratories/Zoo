@@ -32,6 +32,7 @@ import type {
   ProtocolRunResponse,
 } from "./types";
 import type { SettingsResponse } from "./api/client";
+import * as theme from "./theme";
 
 function configDirFromSettings(settings: SettingsResponse): string {
   return settings.config_dir ?? "";
@@ -366,59 +367,17 @@ export default function App() {
     }
   };
 
-  const left = (
-    <div>
-      <div style={{ marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 18 }}>Zoo</h2>
-        <p style={{ margin: "2px 0 0", fontSize: 12, color: "#888" }}>An online pen for managing Pandas</p>
-      </div>
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
-          <span style={{ color: "#666" }}>Last Campaign</span>
-          <input
-            type="text"
-            value={runResult ? `#${runResult.campaign_id}` : ""}
-            readOnly
-            placeholder="Created after run"
-            style={{ ...campaignInputStyle, color: runResult ? "#1a1a1a" : "#aaa" }}
-          />
-        </label>
-      </div>
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
-          <span style={{ color: "#666" }}>Config Directory</span>
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <input
-              type="text"
-              value={configDir ?? ""}
-              readOnly
-              placeholder="Not set"
-              style={{ ...campaignInputStyle, flex: 1, color: configDir ? "#1a1a1a" : "#aaa" }}
-            />
-            <button onClick={handleBrowse} disabled={browseLoading} style={browseButtonStyle}>
-              {browseLoading ? "..." : "Browse"}
-            </button>
-          </div>
-        </label>
-      </div>
-      {protocolRunActive && (
-        <div style={runStatusBannerStyle} role="status">
-          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <span>● Protocol running…</span>
-            {runError && (
-              <span style={runStatusWarningStyle}>{runError}</span>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={handleCancelRun}
-            disabled={isCancelingRun}
-            style={isCancelingRun ? { ...sidebarCancelButtonStyle, opacity: 0.65, cursor: "not-allowed" } : sidebarCancelButtonStyle}
-          >
-            {isCancelingRun ? "Cancelling..." : "Cancel"}
-          </button>
+  const headerBar = (
+    <>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+        <div style={brandMarkStyle} aria-hidden="true">
+          🐼
         </div>
-      )}
+        <div style={{ lineHeight: 1.25 }}>
+          <h1 style={brandTitleStyle}>Zoo</h1>
+          <p style={brandTaglineStyle}>An online pen for managing Pandas</p>
+        </div>
+      </div>
       <div style={viewToggleStyle} aria-label="Workspace view">
         {(["Workflow", "Results"] as const).map((view) => (
           <button
@@ -427,15 +386,76 @@ export default function App() {
             onClick={() => setActiveView(view)}
             style={{
               ...viewToggleButtonStyle,
-              background: activeView === view ? "#1f2937" : "transparent",
-              color: activeView === view ? "#fff" : "#4b5563",
-              borderColor: activeView === view ? "#1f2937" : "transparent",
+              background: activeView === view ? theme.color.surface : "transparent",
+              color: activeView === view ? theme.color.ink : theme.color.textMuted,
+              boxShadow: activeView === view ? theme.shadow.card : "none",
             }}
           >
             {view}
           </button>
         ))}
       </div>
+      <div style={{ flex: "1 1 auto" }} />
+      {protocolRunActive && (
+        <div style={runStatusBannerStyle} role="status">
+          <div style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
+            <span style={{ whiteSpace: "nowrap" }}>● Protocol running…</span>
+            {runError && (
+              <span style={runStatusWarningStyle} title={runError}>{runError}</span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handleCancelRun}
+            disabled={isCancelingRun}
+            style={headerCancelButtonStyle}
+          >
+            {isCancelingRun ? "Cancelling..." : "Cancel"}
+          </button>
+        </div>
+      )}
+      <label style={headerFieldStyle}>
+        <span style={headerFieldLabelStyle}>Last Campaign</span>
+        <input
+          type="text"
+          value={runResult ? `#${runResult.campaign_id}` : ""}
+          readOnly
+          placeholder="Created after run"
+          style={{
+            ...headerInputStyle,
+            width: 130,
+            color: runResult ? theme.color.ink : theme.color.textFaint,
+          }}
+        />
+      </label>
+      <label style={headerFieldStyle}>
+        <span style={headerFieldLabelStyle}>Config Directory</span>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input
+            type="text"
+            value={configDir ?? ""}
+            readOnly
+            placeholder="Not set"
+            title={configDir ?? undefined}
+            style={{
+              ...headerInputStyle,
+              ...theme.mono,
+              width: 220,
+              fontSize: 11.5,
+              textOverflow: "ellipsis",
+              color: configDir ? theme.color.textSecondary : theme.color.textFaint,
+            }}
+          />
+          <button onClick={handleBrowse} disabled={browseLoading} style={browseButtonStyle}>
+            {browseLoading ? "..." : "Browse"}
+          </button>
+        </div>
+      </label>
+    </>
+  );
+
+  const left = (
+    <div>
       {activeView === "Workflow" && (
         <>
           <EditorTabs
@@ -603,7 +623,7 @@ export default function App() {
 
   const topRight = (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
-      <h3 style={{ margin: "0 0 8px", fontSize: 14, color: "#666", flex: "0 0 auto" }}>Deck Visualization</h3>
+      <h3 style={{ ...theme.panelTitle, margin: "0 0 10px", flex: "0 0 auto" }}>Deck Visualization</h3>
       <div style={deckVisualizationFrameStyle}>
         <DeckVisualization
           deck={displayDeck}
@@ -637,86 +657,108 @@ export default function App() {
     />
   );
 
-  return <AppLayout left={left} topRight={topRight} bottomRight={bottomRight} />;
+  return <AppLayout header={headerBar} left={left} topRight={topRight} bottomRight={bottomRight} />;
 }
 
-const campaignInputStyle: React.CSSProperties = {
-  background: "#fff",
-  border: "1px solid #ccc",
-  color: "#1a1a1a",
-  padding: "4px 8px",
-  borderRadius: 4,
-  fontSize: 13,
+const brandMarkStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: 32,
+  height: 32,
+  borderRadius: 9,
+  background: theme.color.accentTint,
+  border: `1px solid ${theme.color.accentTintBorder}`,
+  fontSize: 17,
+  flex: "0 0 auto",
+};
+
+const brandTitleStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: 15,
+  fontWeight: 650,
+  letterSpacing: "-0.02em",
+  color: theme.color.ink,
+};
+
+const brandTaglineStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: 11,
+  color: theme.color.textFaint,
+  whiteSpace: "nowrap",
+};
+
+const headerFieldStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 2,
+};
+
+const headerFieldLabelStyle: React.CSSProperties = {
+  ...theme.sectionLabel,
+  fontSize: 10,
+};
+
+const headerInputStyle: React.CSSProperties = {
+  ...theme.input,
+  padding: "3px 8px",
+  fontSize: 12,
+  background: theme.color.surfaceMuted,
 };
 
 const importErrorStyle: React.CSSProperties = {
-  marginBottom: 8,
-  padding: "6px 10px",
-  borderRadius: 4,
-  background: "#fef2f2",
-  border: "1px solid #fca5a5",
-  color: "#991b1b",
-  fontSize: 12,
+  ...theme.notice.error,
+  marginBottom: 10,
 };
 
 const browseButtonStyle: React.CSSProperties = {
-  background: "#f5f5f5",
-  color: "#1a1a1a",
-  border: "1px solid #ccc",
-  padding: "4px 10px",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 12,
-  whiteSpace: "nowrap",
+  ...theme.btn.secondary,
+  ...theme.btnSmall,
 };
 
 const runStatusBannerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
-  justifyContent: "space-between",
-  gap: 8,
-  marginBottom: 12,
-  padding: "8px 10px",
-  borderRadius: 4,
-  border: "1px solid #fbbf24",
-  background: "#fffbeb",
-  color: "#92400e",
+  gap: 10,
+  padding: "5px 12px",
+  borderRadius: 999,
+  border: `1px solid ${theme.color.warningBorder}`,
+  background: theme.color.warningBg,
+  color: theme.color.warningText,
   fontSize: 12,
   fontWeight: 600,
+  maxWidth: 420,
 };
 
-const sidebarCancelButtonStyle: React.CSSProperties = {
-  border: "1px solid #b45309",
-  background: "#fff7ed",
-  color: "#92400e",
-  borderRadius: 4,
-  padding: "4px 8px",
-  fontSize: 12,
-  cursor: "pointer",
-  whiteSpace: "nowrap",
+const headerCancelButtonStyle: React.CSSProperties = {
+  ...theme.btn.danger,
+  ...theme.btnSmall,
+  borderRadius: 999,
 };
 
 const runStatusWarningStyle: React.CSSProperties = {
-  color: "#991b1b",
+  color: theme.color.dangerText,
   fontWeight: 500,
   lineHeight: 1.35,
+  maxWidth: 260,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
 };
 
 const viewToggleStyle: React.CSSProperties = {
   display: "inline-flex",
   gap: 2,
-  padding: 2,
-  marginBottom: 12,
-  border: "1px solid #d1d5db",
-  borderRadius: 4,
-  background: "#f9fafb",
+  padding: 3,
+  borderRadius: 9,
+  background: theme.color.surfaceSunken,
 };
 
 const viewToggleButtonStyle: React.CSSProperties = {
-  border: "1px solid transparent",
-  borderRadius: 3,
-  padding: "5px 12px",
-  fontSize: 12,
+  border: "none",
+  borderRadius: 7,
+  padding: "5px 16px",
+  fontSize: 12.5,
   fontWeight: 600,
   cursor: "pointer",
 };

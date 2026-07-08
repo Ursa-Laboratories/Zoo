@@ -45,13 +45,13 @@ export default function TipRackRenderer({
         y={rect.y}
         width={rect.width}
         height={rect.height}
-        fill="#dcfce7"
-        fillOpacity={0.35}
-        stroke="#16a34a"
-        strokeWidth={1.5}
+        fill="#ecfdf5"
+        fillOpacity={0.55}
+        stroke="#94a3b8"
+        strokeWidth={1.25}
         rx={3}
       />
-      <text x={rect.x + 4} y={rect.y - 4} fill="#15803d" fontSize={10} fontWeight={500}>
+      <text x={rect.x + 4} y={rect.y - 4} fill="#475569" fontSize={10} fontWeight={500} stroke="#ffffff" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
         {config.name}
       </text>
       {Object.entries(positions).map(([tipId, position]) => {
@@ -64,7 +64,7 @@ export default function TipRackRenderer({
           machineYRange,
         );
         return (
-          <circle key={tipId} cx={sx} cy={sy} r={2.5} fill="#16a34a" opacity={0.65}>
+          <circle key={tipId} cx={sx} cy={sy} r={2.5} fill="#059669" opacity={0.65}>
             <title>
               {tipId}: ({position.x}, {position.y}, {position.z})
             </title>

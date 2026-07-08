@@ -49,13 +49,13 @@ export default function WellPlateRenderer({
         y={rectY}
         width={rectW}
         height={rectH}
-        fill="#dbeafe"
-        fillOpacity={0.3}
-        stroke="#2563eb"
-        strokeWidth={1.5}
+        fill="#f1f5f9"
+        fillOpacity={0.6}
+        stroke="#94a3b8"
+        strokeWidth={1.25}
         rx={3}
       />
-      <text x={rectX + 4} y={labelY} fill="#2563eb" fontSize={10} fontWeight={500}>
+      <text x={rectX + 4} y={labelY} fill="#475569" fontSize={10} fontWeight={500} stroke="#ffffff" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
         {config.name || "Well Plate"}
       </text>
       {Object.entries(wells).map(([id, pos]) => {
@@ -68,7 +68,7 @@ export default function WellPlateRenderer({
           machineYRange
         );
         return (
-          <circle key={id} cx={sx} cy={sy} r={wellRadius} fill="#2563eb" opacity={0.5}>
+          <circle key={id} cx={sx} cy={sy} r={wellRadius} fill="#ffffff" stroke="#4f46e5" strokeWidth={1} opacity={0.9}>
             <title>
               {id}: ({pos.x}, {pos.y}, {pos.z})
             </title>

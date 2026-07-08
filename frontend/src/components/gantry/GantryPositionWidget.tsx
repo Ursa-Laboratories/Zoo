@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { gantryApi } from "../../api/client";
 import type { GantryConfig, GantryPosition, GantryResponse, WorkingVolume } from "../../types";
+import * as theme from "../../theme";
 import CalibrationWizard from "./CalibrationWizard";
 
 interface Props {
@@ -389,22 +390,22 @@ export default function GantryPositionWidget({
   }, [onSaveCalibrated]);
 
   // Status color and label
-  const statusColor = isAlarm ? "#dc2626" : status === "Idle" ? "#22c55e" : status === "Run" || status === "Jog" ? "#2563eb" : "#888";
+  const statusColor = isAlarm ? theme.color.danger : status === "Idle" ? theme.color.success : status === "Run" || status === "Jog" ? theme.color.accent : theme.color.textMuted;
 
   return (
     <div>
       <div style={controlHeaderStyle}>
         <div>
-          <h3 style={{ margin: 0, fontSize: 14 }}>Gantry Control</h3>
-          <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{gantryFile ?? "No gantry config loaded"}</div>
+          <h3 style={theme.panelTitle}>Gantry Control</h3>
+          <div style={{ ...theme.mono, fontSize: 11, color: theme.color.textMuted, marginTop: 2 }}>{gantryFile ?? "No gantry config loaded"}</div>
         </div>
         <button
           onClick={() => setAdvancedOpen((open) => !open)}
           style={{
             ...advancedToggleStyle,
-            background: advancedOpen ? "#111827" : "#fff",
-            color: advancedOpen ? "#fff" : "#374151",
-            borderColor: advancedOpen ? "#111827" : "#d1d5db",
+            background: advancedOpen ? theme.color.ink : theme.color.surface,
+            color: advancedOpen ? "#fff" : theme.color.textSecondary,
+            borderColor: advancedOpen ? theme.color.ink : theme.color.borderStrong,
           }}
           aria-pressed={advancedOpen}
         >
@@ -415,31 +416,22 @@ export default function GantryPositionWidget({
       {/* Alarm banner */}
       {isAlarm && connected && (
         <div style={{
-          background: "#fef2f2",
-          border: "1px solid #dc2626",
-          borderRadius: 4,
-          padding: "8px 12px",
+          ...theme.notice.error,
           marginBottom: 12,
           display: "flex",
           alignItems: "center",
           gap: 8,
         }}>
-          <span style={{ color: "#dc2626", fontWeight: 700, fontSize: 13 }}>ALARM</span>
-          <span style={{ color: "#991b1b", fontSize: 11 }}>
+          <span style={{ color: theme.color.danger, fontWeight: 700, fontSize: 13 }}>ALARM</span>
+          <span style={{ color: theme.color.dangerText, fontSize: 11 }}>
             {status} — Unlock to clear, then jog back to safety.
           </span>
           <button
             onClick={handleUnlock}
             disabled={jogBusy || isRunning}
             style={{
-              background: "#dc2626",
-              color: "#fff",
-              border: "none",
-              padding: "4px 12px",
-              borderRadius: 4,
-              cursor: "pointer",
-              fontSize: 12,
-              fontWeight: 600,
+              ...theme.btn.danger,
+              ...theme.btnSmall,
               marginLeft: "auto",
             }}
           >
@@ -450,17 +442,14 @@ export default function GantryPositionWidget({
 
       {calibrationWarning && (
         <div style={{
-          background: "#fffbeb",
-          border: "1px solid #f59e0b",
-          borderRadius: 4,
-          padding: "8px 12px",
+          ...theme.notice.warning,
           marginBottom: 12,
           display: "flex",
           alignItems: "center",
           gap: 8,
         }}>
-          <span style={{ color: "#b45309", fontWeight: 700, fontSize: 13 }}>CALIBRATION NEEDED</span>
-          <span style={{ color: "#92400e", fontSize: 11 }}>
+          <span style={{ color: theme.color.warning, fontWeight: 700, fontSize: 13 }}>CALIBRATION NEEDED</span>
+          <span style={{ color: theme.color.warningText, fontSize: 11 }}>
             {calibrationWarning}
           </span>
           <button
@@ -475,8 +464,8 @@ export default function GantryPositionWidget({
 
       {calibrationInterrupted && (
         <div style={interruptedCalibrationStyle}>
-          <span style={{ color: "#dc2626", fontWeight: 800, fontSize: 13 }}>CALIBRATION INTERRUPTED</span>
-          <span style={{ color: "#991b1b", fontSize: 11 }}>
+          <span style={{ color: theme.color.danger, fontWeight: 700, fontSize: 13 }}>CALIBRATION INTERRUPTED</span>
+          <span style={{ color: theme.color.dangerText, fontSize: 11 }}>
             Calibration interrupted — soft limits are disabled
           </span>
           <button
@@ -528,7 +517,7 @@ export default function GantryPositionWidget({
               <button className="jog-btn" style={jogBtnStyle} disabled={jogDisabled} {...jogBtnProps(-xyStep, 0, 0)} title="X-">
                 ←
               </button>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#bbb" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", ...theme.sectionLabel, fontSize: 10 }}>
                 XY
               </div>
               <button className="jog-btn" style={jogBtnStyle} disabled={jogDisabled} {...jogBtnProps(xyStep, 0, 0)} title="X+">
@@ -546,7 +535,7 @@ export default function GantryPositionWidget({
               <button className="jog-btn" style={jogBtnStyle} disabled={jogDisabled} {...jogBtnProps(0, 0, zStep)} title="Z+">
                 Z+
               </button>
-              <div style={{ fontSize: 10, color: "#bbb", textAlign: "center" }}>Z</div>
+              <div style={{ ...theme.sectionLabel, fontSize: 10, textAlign: "center" }}>Z</div>
               <button className="jog-btn" style={jogBtnStyle} disabled={jogDisabled} {...jogBtnProps(0, 0, -zStep)} title="Z-">
                 Z−
               </button>
@@ -556,27 +545,27 @@ export default function GantryPositionWidget({
           {/* Step size inputs */}
           <div style={{ display: "flex", gap: 12, fontSize: 11 }}>
             <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ color: "#888" }}>XY mm</span>
+              <span style={{ color: theme.color.textMuted }}>XY mm</span>
               <input
                 type="text"
                 inputMode="decimal"
                 value={stepXY}
                 onChange={(e) => setStepXY(e.target.value)}
-                style={{ ...inputStyle, width: 48, fontSize: 11, padding: "2px 4px", borderColor: parsedXYStep == null || xyBelowMin ? "#dc2626" : "#ccc" }}
+                style={{ ...inputStyle, ...theme.mono, width: 48, fontSize: 11, padding: "2px 4px", borderColor: parsedXYStep == null || xyBelowMin ? theme.color.danger : theme.color.borderStrong }}
               />
             </label>
             <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ color: "#888" }}>Z mm</span>
+              <span style={{ color: theme.color.textMuted }}>Z mm</span>
               <input
                 type="text"
                 inputMode="decimal"
                 value={stepZ}
                 onChange={(e) => setStepZ(e.target.value)}
-                style={{ ...inputStyle, width: 48, fontSize: 11, padding: "2px 4px", borderColor: parsedZStep == null || zBelowMin ? "#dc2626" : "#ccc" }}
+                style={{ ...inputStyle, ...theme.mono, width: 48, fontSize: 11, padding: "2px 4px", borderColor: parsedZStep == null || zBelowMin ? theme.color.danger : theme.color.borderStrong }}
               />
             </label>
             {(stepInvalid || xyBelowMin || zBelowMin) && (
-              <span style={{ color: "#dc2626", fontSize: 10, alignSelf: "center" }}>
+              <span style={{ color: theme.color.danger, fontSize: 10, alignSelf: "center" }}>
                 {stepInvalid ? "Enter step sizes greater than 0" : `min ${MIN_STEP}mm`}
               </span>
             )}
@@ -584,7 +573,16 @@ export default function GantryPositionWidget({
         </div>
 
         {/* XYZ Readout */}
-        <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
+        <div style={{
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          gap: 6,
+          background: theme.color.surfaceSunken,
+          border: `1px solid ${theme.color.border}`,
+          borderRadius: theme.radius.md,
+          padding: "10px 16px",
+        }}>
           {(["X", "Y", "Z"] as const).map((axis) => {
             const rawMpos = connected ? position![axis.toLowerCase() as "x" | "y" | "z"] : null;
             const mpos = rawMpos;
@@ -593,12 +591,12 @@ export default function GantryPositionWidget({
             const wpos = rawWpos;
             return (
               <div key={axis} style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                <span style={{ color: "#888", fontSize: 13, fontWeight: 600, width: 14 }}>{axis}</span>
+                <span style={{ ...theme.sectionLabel, width: 14 }}>{axis}</span>
                 <span style={coordStyle}>
                   {wpos != null ? wpos.toFixed(3) : mpos != null ? mpos.toFixed(3) : "\u2014"}
                 </span>
                 {wpos != null && mpos != null && (
-                  <span style={{ color: "#bbb", fontSize: 10 }}>M{mpos.toFixed(1)}</span>
+                  <span style={{ ...theme.mono, color: theme.color.textFaint, fontSize: 10 }}>M{mpos.toFixed(1)}</span>
                 )}
               </div>
             );
@@ -634,7 +632,7 @@ export default function GantryPositionWidget({
       </div>
 
       {workingVolume && (
-        <div style={{ fontSize: 10, color: "#bbb", marginBottom: 8 }}>
+        <div style={{ ...theme.mono, fontSize: 10, color: theme.color.textFaint, marginBottom: 8 }}>
           Vol: X[{workingVolume.x_min}, {workingVolume.x_max}] Y[{workingVolume.y_min},{" "}
           {workingVolume.y_max}] Z[{workingVolume.z_min}, {workingVolume.z_max}]
         </div>
@@ -642,15 +640,15 @@ export default function GantryPositionWidget({
 
       {/* Move To */}
       {connected && (
-        <div style={{ marginBottom: 10, borderTop: "1px solid #eee", paddingTop: 10 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "#444" }}>Move To</div>
+        <div style={{ marginBottom: 10, borderTop: `1px solid ${theme.color.border}`, paddingTop: 10 }}>
+          <div style={{ ...theme.sectionLabel, marginBottom: 6 }}>Move To</div>
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             {(["X", "Y", "Z"] as const).map((axis) => {
               const setter = axis === "X" ? setMoveX : axis === "Y" ? setMoveY : setMoveZ;
               const value = axis === "X" ? moveX : axis === "Y" ? moveY : moveZ;
               return (
                 <label key={axis} style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 11 }}>
-                  <span style={{ color: "#888" }}>{axis} (mm)</span>
+                  <span style={{ color: theme.color.textMuted }}>{axis} (mm)</span>
                   <input
                     type="text"
                     inputMode="decimal"
@@ -658,7 +656,7 @@ export default function GantryPositionWidget({
                     onChange={(e) => setter(e.target.value)}
                     placeholder={workingVolume ? axisRangePlaceholder(axis, workingVolume) : "mm"}
                     disabled={moveDisabled}
-                    style={buttonStateStyle({ ...inputStyle, width: 70, fontSize: 11, padding: "3px 4px" }, moveDisabled)}
+                    style={buttonStateStyle({ ...inputStyle, ...theme.mono, width: 70, fontSize: 11, padding: "3px 4px" }, moveDisabled)}
                   />
                 </label>
               );
@@ -667,11 +665,8 @@ export default function GantryPositionWidget({
               onClick={handleMoveTo}
               disabled={moveDisabled}
               style={{
-                ...btnStyle,
-                background: "#2563eb",
-                color: "#fff",
-                border: "1px solid #2563eb",
-                fontWeight: 600,
+                ...theme.btn.primary,
+                ...theme.btnSmall,
                 opacity: moveDisabled ? 0.6 : 1,
               }}
             >
@@ -683,14 +678,14 @@ export default function GantryPositionWidget({
       )}
 
       {/* Connection controls — bottom */}
-      <div style={{ display: "flex", gap: 8, alignItems: "center", borderTop: "1px solid #eee", paddingTop: 10 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", borderTop: `1px solid ${theme.color.border}`, paddingTop: 10 }}>
         <span style={{
           width: 8, height: 8, borderRadius: "50%",
-          background: isAlarm ? "#dc2626" : connected ? "#22c55e" : "#888",
+          background: isAlarm ? theme.color.danger : connected ? theme.color.success : theme.color.textFaint,
           display: "inline-block",
           flexShrink: 0,
         }} />
-        <span style={{ fontSize: 11, color: isAlarm ? "#dc2626" : connected ? "#22c55e" : "#888" }}>
+        <span style={{ fontSize: 11, color: isAlarm ? theme.color.danger : connected ? theme.color.successText : theme.color.textMuted }}>
           {connected ? (isAlarm ? "Alarm" : "Connected") : "Not connected"}
         </span>
         {!connected ? (
@@ -703,7 +698,7 @@ export default function GantryPositionWidget({
           </button>
         )}
         {connectionError && (
-          <span style={{ color: "#dc2626", fontSize: 11, marginLeft: 8 }}>{connectionError}</span>
+          <span style={{ color: theme.color.dangerText, fontSize: 11, marginLeft: 8 }}>{connectionError}</span>
         )}
       </div>
 
@@ -768,7 +763,7 @@ export default function GantryPositionWidget({
         </div>
       )}
 
-      <div style={{ fontSize: 10, color: "#bbb", marginTop: 8 }}>
+      <div style={{ fontSize: 10, color: theme.color.textFaint, marginTop: 8 }}>
         Keyboard: Arrow keys = XY, X/Z keys = Z up/down
       </div>
       <CalibrationWizard
@@ -836,13 +831,14 @@ function axisRangePlaceholder(axis: "X" | "Y" | "Z", volume: WorkingVolume): str
 }
 
 const coordStyle: React.CSSProperties = {
-  fontFamily: "monospace",
+  ...theme.mono,
   fontSize: 26,
-  fontWeight: 700,
+  fontWeight: 600,
   minWidth: 100,
   textAlign: "right",
   display: "inline-block",
-  color: "#1a1a1a",
+  color: theme.color.ink,
+  letterSpacing: "0.01em",
 };
 
 function buttonStateStyle(base: React.CSSProperties, disabled: boolean): React.CSSProperties {
@@ -863,51 +859,38 @@ const controlHeaderStyle: React.CSSProperties = {
 };
 
 const advancedToggleStyle: React.CSSProperties = {
-  border: "1px solid #d1d5db",
-  borderRadius: 4,
-  padding: "4px 10px",
-  cursor: "pointer",
-  fontSize: 12,
-  fontWeight: 700,
+  ...theme.btn.secondary,
+  ...theme.btnSmall,
+  fontWeight: 600,
 };
 
 const btnStyle: React.CSSProperties = {
-  background: "#f5f5f5",
-  color: "#1a1a1a",
-  border: "1px solid #ccc",
-  padding: "4px 12px",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 12,
+  ...theme.btn.secondary,
+  ...theme.btnSmall,
 };
 
 const primarySmallBtnStyle: React.CSSProperties = {
-  ...btnStyle,
-  background: "#2563eb",
-  color: "#fff",
-  border: "1px solid #2563eb",
-  fontWeight: 700,
+  ...theme.btn.primary,
+  ...theme.btnSmall,
 };
 
 const warnBtnStyle: React.CSSProperties = {
-  ...btnStyle,
-  color: "#b45309",
-  border: "1px solid #f59e0b",
-  background: "#fffbeb",
-  fontWeight: 700,
+  ...theme.btn.secondary,
+  ...theme.btnSmall,
+  color: theme.color.warningText,
+  border: `1px solid ${theme.color.warningBorder}`,
+  background: theme.color.warningBg,
+  fontWeight: 600,
 };
 
 const inputStyle: React.CSSProperties = {
-  background: "#fff",
-  border: "1px solid #ccc",
-  color: "#1a1a1a",
+  ...theme.input,
   padding: "4px 8px",
-  borderRadius: 4,
   fontSize: 12,
 };
 
 const advancedPanelStyle: React.CSSProperties = {
-  borderTop: "1px solid #eee",
+  borderTop: `1px solid ${theme.color.border}`,
   marginTop: 10,
   paddingTop: 10,
   display: "grid",
@@ -934,40 +917,28 @@ const settingFieldStyle: React.CSSProperties = {
 };
 
 const advancedLabelStyle: React.CSSProperties = {
-  color: "#666",
+  ...theme.sectionLabel,
   fontSize: 10,
-  fontWeight: 700,
-  textTransform: "uppercase",
-  letterSpacing: 0,
 };
 
 const advancedMessageStyle: React.CSSProperties = {
-  color: "#047857",
+  color: theme.color.successText,
   fontSize: 11,
 };
 
 const advancedErrorStyle: React.CSSProperties = {
-  color: "#b91c1c",
+  color: theme.color.dangerText,
   fontSize: 11,
 };
 
 const runLockStyle: React.CSSProperties = {
-  border: "1px solid #fbbf24",
-  background: "#fffbeb",
-  color: "#92400e",
-  borderRadius: 4,
-  padding: "7px 10px",
-  fontSize: 12,
-  fontWeight: 700,
+  ...theme.notice.warning,
+  fontWeight: 600,
   marginBottom: 10,
 };
 
 const interruptedCalibrationStyle: React.CSSProperties = {
-  border: "1px solid #dc2626",
-  background: "#fef2f2",
-  color: "#991b1b",
-  borderRadius: 4,
-  padding: "8px 12px",
+  ...theme.notice.error,
   marginBottom: 12,
   display: "flex",
   alignItems: "center",
@@ -976,34 +947,18 @@ const interruptedCalibrationStyle: React.CSSProperties = {
 };
 
 const interruptedCalibrationButtonStyle: React.CSSProperties = {
-  background: "#dc2626",
-  color: "#fff",
-  border: "1px solid #dc2626",
-  borderRadius: 4,
-  padding: "4px 10px",
-  cursor: "pointer",
-  fontSize: 12,
-  fontWeight: 700,
+  ...theme.btn.danger,
+  ...theme.btnSmall,
   marginLeft: "auto",
 };
 
 const successStyle: React.CSSProperties = {
-  border: "1px solid #86efac",
-  background: "#f0fdf4",
-  color: "#166534",
-  borderRadius: 4,
-  padding: "7px 10px",
-  fontSize: 12,
+  ...theme.notice.success,
   marginBottom: 10,
 };
 
 const commandErrorStyle: React.CSSProperties = {
-  border: "1px solid #fca5a5",
-  background: "#fef2f2",
-  color: "#991b1b",
-  borderRadius: 4,
-  padding: "7px 10px",
-  fontSize: 12,
+  ...theme.notice.error,
   marginBottom: 10,
   display: "flex",
   alignItems: "center",
@@ -1012,10 +967,10 @@ const commandErrorStyle: React.CSSProperties = {
 };
 
 const dismissErrorButtonStyle: React.CSSProperties = {
-  border: "1px solid #fecaca",
-  background: "#fff",
-  color: "#991b1b",
-  borderRadius: 4,
+  border: `1px solid ${theme.color.dangerBorder}`,
+  background: theme.color.surface,
+  color: theme.color.dangerText,
+  borderRadius: theme.radius.sm,
   cursor: "pointer",
   width: 22,
   height: 22,
@@ -1024,36 +979,31 @@ const dismissErrorButtonStyle: React.CSSProperties = {
 };
 
 const limitHintStyle: React.CSSProperties = {
-  color: "#92400e",
-  background: "#fffbeb",
-  border: "1px solid #fde68a",
-  borderRadius: 4,
+  ...theme.notice.warning,
   padding: "5px 8px",
   fontSize: 11,
   marginBottom: 10,
 };
 
 const moveErrorStyle: React.CSSProperties = {
-  color: "#991b1b",
+  color: theme.color.dangerText,
   fontSize: 11,
   marginTop: 6,
 };
 
 const calibrationBannerButtonStyle: React.CSSProperties = {
-  background: "#f59e0b",
-  color: "#fff",
-  border: "1px solid #d97706",
-  borderRadius: 4,
-  padding: "4px 10px",
-  cursor: "pointer",
-  fontSize: 12,
-  fontWeight: 700,
+  ...theme.btn.secondary,
+  ...theme.btnSmall,
+  color: theme.color.warningText,
+  border: `1px solid ${theme.color.warning}`,
+  fontWeight: 600,
   marginLeft: "auto",
 };
 
 const settingsTableStyle: React.CSSProperties = {
-  border: "1px solid #e5e7eb",
-  borderRadius: 4,
+  border: `1px solid ${theme.color.border}`,
+  borderRadius: theme.radius.sm,
+  background: theme.color.surfaceMuted,
   maxHeight: 150,
   overflow: "auto",
   display: "grid",
@@ -1065,41 +1015,34 @@ const settingsRowStyle: React.CSSProperties = {
   justifyContent: "space-between",
   gap: 8,
   padding: "4px 7px",
-  borderBottom: "1px solid #f3f4f6",
+  borderBottom: `1px solid ${theme.color.border}`,
   fontSize: 11,
 };
 
 const settingsKeyStyle: React.CSSProperties = {
-  color: "#374151",
-  fontFamily: "monospace",
-  fontWeight: 700,
+  ...theme.mono,
+  color: theme.color.textSecondary,
+  fontWeight: 600,
 };
 
 const settingsValueStyle: React.CSSProperties = {
-  color: "#111827",
-  fontFamily: "monospace",
+  ...theme.mono,
+  color: theme.color.ink,
 };
 
 const homeBtnStyle: React.CSSProperties = {
-  background: "#fff",
-  color: "#d97706",
-  border: "1px solid #d97706",
+  ...theme.btn.secondary,
+  ...theme.btnSmall,
+  color: theme.color.warning,
+  border: `1px solid ${theme.color.warning}`,
   padding: "5px 16px",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 12,
   fontWeight: 600,
 };
 
 const calibrateBtnStyle: React.CSSProperties = {
-  background: "#0f766e",
-  color: "#fff",
-  border: "1px solid #0f766e",
+  ...theme.btn.primary,
+  ...theme.btnSmall,
   padding: "5px 16px",
-  borderRadius: 4,
-  cursor: "pointer",
-  fontSize: 12,
-  fontWeight: 700,
 };
 
 const jogBtnStyle: React.CSSProperties = {
@@ -1108,12 +1051,12 @@ const jogBtnStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  background: "#f5f5f5",
-  border: "1px solid #ccc",
-  borderRadius: 4,
+  background: theme.color.surface,
+  border: `1px solid ${theme.color.borderStrong}`,
+  borderRadius: theme.radius.md,
   cursor: "pointer",
   fontSize: 16,
   fontWeight: 600,
-  color: "#1a1a1a",
+  color: theme.color.ink,
   transition: "background 0.1s, transform 0.1s",
 };

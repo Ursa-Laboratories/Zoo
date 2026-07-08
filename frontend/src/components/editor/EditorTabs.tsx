@@ -1,3 +1,5 @@
+import * as theme from "../../theme";
+
 const TABS = ["Gantry", "Deck", "Protocol"] as const;
 type TabName = (typeof TABS)[number];
 
@@ -30,10 +32,18 @@ export default function EditorTabs({
 }: Props) {
   return (
     <div>
-      <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #ddd", marginBottom: disabledMessage && activeTab === "Protocol" ? 0 : 16 }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 4,
+          borderBottom: `1px solid ${theme.color.border}`,
+          marginBottom: disabledMessage && activeTab === "Protocol" ? 0 : 18,
+        }}
+      >
         {TABS.map((tab) => {
           const disabled = disabledTabs.includes(tab);
           const dirty = dirtyTabs.includes(tab);
+          const active = activeTab === tab;
           const filename = loadedFilenames?.[tab] || null;
           return (
             <button
@@ -46,19 +56,27 @@ export default function EditorTabs({
                 }
               }}
               style={{
-                background: activeTab === tab ? "#f5f5f5" : "transparent",
-                color: disabled ? "#ccc" : activeTab === tab ? "#1a1a1a" : "#888",
+                background: "transparent",
+                color: disabled
+                  ? theme.color.textFaint
+                  : active
+                    ? theme.color.ink
+                    : theme.color.textMuted,
                 border: "none",
-                borderBottom: activeTab === tab ? "2px solid #2563eb" : "2px solid transparent",
-                padding: "8px 20px",
+                borderBottom: active
+                  ? `2px solid ${theme.color.accent}`
+                  : "2px solid transparent",
+                marginBottom: -1,
+                padding: "8px 18px 7px",
                 cursor: disabled ? "default" : "pointer",
-                fontSize: 14,
-                fontWeight: activeTab === tab ? 600 : 400,
+                fontSize: 13.5,
+                fontWeight: active ? 600 : 500,
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
-                lineHeight: 1.2,
-                minWidth: 120,
+                lineHeight: 1.25,
+                minWidth: 118,
+                opacity: disabled ? 0.6 : 1,
               }}
             >
               <span>
@@ -70,7 +88,7 @@ export default function EditorTabs({
                   <span
                     aria-hidden="true"
                     title="Unsaved changes"
-                    style={{ color: "#d97706", marginLeft: 6, fontSize: 11, fontWeight: 700 }}
+                    style={{ color: theme.color.warning, marginLeft: 6, fontSize: 10, fontWeight: 700 }}
                   >
                     ●
                   </span>
@@ -83,9 +101,10 @@ export default function EditorTabs({
                 // a clean tab name; sighted users still see the filename.
                 aria-hidden="true"
                 style={{
-                  fontSize: 11,
+                  ...theme.mono,
+                  fontSize: 10.5,
                   fontWeight: 400,
-                  color: disabled ? "#ccc" : "#888",
+                  color: theme.color.textFaint,
                   marginTop: 2,
                   maxWidth: 180,
                   overflow: "hidden",
@@ -93,14 +112,22 @@ export default function EditorTabs({
                   whiteSpace: "nowrap",
                 }}
               >
-                {filename ?? "\u00A0"}
+                {filename ?? " "}
               </span>
             </button>
           );
         })}
       </div>
       {disabledMessage && disabledTabs.includes(activeTab) && (
-        <div style={{ padding: "12px 16px", marginBottom: 16, fontSize: 12, color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a", borderTop: "none", borderRadius: "0 0 4px 4px" }}>
+        <div
+          style={{
+            ...theme.notice.warning,
+            marginBottom: 18,
+            borderTop: "none",
+            borderRadius: `0 0 ${theme.radius.md}px ${theme.radius.md}px`,
+            padding: "10px 14px",
+          }}
+        >
           {disabledMessage}
         </div>
       )}

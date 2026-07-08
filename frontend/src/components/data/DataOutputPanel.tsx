@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { CSSProperties } from "react";
 import { dataApi } from "../../api/client";
 import type { CampaignSummary } from "../../types";
+import * as theme from "../../theme";
 
 interface Props {
   campaigns: CampaignSummary[];
@@ -97,29 +98,21 @@ export default function DataOutputPanel({
                       <div style={metaTextStyle}>{campaign.campaign_description}</div>
                     </td>
                     <td style={tdStyle}>{formatTimestamp(timestamp)}</td>
-                    <td style={tdStyle}>{campaign.experiment_count}</td>
-                    <td style={tdStyle}>{campaign.well_count}</td>
-                    <td style={tdStyle}>{campaign.measurement_count}</td>
+                    <td style={tdNumericStyle}>{campaign.experiment_count}</td>
+                    <td style={tdNumericStyle}>{campaign.well_count}</td>
+                    <td style={tdNumericStyle}>{campaign.measurement_count}</td>
                     <td style={tdStyle}>
                       <button
                         onClick={() => void handleExport(campaign, "measurements")}
                         disabled={measurementsDisabled}
-                        style={{
-                          ...primaryButtonStyle,
-                          opacity: measurementsDisabled ? 0.55 : 1,
-                          cursor: measurementsDisabled ? "default" : "pointer",
-                        }}
+                        style={primaryButtonStyle}
                       >
                         {isExporting(exporting, campaign.campaign_id, "measurements") ? "Exporting..." : "Measurements ZIP"}
                       </button>
                       <button
                         onClick={() => void handleExport(campaign, "asmi")}
                         disabled={asmiDisabled}
-                        style={{
-                          ...secondaryExportButtonStyle,
-                          opacity: asmiDisabled ? 0.55 : 1,
-                          cursor: asmiDisabled ? "default" : "pointer",
-                        }}
+                        style={secondaryExportButtonStyle}
                       >
                         {isExporting(exporting, campaign.campaign_id, "asmi") ? "Exporting..." : "ASMI ZIP"}
                       </button>
@@ -147,10 +140,8 @@ function formatTimestamp(value: string): string {
   return date.toLocaleString();
 }
 
+// The panel sits inside a white card, so it stays borderless-clean.
 const panelStyle: CSSProperties = {
-  border: "1px solid #ddd",
-  borderRadius: 6,
-  background: "#fff",
   overflow: "hidden",
 };
 
@@ -159,17 +150,16 @@ const headerStyle: CSSProperties = {
   justifyContent: "space-between",
   alignItems: "center",
   padding: "12px 14px",
-  borderBottom: "1px solid #eee",
+  borderBottom: `1px solid ${theme.color.border}`,
 };
 
 const titleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: 15,
+  ...theme.panelTitle,
 };
 
 const subtitleStyle: CSSProperties = {
   marginTop: 2,
-  color: "#777",
+  color: theme.color.textMuted,
   fontSize: 12,
 };
 
@@ -181,73 +171,62 @@ const tableStyle: CSSProperties = {
   width: "100%",
   borderCollapse: "collapse",
   fontSize: 13,
+  color: theme.color.text,
 };
 
 const thStyle: CSSProperties = {
+  ...theme.sectionLabel,
   padding: "9px 12px",
   textAlign: "left",
-  color: "#666",
-  borderBottom: "1px solid #eee",
-  fontWeight: 600,
+  borderBottom: `1px solid ${theme.color.border}`,
 };
 
 const tdStyle: CSSProperties = {
   padding: "10px 12px",
-  borderBottom: "1px solid #f1f1f1",
+  borderBottom: `1px solid ${theme.color.border}`,
   verticalAlign: "middle",
+};
+
+const tdNumericStyle: CSSProperties = {
+  ...tdStyle,
+  ...theme.mono,
 };
 
 const strongTextStyle: CSSProperties = {
   fontWeight: 600,
+  color: theme.color.ink,
 };
 
 const metaTextStyle: CSSProperties = {
   marginTop: 2,
-  color: "#777",
+  color: theme.color.textMuted,
   fontSize: 12,
 };
 
 const emptyStyle: CSSProperties = {
-  padding: 16,
-  color: "#777",
+  padding: "24px 16px",
+  color: theme.color.textMuted,
   fontSize: 13,
+  textAlign: "center",
 };
 
 const errorStyle: CSSProperties = {
+  ...theme.notice.error,
   margin: 12,
-  padding: "8px 10px",
-  borderRadius: 4,
-  background: "#fef2f2",
-  border: "1px solid #fca5a5",
-  color: "#991b1b",
-  fontSize: 12,
 };
 
 const primaryButtonStyle: CSSProperties = {
-  background: "#2563eb",
-  color: "#fff",
-  border: "1px solid #1d4ed8",
-  borderRadius: 4,
-  padding: "5px 10px",
-  fontSize: 12,
+  ...theme.btn.primary,
+  ...theme.btnSmall,
   marginRight: 6,
 };
 
 const secondaryExportButtonStyle: CSSProperties = {
-  background: "#fff",
-  color: "#1f2937",
-  border: "1px solid #d1d5db",
-  borderRadius: 4,
-  padding: "5px 10px",
-  fontSize: 12,
+  ...theme.btn.secondary,
+  ...theme.btnSmall,
 };
 
 const secondaryButtonStyle: CSSProperties = {
-  background: "#f5f5f5",
-  color: "#1a1a1a",
-  border: "1px solid #ccc",
-  borderRadius: 4,
-  padding: "5px 10px",
-  fontSize: 12,
-  cursor: "pointer",
+  ...theme.btn.secondary,
+  ...theme.btnSmall,
 };

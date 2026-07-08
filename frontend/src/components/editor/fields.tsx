@@ -1,4 +1,5 @@
 import { useState } from "react";
+import * as theme from "../../theme";
 
 function tryParse(s: string): number | null {
   if (s === "" || s === "-" || s === "." || s === "-.") return null;
@@ -19,7 +20,7 @@ function formatNumberInput(value: number): string {
 export function DirtyMarker() {
   return (
     <span
-      style={{ color: "#d97706", fontWeight: 700, marginLeft: 2 }}
+      style={{ color: theme.color.warning, fontWeight: 700, marginLeft: 2 }}
       title="Unsaved local edit"
     >
       *
@@ -40,13 +41,8 @@ export function UnsavedNotice({ children }: { children: React.ReactNode }) {
 }
 
 const unsavedNoticeStyle: React.CSSProperties = {
-  background: "#fffbeb",
-  border: "1px solid #f59e0b",
-  borderRadius: 4,
-  color: "#92400e",
-  fontSize: 12,
-  padding: "8px 12px",
-  marginBottom: 10,
+  ...theme.notice.warning,
+  marginBottom: 12,
 };
 
 interface NumberFieldProps {
@@ -71,10 +67,10 @@ export function NumberField({ id, name, label, value, onChange, required, dirty 
   const setRaw = (next: string) => setState({ raw: next, value: normalizedValue });
 
   return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
-      <span style={{ color: "#666" }}>
+    <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12 }}>
+      <span style={theme.fieldLabel}>
         {label}
-        {required && <span style={{ color: "#dc2626" }}> *</span>}
+        {required && <span style={{ color: theme.color.danger }}> *</span>}
         {dirty && <DirtyMarker />}
       </span>
       <input
@@ -110,10 +106,10 @@ interface TextFieldProps {
 export function TextField({ id, name, label, value, onChange, required, dirty }: TextFieldProps) {
   const hasError = required && !value.trim();
   return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
-      <span style={{ color: "#666" }}>
+    <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12 }}>
+      <span style={theme.fieldLabel}>
         {label}
-        {required && <span style={{ color: "#dc2626" }}> *</span>}
+        {required && <span style={{ color: theme.color.danger }}> *</span>}
         {dirty && <DirtyMarker />}
       </span>
       <input
@@ -122,7 +118,7 @@ export function TextField({ id, name, label, value, onChange, required, dirty }:
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        style={hasError ? { ...inputStyle, borderColor: "#dc2626" } : inputStyle}
+        style={hasError ? { ...inputStyle, borderColor: theme.color.danger } : inputStyle}
       />
     </label>
   );
@@ -163,7 +159,7 @@ export function CoordinateField({ id, name, label, value, onChange, required }: 
 
   return (
     <div style={{ fontSize: 12 }}>
-      <span style={{ color: "#666" }}>{label}{required && <span style={{ color: "#dc2626" }}> *</span>}</span>
+      <span style={theme.fieldLabel}>{label}{required && <span style={{ color: theme.color.danger }}> *</span>}</span>
       <div style={coordinateGridStyle}>
         <label style={axisFieldStyle}>
           <span style={axisLabelStyle}>X</span>
@@ -213,12 +209,7 @@ export function CoordinateField({ id, name, label, value, onChange, required }: 
 }
 
 const inputStyle: React.CSSProperties = {
-  background: "#fff",
-  border: "1px solid #ccc",
-  color: "#1a1a1a",
-  padding: "4px 6px",
-  borderRadius: 4,
-  fontSize: 13,
+  ...theme.input,
 };
 
 const coordinateGridStyle: React.CSSProperties = {
@@ -237,7 +228,7 @@ const axisFieldStyle: React.CSSProperties = {
 };
 
 const axisLabelStyle: React.CSSProperties = {
-  color: "#1f2937",
+  color: theme.color.textSecondary,
   fontSize: 11,
   fontWeight: 700,
   textAlign: "center",
@@ -259,8 +250,8 @@ export function SelectField({
   onChange: (v: string) => void;
 }) {
   return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 12 }}>
-      <span style={{ color: "#666" }}>{label}</span>
+    <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12 }}>
+      <span style={theme.fieldLabel}>{label}</span>
       <select id={id} name={name} value={value} onChange={(e) => onChange(e.target.value)} style={inputStyle}>
         {options.length === 0 && <option value="">No configs found</option>}
         {options.map((o) => (
@@ -279,14 +270,9 @@ export function SaveButton({ onClick, disabled }: { onClick: () => void; disable
       onClick={onClick}
       disabled={disabled}
       style={{
-        background: "#2563eb",
-        color: "#fff",
-        border: "none",
-        padding: "6px 20px",
-        borderRadius: 4,
+        ...theme.btn.primary,
+        padding: "7px 22px",
         cursor: disabled ? "not-allowed" : "pointer",
-        fontSize: 13,
-        fontWeight: 600,
         marginTop: 12,
       }}
     >
