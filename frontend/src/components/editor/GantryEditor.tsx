@@ -78,12 +78,12 @@ const GRBL_BOOLEAN_FIELDS: Array<{ key: keyof GrblSettingsConfig; label: string 
 ];
 
 const INSTRUMENT_COLORS: Record<string, string> = {
-  asmi: "#2563eb",
-  uvvis_ccs: "#7c3aed",
-  pipette: "#059669",
-  filmetrics: "#d97706",
-  potentiostat: "#dc2626",
-  uv_curing: "#0891b2",
+  asmi: theme.categorical.blue,
+  uvvis_ccs: theme.categorical.violet,
+  pipette: theme.categorical.emerald,
+  filmetrics: theme.categorical.amber,
+  potentiostat: theme.color.danger,
+  uv_curing: theme.categorical.blue,
 };
 
 /** Section heading inside a config card (Connection, Working Volume, …). */
@@ -331,6 +331,12 @@ export default function GantryEditor({
                 <button onClick={addInstrument} style={addBtnStyle} disabled={!selectedAddType}>+ Add</button>
               </div>
             </div>
+
+            {Object.keys(config.instruments).length === 0 && (
+              <div style={emptyInstrumentNoticeStyle}>
+                No mounted instruments yet. Choose the instruments installed on this machine, then save the gantry config.
+              </div>
+            )}
 
             {Object.entries(config.instruments).map(([key, inst]) => {
               const color = INSTRUMENT_COLORS[inst.type] ?? INSTRUMENT_COLORS[inst.type.replace("mock_", "")] ?? theme.color.textMuted;
@@ -762,13 +768,24 @@ const advancedHeaderStyle: React.CSSProperties = {
   fontWeight: 600,
 };
 
-/** White panel for each instrument block, nested inside the muted section. */
+/** Surface panel for each instrument block, nested inside the muted section. */
 const instrumentCardStyle: React.CSSProperties = {
   background: theme.color.surface,
   border: `1px solid ${theme.color.border}`,
   borderRadius: theme.radius.md,
   padding: 12,
   marginTop: 10,
+};
+
+const emptyInstrumentNoticeStyle: React.CSSProperties = {
+  marginTop: 12,
+  padding: "10px 12px",
+  borderRadius: theme.radius.md,
+  border: `1px solid ${theme.color.border}`,
+  background: theme.color.surfaceSunken,
+  color: theme.color.textSecondary,
+  fontSize: 12,
+  lineHeight: 1.45,
 };
 
 const configPickerRowStyle: React.CSSProperties = {

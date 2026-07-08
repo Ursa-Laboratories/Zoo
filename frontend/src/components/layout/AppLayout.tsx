@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { card, color } from "../../theme";
+import { card, chrome, color } from "../../theme";
 
 interface Props {
   header: ReactNode;
@@ -26,8 +26,9 @@ export default function AppLayout({ header, left, topRight, bottomRight }: Props
           gap: 16,
           minHeight: 56,
           padding: "8px 16px",
-          background: color.surface,
+          background: chrome.headerBg,
           borderBottom: `1px solid ${color.border}`,
+          boxShadow: chrome.headerHairline,
         }}
       >
         {header}

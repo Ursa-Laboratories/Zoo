@@ -403,9 +403,11 @@ export default function GantryPositionWidget({
           onClick={() => setAdvancedOpen((open) => !open)}
           style={{
             ...advancedToggleStyle,
-            background: advancedOpen ? theme.color.ink : theme.color.surface,
-            color: advancedOpen ? "#fff" : theme.color.textSecondary,
-            borderColor: advancedOpen ? theme.color.ink : theme.color.borderStrong,
+            background: advancedOpen ? theme.color.accentTint : theme.color.surface,
+            color: advancedOpen ? theme.color.accentText : theme.color.textSecondary,
+            border: advancedOpen
+              ? `1px solid ${theme.color.accentTintBorder}`
+              : `1px solid ${theme.color.borderStrong}`,
           }}
           aria-pressed={advancedOpen}
         >
@@ -589,10 +591,11 @@ export default function GantryPositionWidget({
             const wKey = `work_${axis.toLowerCase()}` as "work_x" | "work_y" | "work_z";
             const rawWpos = connected ? position![wKey] : null;
             const wpos = rawWpos;
+            const hasPosition = wpos != null || mpos != null;
             return (
               <div key={axis} style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
                 <span style={{ ...theme.sectionLabel, width: 14 }}>{axis}</span>
-                <span style={coordStyle}>
+                <span style={hasPosition ? liveCoordStyle : coordPlaceholderStyle}>
                   {wpos != null ? wpos.toFixed(3) : mpos != null ? mpos.toFixed(3) : "\u2014"}
                 </span>
                 {wpos != null && mpos != null && (
@@ -841,6 +844,17 @@ const coordStyle: React.CSSProperties = {
   letterSpacing: "0.01em",
 };
 
+const liveCoordStyle: React.CSSProperties = {
+  ...coordStyle,
+  color: theme.color.accentText,
+  textShadow: theme.chrome.telemetryGlow,
+};
+
+const coordPlaceholderStyle: React.CSSProperties = {
+  ...coordStyle,
+  color: theme.color.textFaint,
+};
+
 function buttonStateStyle(base: React.CSSProperties, disabled: boolean): React.CSSProperties {
   if (!disabled) return base;
   return {
@@ -995,7 +1009,8 @@ const calibrationBannerButtonStyle: React.CSSProperties = {
   ...theme.btn.secondary,
   ...theme.btnSmall,
   color: theme.color.warningText,
-  border: `1px solid ${theme.color.warning}`,
+  border: `1px solid ${theme.color.warningBorder}`,
+  background: theme.color.warningBg,
   fontWeight: 600,
   marginLeft: "auto",
 };
@@ -1033,8 +1048,9 @@ const settingsValueStyle: React.CSSProperties = {
 const homeBtnStyle: React.CSSProperties = {
   ...theme.btn.secondary,
   ...theme.btnSmall,
-  color: theme.color.warning,
-  border: `1px solid ${theme.color.warning}`,
+  color: theme.color.warningText,
+  border: `1px solid ${theme.color.warningBorder}`,
+  background: theme.color.warningBg,
   padding: "5px 16px",
   fontWeight: 600,
 };

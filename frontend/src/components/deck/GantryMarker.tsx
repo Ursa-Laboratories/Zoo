@@ -1,4 +1,5 @@
 import type { GantryPosition } from "../../types";
+import { viz as themeViz } from "../../theme";
 import { machineToSvg } from "../../utils/coordinates";
 
 interface Props {
@@ -33,11 +34,11 @@ export default function GantryMarker({
 
   return (
     <g>
-      <circle cx={sx} cy={sy} r={9} fill="#4f46e5" opacity={0.15} />
-      <line x1={sx - arm} y1={sy} x2={sx + arm} y2={sy} stroke="#4f46e5" strokeWidth={1.5} />
-      <line x1={sx} y1={sy - arm} x2={sx} y2={sy + arm} stroke="#4f46e5" strokeWidth={1.5} />
-      <circle cx={sx} cy={sy} r={4} fill="#4f46e5" stroke="#ffffff" strokeWidth={1} opacity={0.9} />
-      <text x={sx + arm + 2} y={labelY} fill="#4338ca" fontSize={8} fontWeight={600} stroke="#ffffff" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
+      <circle cx={sx} cy={sy} r={9} fill={themeViz.markerHalo} />
+      <line x1={sx - arm} y1={sy} x2={sx + arm} y2={sy} stroke={themeViz.marker} strokeWidth={1.5} />
+      <line x1={sx} y1={sy - arm} x2={sx} y2={sy + arm} stroke={themeViz.marker} strokeWidth={1.5} />
+      <circle cx={sx} cy={sy} r={4} fill={themeViz.marker} stroke={themeViz.halo} strokeWidth={1} opacity={0.9} />
+      <text x={sx + arm + 2} y={labelY} fill={themeViz.markerLabel} fontSize={8} fontWeight={600} stroke={themeViz.halo} strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
         HEAD
       </text>
     </g>

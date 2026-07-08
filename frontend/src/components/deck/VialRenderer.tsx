@@ -1,4 +1,5 @@
 import type { VialConfig } from "../../types";
+import { viz as themeViz } from "../../theme";
 import { machineToSvg, mmToSvgPixels } from "../../utils/coordinates";
 
 interface Props {
@@ -30,12 +31,12 @@ export default function VialRenderer({
 
   return (
     <g>
-      <circle cx={sx} cy={sy} r={r} fill="#fffbeb" fillOpacity={0.6} stroke="#d97706" strokeWidth={1.5}>
+      <circle cx={sx} cy={sy} r={r} fill={themeViz.vialFill} stroke={themeViz.vialStroke} strokeWidth={1.5}>
         <title>
           {label}: ({config.location.x}, {config.location.y}, {config.location.z})
         </title>
       </circle>
-      <text x={sx} y={sy - r - 3} fill="#92400e" fontSize={9} textAnchor="middle" fontWeight={500} stroke="#ffffff" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
+      <text x={sx} y={sy - r - 3} fill={themeViz.vialLabel} fontSize={9} textAnchor="middle" fontWeight={500} stroke={themeViz.halo} strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
         {config.name}
       </text>
     </g>

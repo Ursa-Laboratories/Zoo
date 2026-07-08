@@ -177,6 +177,14 @@ describe("GantryEditor", () => {
     expect(await screen.findByLabelText("Serial port")).toBeInTheDocument();
   });
 
+  it("directs operators to choose instruments when a gantry has none", () => {
+    renderGantry({ gantry: gantryFixture({ instruments: {} }) });
+
+    expect(screen.getByText(/No mounted instruments yet/i)).toHaveTextContent(
+      /Choose the instruments installed on this machine/i,
+    );
+  });
+
   it("adds and removes an instrument", async () => {
     const user = userEvent.setup();
     const props = renderGantry();

@@ -1,57 +1,103 @@
 import type { CSSProperties } from "react";
 
 /**
- * Zoo design system — the single source of truth for the visual language.
+ * Zoo design system tokens.
  *
- * Direction: a calm instrument-panel aesthetic for scientists. Soft slate
- * canvas, white cards with hairline borders, one indigo accent, quiet
- * semantic colors, tabular numerals for anything numeric. Components keep
- * the repo's inline-style convention but pull every color, radius, and
- * shadow from here so the app reads as one system.
- *
- * Interaction states (hover/active/focus) that inline styles cannot
- * express live in `index.css` as element-level rules.
+ * The runtime theme lives in `index.css`: dark/default values are defined on
+ * `:root, :root[data-theme="dark"]`, and light values are defined on
+ * `:root[data-theme="light"]`. This module keeps the existing inline-style
+ * export shape, but color and shadow values are CSS variable references so
+ * components update when the root `data-theme` changes.
  */
 
 export const color = {
-  // Neutrals (slate scale)
-  ink: "#0f172a",
-  text: "#1e293b",
-  textSecondary: "#475569",
-  textMuted: "#64748b",
-  textFaint: "#94a3b8",
-  border: "#e2e8f0",
-  borderStrong: "#cbd5e1",
-  canvas: "#f1f5f9",
-  surface: "#ffffff",
-  surfaceMuted: "#f8fafc",
-  surfaceSunken: "#f1f5f9",
+  // Neutrals. "ink" stays the highest-contrast text color so component code
+  // reads the same in any theme.
+  ink: "var(--z-ink)",
+  text: "var(--z-text)",
+  textSecondary: "var(--z-text-secondary)",
+  textMuted: "var(--z-text-muted)",
+  textFaint: "var(--z-text-faint)",
+  border: "var(--z-border)",
+  borderStrong: "var(--z-border-strong)",
+  canvas: "var(--z-canvas)",
+  surface: "var(--z-surface)",
+  surfaceMuted: "var(--z-surface-muted)",
+  surfaceSunken: "var(--z-surface-sunken)",
 
-  // Accent (indigo)
-  accent: "#4f46e5",
-  accentHover: "#4338ca",
-  accentTint: "#eef2ff",
-  accentTintBorder: "#c7d2fe",
-  accentText: "#3730a3",
+  // Accent.
+  accent: "var(--z-accent)",
+  accentHover: "var(--z-accent-hover)",
+  accentTint: "var(--z-accent-tint)",
+  accentTintBorder: "var(--z-accent-tint-border)",
+  accentText: "var(--z-accent-text)",
 
-  // Semantic — danger (red). #dc2626 is load-bearing: fields.test.tsx
-  // asserts it as the required-field error border.
+  // The launch surface for the one primary action.
+  launchGradient: "var(--z-btn-primary-bg)",
+
+  // Semantic - danger. #dc2626 is load-bearing: fields.test.tsx asserts it
+  // as the required-field error border.
   danger: "#dc2626",
-  dangerBg: "#fef2f2",
-  dangerBorder: "#fecaca",
-  dangerText: "#991b1b",
+  dangerBg: "var(--z-danger-bg)",
+  dangerBorder: "var(--z-danger-border)",
+  dangerText: "var(--z-danger-text)",
 
-  // Semantic — warning (amber): unsaved edits, run-in-progress.
-  warning: "#d97706",
-  warningBg: "#fffbeb",
-  warningBorder: "#fde68a",
-  warningText: "#92400e",
+  // Semantic - warning: unsaved edits, run-in-progress.
+  warning: "var(--z-warning)",
+  warningBg: "var(--z-warning-bg)",
+  warningBorder: "var(--z-warning-border)",
+  warningText: "var(--z-warning-text)",
 
-  // Semantic — success (emerald): connected, valid, complete.
-  success: "#059669",
-  successBg: "#ecfdf5",
-  successBorder: "#a7f3d0",
-  successText: "#065f46",
+  // Semantic - success: connected, valid, complete.
+  success: "var(--z-success)",
+  successBg: "var(--z-success-bg)",
+  successBorder: "var(--z-success-border)",
+  successText: "var(--z-success-text)",
+} as const;
+
+export const categorical = {
+  emerald: "var(--z-cat-emerald)",
+  amber: "var(--z-cat-amber)",
+  violet: "var(--z-cat-violet)",
+  blue: "var(--z-cat-blue)",
+  slate: "var(--z-cat-slate)",
+} as const;
+
+export const viz = {
+  canvas: "var(--z-viz-canvas)",
+  frame: "var(--z-viz-frame)",
+  grid: "var(--z-viz-grid)",
+  tick: "var(--z-viz-tick)",
+  caption: "var(--z-viz-caption)",
+  halo: "var(--z-viz-halo)",
+  plateFill: "var(--z-viz-plate-fill)",
+  plateStroke: "var(--z-viz-plate-stroke)",
+  wellFill: "var(--z-viz-well-fill)",
+  wellStroke: "var(--z-viz-well-stroke)",
+  label: "var(--z-viz-label)",
+  tiprackFill: "var(--z-viz-tiprack-fill)",
+  tiprackStroke: "var(--z-viz-tiprack-stroke)",
+  tip: "var(--z-viz-tip)",
+  holderFill: "var(--z-viz-holder-fill)",
+  holderStroke: "var(--z-viz-holder-stroke)",
+  holderLabel: "var(--z-viz-holder-label)",
+  vialFill: "var(--z-viz-vial-fill)",
+  vialStroke: "var(--z-viz-vial-stroke)",
+  vialLabel: "var(--z-viz-vial-label)",
+  marker: "var(--z-viz-marker)",
+  markerHalo: "var(--z-viz-marker-halo)",
+  markerLabel: "var(--z-viz-marker-label)",
+  markerRing: "var(--z-viz-marker-ring)",
+} as const;
+
+export const chrome = {
+  headerBg: "var(--z-header-bg)",
+  headerHairline: "var(--z-header-hairline)",
+  brandGlow: "var(--z-brand-glow)",
+  segmentActiveBg: "var(--z-segment-active-bg)",
+  segmentActiveShadow: "var(--z-segment-active-shadow)",
+  telemetryGlow: "var(--z-telemetry-glow)",
+  backdrop: "var(--z-backdrop)",
 } as const;
 
 export const font = {
@@ -66,16 +112,18 @@ export const radius = {
 } as const;
 
 export const shadow = {
-  card: "0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06)",
-  raised: "0 4px 12px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.05)",
-  overlay: "0 20px 50px rgba(15, 23, 42, 0.22), 0 8px 16px rgba(15, 23, 42, 0.1)",
+  card: "var(--z-shadow-card)",
+  raised: "var(--z-shadow-raised)",
+  overlay: "var(--z-shadow-overlay)",
+  /** Theme-specific glow for the launch action and live indicators. */
+  glow: "var(--z-shadow-glow)",
 } as const;
 
 // ---------------------------------------------------------------------------
 // Shared style objects
 // ---------------------------------------------------------------------------
 
-/** White card panel — the basic surface everything sits on. */
+/** Card panel - the basic surface everything sits on. */
 export const card: CSSProperties = {
   background: color.surface,
   border: `1px solid ${color.border}`,
@@ -85,7 +133,7 @@ export const card: CSSProperties = {
 
 /** Standard text/number input. */
 export const input: CSSProperties = {
-  background: color.surface,
+  background: color.surfaceSunken,
   border: `1px solid ${color.borderStrong}`,
   color: color.ink,
   padding: "5px 8px",
@@ -106,7 +154,7 @@ export const sectionLabel: CSSProperties = {
   color: color.textFaint,
   fontSize: 11,
   fontWeight: 600,
-  letterSpacing: "0.06em",
+  letterSpacing: "0.08em",
   textTransform: "uppercase",
 };
 
@@ -130,24 +178,26 @@ const btnBase: CSSProperties = {
 };
 
 export const btn = {
-  /** Filled accent button — the one primary action on a surface. */
+  /** Launch button - the one primary action on a surface. */
   primary: {
     ...btnBase,
-    background: color.accent,
-    color: "#fff",
-    border: `1px solid ${color.accent}`,
+    background: "var(--z-btn-primary-bg)",
+    color: "#ffffff",
+    border: "1px solid var(--z-btn-primary-border)",
+    boxShadow: "var(--z-btn-primary-shadow)",
+    textShadow: "var(--z-btn-primary-text-shadow)",
   } as CSSProperties,
 
-  /** Outlined neutral button — secondary actions. */
+  /** Outlined button - secondary actions. */
   secondary: {
     ...btnBase,
-    background: color.surface,
-    color: color.textSecondary,
+    background: color.surfaceMuted,
+    color: color.text,
     border: `1px solid ${color.borderStrong}`,
     fontWeight: 500,
   } as CSSProperties,
 
-  /** Borderless quiet button — tertiary/inline actions. */
+  /** Borderless quiet button - tertiary/inline actions. */
   ghost: {
     ...btnBase,
     background: "transparent",
@@ -156,17 +206,17 @@ export const btn = {
     fontWeight: 500,
   } as CSSProperties,
 
-  /** Outlined destructive button — stop/cancel/delete. */
+  /** Outlined destructive button - stop/cancel/delete. */
   danger: {
     ...btnBase,
-    background: color.surface,
-    color: color.danger,
+    background: color.dangerBg,
+    color: color.dangerText,
     border: `1px solid ${color.dangerBorder}`,
     fontWeight: 500,
   } as CSSProperties,
 } as const;
 
-/** Compact size variant — spread after a btn.* style. */
+/** Compact size variant - spread after a btn.* style. */
 export const btnSmall: CSSProperties = {
   padding: "4px 10px",
   fontSize: 12,

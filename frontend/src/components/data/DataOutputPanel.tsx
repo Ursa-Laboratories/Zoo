@@ -140,7 +140,7 @@ function formatTimestamp(value: string): string {
   return date.toLocaleString();
 }
 
-// The panel sits inside a white card, so it stays borderless-clean.
+// The panel sits inside the shared card shell, so it stays borderless-clean.
 const panelStyle: CSSProperties = {
   overflow: "hidden",
 };

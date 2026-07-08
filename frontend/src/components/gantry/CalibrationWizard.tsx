@@ -1417,7 +1417,7 @@ function stepLabels(isMulti: boolean): string[] {
 const overlayStyle: React.CSSProperties = {
   position: "fixed",
   inset: 0,
-  background: "rgba(15, 23, 42, 0.45)",
+  background: theme.chrome.backdrop,
   zIndex: 50,
   display: "flex",
   alignItems: "center",
