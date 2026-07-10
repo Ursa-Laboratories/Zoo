@@ -8,6 +8,8 @@ Zoo intentionally stays thin: configuration validation, deck math, protocol
 execution, motion control, calibration primitives, and data storage come from
 CubOS.
 
+![Zoo with a loaded gantry and a deck holding an SBS well plate](docs/images/zoo-gantry-deck-sbs-plate.png)
+
 ## Start here
 
 | Need | Command or path |
