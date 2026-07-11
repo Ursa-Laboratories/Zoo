@@ -118,6 +118,10 @@ npm run build
   retains the bundled Python installer for launcher repair, prebuilt frontend
   assets, an offline wheelhouse, Start Menu shortcuts, config seeding, logs,
   and diagnostic export.
+- `installer/macos/` builds a macOS DMG from Zoo `main` and CubOS `main`; the
+  generated app embeds a private CPython runtime, prebuilt frontend assets, an
+  offline wheelhouse, config seeding, logs, and diagnostic export. The writable
+  venv, configs, and data live under `~/Library/Application Support/UrsaLabs/Zoo`.
 
 ## Dependencies On Other Repos Or Services
 

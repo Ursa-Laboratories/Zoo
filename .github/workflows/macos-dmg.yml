@@ -1,0 +1,80 @@
+name: macOS DMG
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/macos-dmg.yml"
+      - "installer/macos/**"
+      - "frontend/**"
+      - "zoo/**"
+      - "pyproject.toml"
+      - "requirements.txt"
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build-dmg:
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set release version
+        shell: bash
+        run: |
+          version="0.1.${GITHUB_RUN_NUMBER}"
+          {
+            echo "APP_VERSION=$version"
+            echo "RELEASE_TAG=mac-v$version"
+            echo "RELEASE_NAME=Zoo macOS $version"
+          } >> "$GITHUB_ENV"
+
+      - name: Build DMG
+        shell: bash
+        run: installer/macos/build-dmg.sh --zoo-source-dir "$GITHUB_WORKSPACE" --app-version "$APP_VERSION"
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: zoo-macos-dmg
+          path: installer/macos/build/dist/*.dmg
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset="$(find installer/macos/build/dist -name '*.dmg' -type f | head -n 1)"
+          if [[ -z "$asset" ]]; then
+            echo "No DMG found under installer/macos/build/dist" >&2
+            exit 1
+          fi
+
+          body="$(cat <<BODY
+          Automated Zoo macOS DMG build.
+
+          Zoo commit: $GITHUB_SHA
+          Version: $APP_VERSION
+
+          Download the DMG from the Assets section below.
+          BODY
+          )"
+
+          gh release create "$RELEASE_TAG" "$asset" --target "$GITHUB_SHA" --title "$RELEASE_NAME" --notes "$body" --latest=false
