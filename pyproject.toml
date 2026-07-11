@@ -11,6 +11,7 @@ dependencies = [
     # TODO: repin to a tagged release once CubOS PR #224 merges to main.
     "cubos @ git+https://github.com/Ursa-Laboratories/CubOS.git@main",
     "fastapi>=0.115",
+    "godirect>=1.2.1",
     "uvicorn[standard]>=0.34",
     "pyyaml>=6.0",
     "ruamel.yaml>=0.19.1",
