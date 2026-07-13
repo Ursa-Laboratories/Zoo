@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, List
 
 from data import default_database_path
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -60,6 +60,12 @@ class ZooSettings(BaseSettings):
     port: int = 8742
     open_browser: bool = True
     data_db_path: Path = default_database_path()
+    run_dir: Path = Path.home() / ".zoo" / "runs"
+    api_token: SecretStr | None = None
+    allowed_commands: List[str] = Field(default_factory=list)
+    allowed_instruments: List[str] = Field(default_factory=list)
+    expected_gantry_sha256: str | None = None
+    expected_deck_sha256: str | None = None
     # Extra Host/Origin values accepted by the Origin/Host-checking middleware,
     # on top of the configured host:port and localhost/127.0.0.1 equivalents.
     # Production should leave this empty; tests add "testserver" (the Host
@@ -80,6 +86,12 @@ class ZooSettings(BaseSettings):
         path = self.config_dir.expanduser().resolve()
         path.mkdir(parents=True, exist_ok=True)
         self.config_dir = path
+        return path
+
+    def ensure_run_dir(self) -> Path:
+        path = self.run_dir.expanduser().resolve()
+        path.mkdir(parents=True, exist_ok=True)
+        self.run_dir = path
         return path
 
 

@@ -55,6 +55,15 @@ measurement rows as ZIPs of raw CSV files for each CubOS instrument measurement
 table that has rows in the selected campaign. The ASMI-only per-well ZIP remains available for the
 `projects/ASMI_new` analysis workflow.
 
+The standard CubOS HTTP surface is rooted at `/api/v1`. Discovery endpoints are
+hardware-safe. Protocol submissions are asynchronous addressable resources:
+the server writes immutable input bundles, SHA-256 digests, lifecycle events,
+results, and failures beneath the configured run directory. The run manager
+reuses Zoo's persistent CubOS `GantrySession` and run gate, so the API does not
+create a competing hardware owner. Optional command/instrument allow-lists,
+gantry/deck digest pins, and a bearer token are configured through `ZOO_*`
+settings for appliance deployments.
+
 ## Key Directories
 
 | Path | Purpose |
@@ -62,8 +71,8 @@ table that has rows in the selected campaign. The ASMI-only per-well ZIP remains
 | `zoo/app.py` | FastAPI app factory |
 | `zoo/__main__.py` | Startup entrypoint |
 | `zoo/config.py` | `ZOO_*` settings and config-directory handling |
-| `zoo/routers/` | REST endpoints for gantry, deck, protocol, data, raw, settings |
-| `zoo/services/` | YAML file helpers |
+| `zoo/routers/` | REST endpoints, including the versioned CubOS discovery and run API |
+| `zoo/services/` | YAML helpers plus durable asynchronous run management |
 | `frontend/src/` | React + TypeScript application |
 | `frontend/src/components/gantry/` | Gantry jog/readout controls and calibration wizard |
 | `configs/` | Generic gantry and deck seed templates for fresh installs |
