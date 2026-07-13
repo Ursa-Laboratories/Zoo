@@ -156,6 +156,31 @@ methods.
 The older `/api/protocol/validate` endpoint remains a command-schema check
 only; use the UI Validate action for full setup validation.
 
+## Versioned CubOS API
+
+The appliance API is rooted at `/api/v1`:
+
+| API | Purpose |
+| --- | --- |
+| `GET /api/v1/health` | Report server readiness without connecting to hardware. |
+| `GET /api/v1/version` | Report API, Zoo, CubOS, build, and image versions. |
+| `GET /api/v1/capabilities` | Reflect installed CubOS commands and instrument vendors. |
+| `POST /api/v1/runs` | Validate, persist, and asynchronously start one protocol bundle. |
+| `GET /api/v1/runs/{run_id}` | Read durable run state and results. |
+| `POST /api/v1/runs/{run_id}/cancel` | Request cancellation through the active CubOS session. |
+| `GET /api/v1/runs/{run_id}/events` | Read ordered lifecycle events. |
+| `GET /api/v1/runs/{run_id}/artifacts` | List or download the submitted bundle and outputs. |
+
+Run submission accepts either three filenames from the configured Zoo config
+directory or an inline `gantry_config`, `deck_config`, and `protocol_yaml`
+bundle. It returns `202 Accepted` and a `Location` header immediately. Only one
+run may own the hardware at a time; additional submissions receive `409`.
+
+For native LAN clients, set `ZOO_API_TOKEN` and send it as a bearer token. The
+same token then protects every state-changing `/api` request that does not come
+from the same-origin Zoo browser interface. Run data is stored under
+`ZOO_RUN_DIR`; the appliance sets this to `/var/lib/cub/runs`.
+
 ## Results
 
 The Results view reads stored output through CubOS data export helpers from the

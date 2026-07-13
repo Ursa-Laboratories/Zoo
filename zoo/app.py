@@ -1,6 +1,7 @@
 """FastAPI app factory."""
 
 import logging
+import hmac
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -10,7 +11,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from zoo.config import get_settings
-from zoo.routers import data, deck, gantry, protocol, raw, settings
+from zoo.routers import data, deck, gantry, protocol, raw, runs, settings, system
 
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 logger = logging.getLogger(__name__)
@@ -67,6 +68,22 @@ async def _origin_host_middleware(request: Request, call_next):
                     {"detail": "Cross-origin request blocked"}, status_code=403
                 )
 
+        # Browser requests from the served Zoo UI are already constrained by
+        # the same-origin check above. Native clients must authenticate when a
+        # per-device token is configured, including callers of legacy motion
+        # routes as well as the versioned run API.
+        try:
+            token = get_settings().resolved_api_token()
+        except (OSError, ValueError):
+            logger.exception("Unable to load the configured API token")
+            return JSONResponse({"detail": "API token is unavailable"}, status_code=503)
+        if token is not None and not source:
+            authorization = request.headers.get("authorization", "")
+            scheme, _, supplied = authorization.partition(" ")
+            expected = token.get_secret_value()
+            if scheme.lower() != "bearer" or not hmac.compare_digest(supplied, expected):
+                return JSONResponse({"detail": "Invalid API token"}, status_code=401)
+
     return await call_next(request)
 
 
@@ -93,6 +110,8 @@ def create_app() -> FastAPI:
     app.include_router(protocol.router)
     app.include_router(raw.router)
     app.include_router(settings.router)
+    app.include_router(system.router)
+    app.include_router(runs.router)
 
     if FRONTEND_DIST.is_dir():
         app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")

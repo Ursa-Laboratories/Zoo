@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, List
 
 from data import default_database_path
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -60,6 +60,13 @@ class ZooSettings(BaseSettings):
     port: int = 8742
     open_browser: bool = True
     data_db_path: Path = default_database_path()
+    run_dir: Path = Path.home() / ".zoo" / "runs"
+    api_token: SecretStr | None = None
+    api_token_file: Path | None = None
+    allowed_commands: List[str] = Field(default_factory=list)
+    allowed_instruments: List[str] = Field(default_factory=list)
+    expected_gantry_sha256: str | None = None
+    expected_deck_sha256: str | None = None
     # Extra Host/Origin values accepted by the Origin/Host-checking middleware,
     # on top of the configured host:port and localhost/127.0.0.1 equivalents.
     # Production should leave this empty; tests add "testserver" (the Host
@@ -81,6 +88,23 @@ class ZooSettings(BaseSettings):
         path.mkdir(parents=True, exist_ok=True)
         self.config_dir = path
         return path
+
+    def ensure_run_dir(self) -> Path:
+        path = self.run_dir.expanduser().resolve()
+        path.mkdir(parents=True, exist_ok=True)
+        self.run_dir = path
+        return path
+
+    def resolved_api_token(self) -> SecretStr | None:
+        if self.api_token is not None:
+            return self.api_token
+        if self.api_token_file is None:
+            return None
+        path = self.api_token_file.expanduser().resolve()
+        token = path.read_text(encoding="utf-8").strip()
+        if not token:
+            raise ValueError(f"API token file is empty: {path}")
+        return SecretStr(token)
 
 
 # Shared singleton — all routers must use this instance.
